@@ -274,6 +274,7 @@
   <div class="tab" data-t="export">Eksport</div>
   <div class="tab" data-t="radar">Radar</div>
   <div class="tab" data-t="staty">Statystyki</div>
+  <div class="tab" data-t="historia">Historia</div>
   <div class="tab" data-t="decyzje">Porządki <span id="decBadge" class="pill" style="display:none;padding:1px 7px;font-size:11px;margin-left:4px"></span></div>
   <div class="tab" data-t="dl">Pobierania <span id="dlBadge" class="pill" style="display:none;padding:1px 7px;font-size:11px;margin-left:4px"></span></div>
   <div class="tab" data-t="setup">Ustawienia</div>
@@ -396,6 +397,16 @@
   </div>
   <div id="radar" class="hide"></div>
   <div id="dl" class="hide"></div>
+  <div id="historia" class="hide">
+    <div class="toolbar" style="flex-wrap:wrap">
+      <button class="act" id="histWczytaj">Wczytaj historię z rekordboxa</button>
+      <input type="file" id="histPlik" accept=".xml" class="hide">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px" class="muted">
+        <input type="checkbox" id="histWszystkie"> weź wszystkie playlisty</label>
+      <span class="prog" id="histProg">Rekordbox zapisuje każdą sesję jako playlistę nazwaną datą.</span>
+    </div>
+    <div id="histTresc"></div>
+  </div>
   <div id="staty" class="hide">
     <div class="toolbar" style="flex-wrap:wrap">
       <span class="muted" style="font-size:12.5px">analizuj:</span>
@@ -631,6 +642,107 @@ function wireZarzadzanie(){
 // Konfiguracja slskd i konta Soulseek to najczęstszy powód, dla którego
 // ktoś odbija się od apki. Hasła do Soulseeka NIE dotykamy — wpisuje je
 // użytkownik w panelu slskd, a my tylko sprawdzamy, czy połączenie działa.
+
+// ——— historia sesji ———
+// Metryka „martwy balast" istnieje tylko wtedy, gdy wiadomo, co naprawdę
+// poszło na parkiet. Bez historii to przeczucie, nie liczba.
+
+async function ladujHistorie(){
+  const host = document.getElementById('histTresc');
+  host.innerHTML = '<span class="spin"></span> liczę…';
+  try{
+    const d = await (await fetch('/api/historia')).json();
+    if(!d.sesji){
+      host.innerHTML = `<div class="col"><div class="muted" style="font-size:13px;line-height:1.6">
+        Nie masz jeszcze wczytanej historii.<br><br>
+        W rekordboksie: <b>File → Export Collection in xml format</b> — plik zawiera
+        Twoje playlisty razem z folderem <b>History</b>. Wczytaj go tutaj.<br>
+        Za sesję uznaję playlistę z datą w nazwie albo leżącą w folderze History.
+        Jeśli nazywasz sesje po klubie, zaznacz „weź wszystkie playlisty”.</div></div>`;
+      return;
+    }
+    const daty = (d.zakres_dat||[]).filter(Boolean);
+    host.innerHTML = `
+      <div class="col" style="margin-bottom:14px">
+        <h3>Twoje granie <span class="cnt muted">${d.sesji} sesji${
+          daty.length>1?` · ${daty[0]} — ${daty[daty.length-1]}`:''}</span></h3>
+        <div class="stat3" style="margin-top:6px">
+          <div><b class="q-ok">${d.utworow_granych}</b><span>zagranych</span></div>
+          <div><b class="${d.procent_martwych>60?'q-bad':'q-warn'}">${d.martwy_balast}</b>
+               <span>nigdy niegranych</span></div>
+          <div><b>${d.procent_martwych}%</b><span>biblioteki leży</span></div>
+        </div>
+      </div>
+
+      <div class="col" style="margin-bottom:14px">
+        <h3>Wchodzi zawsze <span class="cnt muted">${d.najczestsze.length}</span></h3>
+        ${d.najczestsze.map(x=>`
+          <div class="cItem" style="display:flex;gap:10px;align-items:center">
+            <b style="min-width:34px;color:var(--accent)">${x.zagran}×</b>
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+                         white-space:nowrap">${esc(x.file)}</span>
+            <span class="muted" style="font-size:11.5px">${x.ostatnio||''}</span>
+          </div>`).join('') || '<div class="muted">—</div>'}
+      </div>
+
+      ${d.ulubione_przejscia.length?`
+      <div class="col" style="margin-bottom:14px">
+        <h3>Twoje nawyki <span class="cnt muted">przejścia powtórzone</span></h3>
+        <div class="muted" style="font-size:12.5px;margin-bottom:4px">
+          Co po czym stawiasz najczęściej — z tego, co naprawdę zagrałeś.</div>
+        ${d.ulubione_przejscia.map(x=>`
+          <div class="a" style="padding:3px 0">${x.razy}× ${esc(x.z)}
+            <span style="color:var(--accent)">→</span> ${esc(x.na)}</div>`).join('')}
+      </div>`:''}
+
+      <div class="col" style="margin-bottom:14px">
+        <h3>💀 Martwy balast <span class="cnt ${d.procent_martwych>60?'q-bad':'q-warn'}">${d.martwy_balast}</span></h3>
+        <div class="muted" style="font-size:12.5px;margin-bottom:6px">
+          Masz je na dysku i nigdy nie zagrałeś. To podpowiedź, nie wyrok —
+          utwór mógł czekać na swój set. Nic nie jest usuwane.</div>
+        ${d.martwe.slice(0,25).map(x=>`
+          <div class="a" style="padding:2px 0">${esc(x.file)}</div>`).join('')}
+        ${d.martwy_balast>25?`<div class="muted" style="font-size:11.5px;margin-top:6px">
+          …i jeszcze ${d.martwy_balast-25}</div>`:''}
+      </div>
+
+      <div class="col">
+        <h3>Sesje <span class="cnt muted">${d.lista_sesji.length}</span></h3>
+        ${d.lista_sesji.slice().reverse().map(s=>`
+          <div class="a" style="padding:2px 0">
+            ${s.data||'(bez daty)'} — ${esc(s.nazwa)} <span class="muted">${s.utworow} utworów</span>
+          </div>`).join('')}
+        <button class="mini" id="histWyczysc" style="margin-top:10px">Zapomnij historię</button>
+      </div>`;
+    document.getElementById('histWyczysc').onclick = async ()=>{
+      const j = await (await fetch('/api/historia/wyczysc',{method:'POST'})).json();
+      document.getElementById('histProg').textContent = `zapomniano ${j.usunietych} sesji`;
+      ladujHistorie();
+    };
+  }catch(e){ host.innerHTML = `<span class="q-bad">✗ ${esc(e.message)}</span>`; }
+}
+
+function wireHistoria(){
+  const wejscie = document.getElementById('histPlik');
+  document.getElementById('histWczytaj').onclick = ()=>wejscie.click();
+  wejscie.onchange = async ()=>{
+    const f = wejscie.files[0]; if(!f) return;
+    const prog = document.getElementById('histProg');
+    prog.innerHTML = '<span class="spin"></span> czytam sesje…';
+    const wszystkie = document.getElementById('histWszystkie').checked;
+    const fd = new FormData(); fd.append('file', f);
+    try{
+      const r = await fetch('/api/historia/wczytaj?wszystkie='+wszystkie,
+                            {method:'POST', body:fd});
+      const d = await r.json(); if(!r.ok) throw new Error(d.detail||'nie udało się');
+      prog.innerHTML = `wczytano <b>${d.nowe}</b> nowych sesji`
+        + (d.juz_znane?` · ${d.juz_znane} już znałem`:'')
+        + ` · razem ${d.razem}`;
+      ladujHistorie();
+    }catch(e){ prog.innerHTML = `<span class="q-bad">✗ ${esc(e.message)}</span>`; }
+    wejscie.value='';
+  };
+}
 
 // ——— wymiana z rekordboxem ———
 // Apka przestaje być rurą jednokierunkową: to, co dopiszesz w rekordboksie
@@ -2154,10 +2266,11 @@ document.getElementById('rows').onclick=(e)=>{
 document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
   tab.classList.add('on');
-  ['lib','import','order','health','export','radar','setup','dl','decyzje','staty'].forEach(id=>document.getElementById(id).classList.add('hide'));
+  ['lib','import','order','health','export','radar','setup','dl','decyzje','staty','historia'].forEach(id=>document.getElementById(id).classList.add('hide'));
   document.getElementById(tab.dataset.t).classList.remove('hide');
   if(tab.dataset.t==='staty') ladujStatystyki();
   if(tab.dataset.t==='export') rbPokazStan();
+  if(tab.dataset.t==='historia') ladujHistorie();
   if(tab.dataset.t==='order') loadOrder();
   if(tab.dataset.t==='health') loadHealth();
   if(tab.dataset.t==='radar') loadRadar();
@@ -2848,6 +2961,7 @@ wireDecyzje();
 document.getElementById('statyOdswiez').onclick=ladujStatystyki;
 wireZakres();
 wireRekordbox();
+wireHistoria();
 wireTutorial();
 kreatorSprawdzNaStarcie();
 wireFiltry();

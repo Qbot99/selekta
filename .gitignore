@@ -22,6 +22,7 @@ kolejka.json
 decyzje.json
 siatki.json
 rekordbox.json
+historia.json
 
 # muzyka i eksporty
 *.mp3

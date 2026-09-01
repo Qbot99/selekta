@@ -32,7 +32,7 @@ from . import (
     dlqueue, folderpick, localplaylist, playlists, slskd_client, slskd_ctl,
     spotify,
     stores, tagfix,
-    energia, rbimport, statystyki, tagger, usb, waveform,
+    energia, historia, rbimport, statystyki, tagger, usb, waveform,
     wishlist,
 )
 from .slskd_client import SearchHit, SlskdClient
@@ -1364,6 +1364,67 @@ def _struktura_dla(path: str) -> dict:
     dane = asdict(energia.analizuj(path, bpm=h.get("bpm"), kotwica=kotwica))
     cache.put(path, "energia", dane)
     return dane
+
+
+@app.post("/api/historia/wczytaj")
+async def api_historia_wczytaj(file: UploadFile = File(...),
+                               wszystkie: bool = Query(False)) -> JSONResponse:
+    """Wciągnij historię grania z XML-a rekordboxa."""
+    raw = await file.read(64 * 1024 * 1024)
+    if not raw.strip():
+        raise HTTPException(400, "plik jest pusty")
+    os.makedirs(config.STATE_DIR, exist_ok=True)
+    tmp = os.path.join(config.STATE_DIR, "_historia.xml")
+    with open(tmp, "wb") as fh:
+        fh.write(raw)
+    try:
+        sesje = historia.wczytaj_sesje(tmp, _folder(), wszystkie_playlisty=wszystkie)
+    except ET.ParseError as exc:
+        raise HTTPException(400, f"to nie jest poprawny XML rekordboxa: {exc}")
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    if not sesje:
+        raise HTTPException(400, "nie znalazłem sesji — rekordbox nazywa je datą "
+                                 "albo trzyma w folderze History. Spróbuj opcji "
+                                 "„weź wszystkie playlisty”.")
+    return JSONResponse(_clean(historia.dopisz(sesje)))
+
+
+@app.get("/api/historia")
+def api_historia() -> JSONResponse:
+    """Co grasz, czego nie grasz i co po czym idzie."""
+    d = historia.podsumowanie(_folder())
+    d["lista_sesji"] = [{"nazwa": s.get("nazwa"), "data": s.get("data"),
+                         "utworow": len(s.get("sciezki") or [])}
+                        for s in historia.sesje()]
+    return JSONResponse(_clean(d))
+
+
+@app.post("/api/historia/wyczysc")
+def api_historia_wyczysc() -> JSONResponse:
+    return JSONResponse({"ok": True, "usunietych": historia.wyczysc()})
+
+
+@app.post("/api/historia/martwe-do-decyzji")
+def api_historia_martwe(payload: dict | None = None) -> JSONResponse:
+    """Zgłoś nigdy niegrane utwory jako propozycje do przejrzenia.
+
+    Nie usuwamy niczego — martwy balast to podpowiedź, nie wyrok.
+    Utwór mógł zostać kupiony na przyszły set albo po prostu czekać
+    na swój moment.
+    """
+    limit = int((payload or {}).get("limit") or 30)
+    d = historia.podsumowanie(_folder())
+    if d["sesji"] == 0:
+        raise HTTPException(400, "najpierw wczytaj historię grania")
+    return JSONResponse(_clean({
+        "martwych": d["martwy_balast"],
+        "propozycje": d["martwe"][:limit],
+        "uwaga": "nic nie zostało usunięte — to lista do Twojej oceny",
+    }))
 
 
 @app.get("/api/playlisty")
