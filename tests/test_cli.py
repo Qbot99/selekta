@@ -1,0 +1,130 @@
+"""CLI — testy przez subprocess na prawdziwej binarce .venv/bin/selekta."""
+from __future__ import annotations
+
+import os
+import subprocess
+
+import pytest
+
+BIN = "/Users/hubert/claude/selekta/.venv/bin/selekta"
+ALL_COMMANDS = [
+    "organize", "verify", "check", "match", "covers", "icons", "analyze",
+    "health", "export", "usb", "radar", "wishlist", "hunt", "loudness",
+    "cues", "tagfix", "dedupe", "serve",
+]
+
+
+def run(*args, env_home: str | None = None, timeout: int = 120):
+    env = os.environ.copy()
+    if env_home:
+        env["HOME"] = env_home  # izoluje ~/.selekta w subprocesie
+    return subprocess.run([BIN, *args], capture_output=True, text=True,
+                          env=env, timeout=timeout)
+
+
+def test_main_help():
+    r = run("--help")
+    assert r.returncode == 0
+    for cmd in ALL_COMMANDS:
+        assert cmd in r.stdout
+
+
+@pytest.mark.parametrize("cmd", ALL_COMMANDS)
+def test_every_subcommand_has_help(cmd):
+    r = run(cmd, "--help")
+    assert r.returncode == 0, r.stderr
+
+
+def test_unknown_command_rc2():
+    assert run("nieistniejąca-komenda").returncode == 2
+
+
+def test_missing_folder_is_readable_error_not_traceback():
+    r = run("verify", "--folder", "/nie/ma/takiego/folderu")
+    assert r.returncode != 0
+    # czytelny błąd, nie surowy traceback Pythona
+    assert "Traceback" not in r.stderr or "FileNotFoundError" in r.stderr
+
+
+@pytest.mark.slow
+def test_verify_reports_quality(lib_copy):
+    r = run("verify", "--folder", lib_copy, "--limit", "2")
+    assert r.returncode == 0
+    assert "plików bez zastrzeżeń" in r.stdout
+
+
+@pytest.mark.slow
+def test_health_finds_duplicate(lib_copy):
+    r = run("health", "--folder", lib_copy)
+    assert r.returncode == 0
+    assert "Duplikaty" in r.stdout and "Gucci" in r.stdout
+
+
+@pytest.mark.slow
+def test_analyze_shows_key_and_order(lib_copy):
+    r = run("analyze", "--folder", lib_copy, "--limit", "2", "--order",
+            env_home=lib_copy)  # cache w izolowanym HOME
+    assert r.returncode == 0
+    assert "BPM" in r.stdout and "kolejność harmoniczna" in r.stdout
+
+
+@pytest.mark.slow
+def test_cues_and_loudness(lib_copy):
+    for cmd, needle in (("cues", "drop"), ("loudness", "LUFS")):
+        r = run(cmd, "--folder", lib_copy, "--limit", "1", env_home=lib_copy)
+        assert r.returncode == 0, r.stderr
+        assert needle in r.stdout
+
+
+def test_tagfix_preview_shows_repair(lib_copy):
+    r = run("tagfix", "--folder", lib_copy)
+    assert r.returncode == 0
+    assert "ÅMRTÜM" in r.stdout and "podgląd" in r.stdout
+
+
+def test_dedupe_preview(lib_copy):
+    r = run("dedupe", "--folder", lib_copy)
+    assert r.returncode == 0
+    assert "zachowa" in r.stdout  # "zachowaj:"/"zachowano"
+
+
+def test_export_m3u8(lib_copy):
+    r = run("export", "--folder", lib_copy, "--target", "m3u8")
+    assert r.returncode == 0
+    assert any(f.endswith(".m3u8") for f in os.listdir(lib_copy))
+
+
+def test_usb_prepare(lib_copy, tmp_path):
+    dest = str(tmp_path / "usb")
+    r = run("usb", "--folder", lib_copy, "--dest", dest, "--convert-wav", "keep")
+    assert r.returncode == 0
+    assert "skopiowane" in r.stdout
+    assert all(n.isascii() for n in os.listdir(dest))
+
+
+def test_organize_dry_run_text_source(lib_copy, tmp_path):
+    src = tmp_path / "lista.txt"
+    src.write_text("Odymel - Gucci\nWidmo - Nie Istnieje\n", encoding="utf-8")
+    r = run("organize", str(src), "--folder", lib_copy)
+    assert r.returncode == 0
+    assert "dopasowanych" in r.stdout and "dry-run" in r.stdout
+
+
+def test_organize_apply_text_source(lib_copy, tmp_path):
+    """--apply na trackliście tekstowej nie może się wywalić na okładce
+    (syntetyczne id → cover_bytes musi zwrócić None, nie wyjątek)."""
+    src = tmp_path / "lista.txt"
+    src.write_text("Odymel - Gucci\n", encoding="utf-8")
+    r = run("organize", str(src), "--folder", lib_copy, "--apply")
+    assert r.returncode == 0, r.stderr
+    assert os.path.isfile(os.path.join(lib_copy, "Odymel - Gucci.flac"))
+
+
+def test_wishlist_isolated_home(lib_copy, tmp_path):
+    home = str(tmp_path)
+    r = run("wishlist", "--add", "Artysta - Utwór", env_home=home)
+    assert r.returncode == 0 and "dodano" in r.stdout
+    r2 = run("wishlist", env_home=home)
+    assert "Artysta — Utwór" in r2.stdout
+    # stan wylądował w izolowanym HOME, nie u użytkownika
+    assert os.path.isfile(os.path.join(home, ".selekta", "wishlist.json"))
