@@ -174,3 +174,104 @@ class TestStalosc:
         a = probka.obciete_pasmo(str(tmp_path / "a.wav"), 16.0, 5.0)
         b = probka.obciete_pasmo(str(tmp_path / "b.wav"), 16.0, 5.0)
         assert open(a, "rb").read() == open(b, "rb").read()
+
+
+class TestTonacja:
+    """Detekcja tonacji — jedyny wynik, którego wcześniej nic nie pilnowało.
+
+    Wzorce mają tonację ZNANĄ z teorii muzyki: trójdźwięk durowy ma tercję
+    wielką, molowy małą, a kadencja I-IV-V-I rozstrzyga tonację jednoznacznie.
+    Nie sprawdzamy więc „czy tak jak ostatnio", tylko czy detektor odczytuje
+    to, co w sygnale naprawdę jest.
+
+    Sprawdzian jest ostry celowo: trafienie w jedną tonację bywa przypadkiem,
+    trafienie we wszystkie dwadzieścia cztery nie jest.
+    """
+
+    def _oczekiwany_camelot(self, tonika: str, tryb: str) -> str:
+        tabela = (harmonic._CAMELOT_MAJOR if tryb == "dur"
+                  else harmonic._CAMELOT_MINOR)
+        return tabela[tonika]
+
+    @pytest.mark.parametrize("tryb", ["dur", "mol"])
+    @pytest.mark.parametrize("tonika", probka.NAZWY_NUT)
+    def test_kazda_tonacja_jest_rozpoznana(self, tmp_path, tonika, tryb):
+        plik = probka.akord_tonalny(
+            str(tmp_path / f"{tonika}_{tryb}.wav"), tonika, tryb, sekund=12.0)
+        a = harmonic.analyze(plik)
+        oczekiwany = self._oczekiwany_camelot(tonika, tryb)
+        assert a.camelot == oczekiwany, (
+            f"{tonika} {tryb}: wykryto {a.camelot} ({a.key}), "
+            f"oczekiwano {oczekiwany}")
+
+    def test_tercja_decyduje_o_trybie(self, tmp_path):
+        """Ten sam bas i kwinta — różni je wyłącznie tercja.
+
+        To najostrzejszy sprawdzian rozróżniania dur/mol: sygnały dzielą
+        dwie z trzech nut, więc pomyłka w tercji przechodzi niezauważona
+        w każdym łagodniejszym teście.
+        """
+        dur = harmonic.analyze(probka.akord_tonalny(
+            str(tmp_path / "dur.wav"), "A", "dur", sekund=12.0))
+        mol = harmonic.analyze(probka.akord_tonalny(
+            str(tmp_path / "mol.wav"), "A", "mol", sekund=12.0))
+        assert dur.camelot == "11B" and dur.key == "A major"
+        assert mol.camelot == "8A" and mol.key == "A minor"
+
+    def test_kadencja_tez_trafia(self, tmp_path):
+        """Materiał najbliższy prawdziwej muzyce — progresja I-IV-V-I."""
+        for tonika, tryb, oczekiwany in (("C", "dur", "8B"),
+                                         ("A", "mol", "8A"),
+                                         ("F#", "dur", "2B")):
+            a = harmonic.analyze(probka.kadencja(
+                str(tmp_path / f"k_{tonika}_{tryb}.wav"), tonika, tryb,
+                na_akord=2.0, powtorzen=2))
+            assert a.camelot == oczekiwany, f"{tonika} {tryb} → {a.camelot}"
+
+    def test_pewnosc_jest_wysoka_dla_jednoznacznego_materialu(self, tmp_path):
+        """Zmierzone: wzorce dają pewność 1,000 we wszystkich 24 tonacjach.
+
+        Próg 0,6 zostawia zapas na zmiany w chromagramie, ale wyłapie
+        sytuację, w której detektor zaczyna zgadywać.
+        """
+        a = harmonic.analyze(probka.akord_tonalny(
+            str(tmp_path / "p.wav"), "D", "mol", sekund=12.0))
+        assert a.confidence_key >= 0.6, a.confidence_key
+
+    def test_korelacja_z_profilem_jest_pilnowana(self, tmp_path):
+        """Sam werdykt to za mało — pilnujemy LICZBY, która za nim stoi.
+
+        Odkryte przy budowie tego wzorca: stała FIFTH_DISCOUNT (odejmowanie
+        przecieku trzeciej harmonicznej) przesuwa korelację, ale NIE zmienia
+        zwycięskiej tonacji. Test patrzący tylko na .camelot przepuszcza taką
+        zmianę bez szmeru, choć realnie przestraja detektor.
+
+        Zmierzone dla C-dur, składowa G w chromagramie i korelacja:
+            0.0 → G=12.41, r=0.8888
+            0.3 → G= 7.02, r=0.8468   (wartość obecna)
+            1.0 → G= 0.00, r=0.7219
+        Pasmo ±0,02 rozdziela te przypadki z zapasem.
+
+        UWAGA przy ręcznym sprawdzaniu: podmiana stałej na wartość o tej
+        samej długości (0.3 → 1.0) nie zmienia rozmiaru pliku, więc Python
+        potrafi wczytać zbuforowany bajtkod i pokazać STARY wynik. Trzeba
+        uruchamiać z -B albo kasować __pycache__ — inaczej wyjdzie fałszywy
+        wniosek, że stała nic nie robi.
+        """
+        plik = probka.akord_tonalny(str(tmp_path / "k.wav"), "C", "dur",
+                                    sekund=12.0)
+        x = harmonic._decode(plik, harmonic.SR, 0, 12.0)
+        chroma = harmonic._chroma_from_signal(x)
+        tonika, tryb, r_najlepsze, _r_drugie = harmonic._best_key(chroma)
+
+        assert harmonic.NOTE_NAMES[tonika] == "C" and tryb == "major"
+        assert abs(r_najlepsze - 0.8468) < 0.02, (
+            f"korelacja {r_najlepsze:.4f} zamiast ~0.8468 — coś przestroiło "
+            f"tor chromagramu (FIFTH_DISCOUNT? pasmo? strojenie?), "
+            f"mimo że wykryta tonacja się nie zmieniła")
+
+    def test_tonacja_jest_powtarzalna(self, tmp_path):
+        plik = probka.akord_tonalny(str(tmp_path / "r.wav"), "G", "dur",
+                                    sekund=12.0)
+        a, b = harmonic.analyze(plik), harmonic.analyze(plik)
+        assert (a.camelot, a.key) == (b.camelot, b.key)

@@ -112,3 +112,21 @@ Obie warstwy są potrzebne. Przy sprawdzeniu: celowe zaniżenie wykrywanej
 granicy pasma o 4% wywaliło całą migawkę (12/12), a sygnały wzorcowe
 przepuściły je przy zbyt luźnej tolerancji — dopiero jej zaostrzenie
 sprawiło, że łapią to obie.
+
+### Wzorzec tonacji
+
+`akord_tonalny()` i `kadencja()` w `tests/probka.py` generują sygnał
+o tonacji znanej z teorii muzyki: trójdźwięk durowy ma tercję wielką,
+molowy małą, a kadencja I-IV-V-I rozstrzyga tonację jednoznacznie.
+Sprawdzone we **wszystkich 24 tonacjach** (12 durowych i 12 molowych) —
+trafienie w jedną bywa przypadkiem, trafienie we wszystkie nie jest.
+
+Poza samym werdyktem pilnujemy też **korelacji z profilem** Krumhansla.
+Powód: stała `FIFTH_DISCOUNT` przesuwa korelację (0.0 → 0.8888,
+0.3 → 0.8468, 1.0 → 0.7219), ale nie zmienia zwycięskiej tonacji. Test
+patrzący tylko na wykrytą tonację przepuściłby taką zmianę bez śladu.
+
+**Pułapka przy ręcznym badaniu progów:** podmiana stałej na wartość o tej
+samej długości (`0.3` → `1.0`) nie zmienia rozmiaru pliku, więc Python
+potrafi wczytać zbuforowany bajtkod i pokazać stary wynik. Bez `-B` albo
+skasowania `__pycache__` wychodzi fałszywy wniosek, że stała nic nie robi.
