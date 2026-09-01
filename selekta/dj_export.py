@@ -88,6 +88,18 @@ def _float_or_none(raw: str | None) -> float | None:
     return val if val > 0 else None
 
 
+def _czas_lub_none(raw) -> float | None:
+    """Czas w sekundach. W odróżnieniu od BPM, ZERO jest poprawne —
+    utwór może zaczynać się dokładnie na uderzeniu."""
+    if raw is None:
+        return None
+    try:
+        val = float(str(raw).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+    return val if val >= 0 else None
+
+
 def track_from_file(path: str) -> dict:
     """One track dict for `path`; tags first, filename parse as fallback."""
     path = os.path.abspath(path)
@@ -192,7 +204,27 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
             attrs["AverageBpm"] = f"{bpm:.2f}"
         if track.get("key"):
             attrs["Tonality"] = str(track["key"])
-        ET.SubElement(collection, "TRACK", attrs)
+        el = ET.SubElement(collection, "TRACK", attrs)
+
+        # Siatka beatów. Bez elementu TEMPO rekordbox analizuje utwór po
+        # swojemu i sam ustawia kotwicę — a wtedy nasze wyliczenie pierwszego
+        # uderzenia przepada. Inizio to moment pierwszego bitu w sekundach,
+        # Battito=1 oznacza „to jest pierwsza miara taktu".
+        first_beat = _czas_lub_none(track.get("first_beat_s"))
+        if bpm and first_beat is not None:
+            ET.SubElement(el, "TEMPO", Inizio=f"{first_beat:.3f}",
+                          Bpm=f"{bpm:.2f}", Metro="4/4", Battito="1")
+
+        # Punkty cue: wejście, drop i wyjście — gotowe do miksu.
+        for nazwa, sekundy, numer in (
+                ("intro", track.get("intro_end_s"), 0),
+                ("drop", track.get("drop_s"), 1),
+                ("outro", track.get("outro_start_s"), 2)):
+            czas = _czas_lub_none(sekundy)
+            if czas is None:
+                continue
+            ET.SubElement(el, "POSITION_MARK", Name=nazwa, Type="0",
+                          Start=f"{czas:.3f}", Num=str(numer))
 
     playlists = ET.SubElement(root, "PLAYLISTS")
     node_root = ET.SubElement(playlists, "NODE", Type="0", Name="ROOT", Count="1")

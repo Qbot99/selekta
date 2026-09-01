@@ -207,3 +207,53 @@ def test_track_from_file_nonexistent_falls_back_to_filename(tmp_path):
     assert track["title"] == "Coś (Remix)"
     assert track["duration_s"] == 0.0
     assert track["bpm"] is None and track["key"] is None
+
+
+class TestSiatkaWEksporcie:
+    """Bez elementu TEMPO rekordbox liczy siatkę po swojemu i nasza przepada."""
+
+    def _xml(self, tmp_path, **dodatkowe):
+        from selekta import dj_export
+        import xml.etree.ElementTree as ET
+        track = {"path": str(tmp_path / "u.flac"), "title": "T", "artist": "A",
+                 "duration_s": 200.0, "bpm": 150.0, "key": "8A"}
+        track.update(dodatkowe)
+        out = str(tmp_path / "set.xml")
+        dj_export.to_rekordbox_xml([track], "set", out)
+        return ET.parse(out).getroot()
+
+    def test_zapisuje_kotwice_beatgridu(self, tmp_path):
+        root = self._xml(tmp_path, first_beat_s=1.793)
+        tempo = root.find(".//COLLECTION/TRACK/TEMPO")
+        assert tempo is not None, "brak elementu TEMPO — rekordbox zgadnie siatkę"
+        assert tempo.get("Inizio") == "1.793"
+        assert tempo.get("Bpm") == "150.00"
+        assert tempo.get("Battito") == "1"
+
+    def test_bez_kotwicy_nie_zmyslamy_siatki(self, tmp_path):
+        assert self._xml(tmp_path).find(".//COLLECTION/TRACK/TEMPO") is None
+
+    def test_zapisuje_punkty_cue(self, tmp_path):
+        root = self._xml(tmp_path, first_beat_s=0.5, intro_end_s=32.0,
+                         drop_s=64.0, outro_start_s=180.0)
+        marki = {m.get("Name"): m.get("Start")
+                 for m in root.findall(".//COLLECTION/TRACK/POSITION_MARK")}
+        assert marki == {"intro": "32.000", "drop": "64.000", "outro": "180.000"}
+
+    def test_brakujacy_drop_nie_tworzy_pustej_marki(self, tmp_path):
+        root = self._xml(tmp_path, first_beat_s=0.5, intro_end_s=32.0,
+                         drop_s=None, outro_start_s=180.0)
+        nazwy = {m.get("Name")
+                 for m in root.findall(".//COLLECTION/TRACK/POSITION_MARK")}
+        assert nazwy == {"intro", "outro"}
+
+    def test_kotwica_w_zerze_jest_poprawna(self, tmp_path):
+        """Utwór może zaczynać się dokładnie na uderzeniu — 0.0 to nie brak."""
+        root = self._xml(tmp_path, first_beat_s=0.0)
+        tempo = root.find(".//COLLECTION/TRACK/TEMPO")
+        assert tempo is not None and tempo.get("Inizio") == "0.000"
+
+    def test_ujemna_kotwica_jest_odrzucana(self, tmp_path):
+        """Ujemny czas to błędne dane — lepiej nic, niż zła siatka."""
+        assert self._xml(tmp_path, first_beat_s=-0.4).find(
+            ".//COLLECTION/TRACK/TEMPO") is None

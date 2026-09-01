@@ -100,6 +100,18 @@ def _save_store(kind: str, store: dict) -> None:
 
 # ---------------------------------------------------------------- API
 
+# Wersja algorytmu dla każdego rodzaju analizy. Podbicie numeru unieważnia
+# wyniki policzone starą metodą — bez tego zmiana algorytmu zostawiałaby
+# nieaktualne dane na zawsze, bo odcisk zależy tylko od PLIKU, nie od kodu.
+# Historia: cues 2 — kotwica beatgridu liczona z fazy prążka tempa zamiast
+# z pierwszego napotkanego onsetu (przesunięcie sięgało pół uderzenia).
+WERSJE = {"cues": 2}
+
+
+def wersja(kind: str) -> int:
+    return WERSJE.get(kind, 1)
+
+
 def get(path: str, kind: str) -> dict | None:
     """Zwróć zapisane dane dla (plik, kind) albo ``None``.
 
@@ -118,6 +130,8 @@ def get(path: str, kind: str) -> dict | None:
     # Dodatkowy strażnik na wypadek kolizji md5 / ręcznej edycji pliku.
     if entry.get("mtime_ns") != st.st_mtime_ns or entry.get("size") != st.st_size:
         return None
+    if entry.get("wersja", 1) != wersja(kind):
+        return None                    # policzone starszą wersją algorytmu
     data = entry.get("data")
     return data if isinstance(data, dict) else None
 
@@ -138,6 +152,7 @@ def put(path: str, kind: str, data: dict) -> None:
         "mtime_ns": st.st_mtime_ns,
         "size": st.st_size,
         "cached_at": datetime.now().isoformat(timespec="seconds"),
+        "wersja": wersja(kind),
         "data": data,
     }
     store = _load_store(kind)

@@ -394,6 +394,36 @@ def api_redownload(payload: dict) -> JSONResponse:
 # eksport / USB
 # --------------------------------------------------------------------------
 
+def _wzbogac_o_siatke(tracks: list[dict]) -> list[dict]:
+    """Dołóż do eksportu siatkę beatów i punkty cue.
+
+    Bez tego rekordbox analizuje utwór po swojemu i sam ustawia kotwicę —
+    nasze wyliczenie pierwszego uderzenia przepada, a razem z nim intro,
+    drop i outro. Dane bierzemy z pamięci podręcznej; liczymy tylko to,
+    czego jeszcze nie ma.
+    """
+    for t in tracks:
+        path = t.get("path")
+        if not path or not os.path.isfile(path):
+            continue
+        h = cache.get(path, "harmonic")
+        if h is None:
+            h = asdict(harmonic.analyze(path)); cache.put(path, "harmonic", h)
+        if not t.get("bpm") and h.get("bpm"):
+            t["bpm"] = h["bpm"]
+        if not t.get("key") and h.get("key"):
+            t["key"] = h["key"]
+        c = cache.get(path, "cues")
+        if c is None:
+            c = asdict(cues.analyze(path, bpm=h.get("bpm")))
+            cache.put(path, "cues", c)
+        t["first_beat_s"] = c.get("first_beat_s")
+        t["intro_end_s"] = c.get("intro_end_s")
+        t["drop_s"] = c.get("drop_s")
+        t["outro_start_s"] = c.get("outro_start_s")
+    return tracks
+
+
 def _in_set_order(tracks: list[dict]) -> list[dict]:
     """Ułóż utwory w kolejności harmonicznej (koło Camelot, energia rosnąco).
 
@@ -425,7 +455,8 @@ def api_export(payload: dict) -> JSONResponse:
     if _field(payload, "order") == "set":
         tracks = _in_set_order(tracks)
     if target == "rekordbox":
-        out = dj_export.to_rekordbox_xml(tracks, name, os.path.join(_folder(), f"{name}.xml"))
+        out = dj_export.to_rekordbox_xml(_wzbogac_o_siatke(tracks), name,
+                                         os.path.join(_folder(), f"{name}.xml"))
     elif target == "m3u8":
         out = dj_export.to_m3u8(tracks, os.path.join(_folder(), f"{name}.m3u8"))
     else:
@@ -1556,7 +1587,8 @@ def api_playlist_export(payload: dict) -> JSONResponse:
 
     items = _harmonic_for(files)
     ordered = harmonic.order_set(items)
-    tracks = [dj_export.track_from_file(path) for path, _ta, _n in ordered]
+    tracks = _wzbogac_o_siatke(
+        [dj_export.track_from_file(path) for path, _ta, _n in ordered])
     out = os.path.join(playlists.folder_for(name), f"{playlists.safe_name(name)}.xml")
     dj_export.to_rekordbox_xml(tracks, playlists.safe_name(name), out)
     res = rekordbox.install(out)

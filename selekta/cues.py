@@ -33,6 +33,8 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass
 
+import math
+
 import numpy as np
 
 # ---------------------------------------------------------------- stałe
@@ -153,26 +155,96 @@ def _true_runs(mask: np.ndarray) -> list[tuple[int, int]]:
 
 # ---------------------------------------------------------------- detekcje
 
-def _first_beat(total: np.ndarray, flux: np.ndarray,
-                bpm: float | None) -> int:
-    """Klatka pierwszego wyraźnego uderzenia (start beatgridu)."""
+def faza_siatki(flux: np.ndarray, bpm: float | None) -> float:
+    """Przesunięcie siatki beatów względem początku pliku, w sekundach.
+
+    Pojedynczy onset to za mało: pierwszym dźwiękiem bywa fade-in, sweep
+    albo oddech wokalisty, więc kotwica lądowała obok siatki — przy 150 BPM
+    nawet o pół uderzenia, co psuje synchronizację w rekordboksie.
+
+    Zamiast tego liczymy FAZĘ prążka tempa w widmie obwiedni onsetów.
+    Każde uderzenie w całym utworze dokłada się do jednego zespolonego
+    sumowania, więc wynik jest odporny na pojedyncze fałszywe onsety
+    i ma rozdzielczość lepszą niż jedna klatka analizy.
+    """
+    if not bpm or bpm <= 0 or flux.size < 8:
+        return 0.0
+    okres = 60.0 / bpm
+    t = np.arange(flux.size) / FPS
+    z = np.sum(flux * np.exp(-2j * np.pi * t / okres))
+    if abs(z) < 1e-9:
+        return 0.0
+    # kąt prążka → moment pierwszego uderzenia w obrębie jednego okresu
+    zgrubna = float(((-np.angle(z) / (2 * np.pi)) * okres) % okres)
+    return _dostroj_faze(flux, okres, zgrubna)
+
+
+def _suma_na_siatce(flux: np.ndarray, okres: float, faza: float) -> float:
+    """Średnia siła onsetów w punktach siatki, z interpolacją między klatkami.
+
+    Obwiednia ma ~21,5 klatki na sekundę, więc zaokrąglanie pozycji siatki
+    do klatki gubi nawet 23 ms — przy 150 BPM to 6% bitu. Interpolacja
+    liniowa pozwala porównywać fazy dokładniej, niż wynika z rozdzielczości.
+    """
+    if flux.size < 2:
+        return 0.0
+    czasy = np.arange(faza, flux.size / FPS, okres)
+    if czasy.size == 0:
+        return 0.0
+    return float(np.mean(np.interp(czasy * FPS, np.arange(flux.size), flux)))
+
+
+def _dostroj_faze(flux: np.ndarray, okres: float, zgrubna: float) -> float:
+    """Popraw fazę drobnym przeszukaniem wokół oszacowania z widma.
+
+    Widmo daje dobry punkt startowy, ale obwiednia onsetów nie jest czystą
+    sinusoidą — realne uderzenie ma ostre zbocze, więc szczyt bywa lekko
+    obok prążka. Sprawdzamy okolicę i wybieramy fazę o najmocniejszych
+    trafieniach w uderzenia.
+    """
+    najlepsza, najlepszy_wynik = zgrubna, -1.0
+    krok = okres / 120.0                       # ok. 3 ms przy 150 BPM
+    for i in range(-20, 21):                   # ±1/6 bitu wokół oszacowania
+        kandydat = (zgrubna + i * krok) % okres
+        wynik = _suma_na_siatce(flux, okres, kandydat)
+        if wynik > najlepszy_wynik:
+            najlepsza, najlepszy_wynik = kandydat, wynik
+    return najlepsza
+
+
+def _poczatek_muzyki(total: np.ndarray) -> int:
+    """Klatka, od której utwór faktycznie gra (po ciszy i fade-inie)."""
     if total.size == 0:
         return 0
     floor, full = _levels(total)
     thr = floor + 0.10 * (full - floor)
     above = np.where(total > thr)[0]
-    i0 = int(above[0]) if above.size else 0
+    return int(above[0]) if above.size else 0
 
-    # okno przeszukiwania onsetu wokół progu energii
-    if bpm and bpm > 0:
-        half = int(round(0.5 * (60.0 / bpm) * FPS))    # pół bitu
-    else:
-        half = int(round(0.25 * FPS))                  # ~0.25 s
-    lo = max(0, i0 - half)
-    hi = min(flux.size, i0 + half + 1)
-    if hi > lo:
-        return lo + int(np.argmax(flux[lo:hi]))
-    return i0
+
+def _first_beat(total: np.ndarray, flux: np.ndarray,
+                bpm: float | None) -> float:
+    """Czas pierwszego uderzenia [s] — kotwica beatgridu, leżąca NA siatce.
+
+    Zwracamy sekundy, nie numer klatki: zaokrąglenie do klatki (46 ms)
+    zjadałoby 6% bitu przy 150 BPM, a właśnie o tę precyzję tu chodzi.
+    """
+    if total.size == 0:
+        return 0
+    i0 = _poczatek_muzyki(total)
+    if not bpm or bpm <= 0:
+        # bez tempa nie ma siatki — zostaje najmocniejszy onset przy starcie
+        half = int(round(0.25 * FPS))
+        lo, hi = max(0, i0 - half), min(flux.size, i0 + half + 1)
+        klatka = lo + int(np.argmax(flux[lo:hi])) if hi > lo else i0
+        return klatka / FPS
+
+    okres = 60.0 / bpm
+    przesuniecie = faza_siatki(flux, bpm)
+    start = i0 / FPS
+    # pierwsze uderzenie siatki nie wcześniejsze niż początek muzyki
+    k = math.ceil((start - przesuniecie) / okres - 1e-9)
+    return przesuniecie + max(k, 0) * okres
 
 
 def _intro_end(low: np.ndarray, start: int) -> int:
@@ -262,13 +334,13 @@ def analyze(path: str, bpm: float | None = None) -> Cues:
         return Cues(round(duration, 3), 0.0, 0.0, round(duration, 3), None)
 
     n = total.size
-    fb = _first_beat(total, flux, bpm)
+    first_beat = _first_beat(total, flux, bpm)
+    fb = int(round(first_beat * FPS))          # dalsze kroki liczą w klatkach
     ie = _intro_end(low, fb)
     os_ = _outro_start(total, n)
     dr = _drop(total, ie, os_)
 
-    # zamiana klatek na sekundy
-    first_beat = fb / FPS
+    # zamiana klatek na sekundy (first_beat mamy już dokładny)
     intro_end = ie / FPS
     outro_start = os_ / FPS
     drop = (dr / FPS) if dr is not None else None
