@@ -32,7 +32,7 @@ from . import (
     dlqueue, folderpick, localplaylist, playlists, slskd_client, slskd_ctl,
     spotify,
     stores, tagfix,
-    energia, historia, rbimport, statystyki, tagger, usb, waveform,
+    energia, historia, rbimport, statystyki, tagger, tempo, usb, waveform,
     wishlist,
 )
 from .slskd_client import SearchHit, SlskdClient
@@ -1433,6 +1433,69 @@ def api_playlisty() -> JSONResponse:
     return JSONResponse(_clean({"playlisty": playlists.wszystkie()}))
 
 
+def _tempo_dla(path: str) -> dict:
+    """Stabilność tempa z pamięci podręcznej; policz, gdy jej nie ma."""
+    dane = cache.get(path, "tempo")
+    if dane is not None:
+        return dane
+    h = cache.get(path, "harmonic")
+    if h is None:
+        h = asdict(harmonic.analyze(path)); cache.put(path, "harmonic", h)
+    dane = asdict(tempo.zbadaj(path, h.get("bpm")))
+    cache.put(path, "tempo", dane)
+    return dane
+
+
+@app.post("/api/tempo")
+def api_tempo(payload: dict | None = None) -> JSONResponse:
+    """Czy siatka utrzyma się do końca — dla zaznaczenia, playlisty albo pliku."""
+    plik = _field(payload or {}, "file")
+    if plik:
+        sciezki, opis = [_safe(plik)], "utwór"
+    else:
+        sciezki, opis = _zakres(payload)
+    if not sciezki:
+        raise HTTPException(400, "nie ma czego sprawdzać")
+    if len(sciezki) > 300:
+        raise HTTPException(400, "za dużo naraz — zaznacz set albo playlistę")
+
+    wyniki, zmiennych, do_poprawy = [], 0, 0
+    for path in sciezki:
+        t = _tempo_dla(path)
+        h = cache.get(path, "harmonic") or {}
+        if not t.get("stabilne"):
+            zmiennych += 1
+        elif t.get("bpm_nietrafione"):
+            do_poprawy += 1
+        wyniki.append({**t, "file": os.path.basename(path), "path": path,
+                       "bpm": h.get("bpm")})
+    return JSONResponse(_clean({
+        "zakres": opis, "sprawdzonych": len(wyniki),
+        "zmiennych": zmiennych, "bpm_do_poprawy": do_poprawy,
+        "utwory": wyniki,
+    }))
+
+
+@app.post("/api/tempo/przyjmij")
+def api_tempo_przyjmij(payload: dict) -> JSONResponse:
+    """Zapisz poprawione BPM jako ręczną korektę siatki.
+
+    Dotyczy tylko utworów o STAŁYM tempie, gdzie nasze oszacowanie było
+    lekko nietrafione. Przy tempie falującym żadna pojedyncza liczba nie
+    pomoże, więc odmawiamy zamiast udawać, że naprawiliśmy.
+    """
+    path = _safe(_field(payload, "file"))
+    t = _tempo_dla(path)
+    if not t.get("bpm_nietrafione") or not t.get("bpm_poprawione"):
+        raise HTTPException(400, "dla tego utworu nie ma poprawki BPM "
+                                 "— tempo jest stałe albo faluje")
+    c = cache.get(path, "cues") or {}
+    kotwica = ((waveform.wczytaj_siatke(path) or {}).get("first_beat_s")
+               or c.get("first_beat_s") or 0.0)
+    wpis = waveform.zapisz_siatke(path, kotwica, t["bpm_poprawione"])
+    return JSONResponse({"ok": True, **wpis})
+
+
 @app.post("/api/energia")
 def api_energia(payload: dict | None = None) -> JSONResponse:
     """Energia i struktura — dla zaznaczenia, playlisty albo biblioteki.
@@ -1806,6 +1869,16 @@ def api_playlist_review(payload: dict) -> JSONResponse:
         if not ig.get("ok"):
             problems.append({"typ": "integralnosc",
                              "opis": ig.get("detail", "plik uszkodzony"),
+                             "naprawialne": False})
+
+        # Tempo falujące psuje siatkę w drugiej połowie utworu — o tym DJ
+        # musi wiedzieć PRZED graniem. Samo doprecyzowanie BPM o ułamek
+        # procenta CELOWO tu nie trafia: to poprawka, nie usterka, a gdyby
+        # migało przy każdym utworze, przestałbyś czytać tę listę. Widać
+        # je w zakładce tempa i można je przyjąć jednym kliknięciem.
+        t = _tempo_dla(path)
+        if not t.get("stabilne") and t.get("opis") and "za mało" not in t["opis"]:
+            problems.append({"typ": "tempo-zmienne", "opis": t["opis"],
                              "naprawialne": False})
 
         bpm = h.get("bpm") or 0
