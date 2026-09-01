@@ -76,6 +76,19 @@
   .wyjscia{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
   .wyjscie{font-size:11.5px;padding:2px 8px;border-radius:11px;border:1px solid var(--line)}
   .wyjscie.zle{border-color:var(--warn);color:var(--warn)}
+  .act.ghost.zakres{opacity:.55}
+  .act.ghost.zakres.on{opacity:1;border-color:var(--accent);color:var(--accent)}
+  .lukEnergii{display:flex;align-items:flex-end;gap:2px;height:96px;margin-top:10px;
+    padding:0 2px;background:var(--panel2);border-radius:8px}
+  .lukEnergii .kolumna{flex:1;min-width:3px;border-radius:2px 2px 0 0;position:relative;
+    cursor:default}
+  .lukEnergii .kolumna.szczyt{outline:1px solid #fff;outline-offset:-1px}
+  .fazaZnak{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:9px;
+    border:1px solid var(--line)}
+  .listaSetu .wiersz{display:flex;gap:10px;align-items:center;padding:5px 0;
+    border-bottom:1px solid var(--line);font-size:12.5px}
+  .listaSetu .wiersz:last-child{border-bottom:0}
+  .listaSetu .nr{min-width:20px;color:var(--dim);font-variant-numeric:tabular-nums}
   .tutLista{margin:14px 0 0;padding-left:0;list-style:none}
   .tutLista li{padding:7px 0;border-bottom:1px solid var(--line);font-size:13.5px;
     display:flex;gap:10px;align-items:flex-start}
@@ -384,9 +397,14 @@
   <div id="radar" class="hide"></div>
   <div id="dl" class="hide"></div>
   <div id="staty" class="hide">
-    <div class="toolbar">
+    <div class="toolbar" style="flex-wrap:wrap">
+      <span class="muted" style="font-size:12.5px">analizuj:</span>
+      <button class="act ghost zakres on" data-z="biblioteka">całą bibliotekę</button>
+      <button class="act ghost zakres" data-z="zaznaczenie">zaznaczone <span id="zakrLicz">0</span></button>
+      <select id="zakrPlaylista" class="in" style="max-width:220px">
+        <option value="">— playlista —</option></select>
       <button class="act" id="statyOdswiez">Przelicz</button>
-      <span class="prog" id="statyProg">Rozkład tempa i tonacji oraz luki — czego brakuje, żeby wyjść z Twoich najliczniejszych gniazd.</span>
+      <span class="prog" id="statyProg">Rozkład, luki i łuk energii — dla całej biblioteki albo dla konkretnego setu.</span>
     </div>
     <div id="statyTresc"></div>
   </div>
@@ -730,30 +748,88 @@ function statyLuki(luki){
     </div>`).join('');
 }
 
+const ZAKRES = {tryb:'biblioteka', playlista:''};
+
+function zakresCiało(){
+  if(ZAKRES.tryb==='zaznaczenie') return {files:[...WYBRANE]};
+  if(ZAKRES.tryb==='playlista' && ZAKRES.playlista) return {name:ZAKRES.playlista};
+  return {};
+}
+
+const FAZA_KOLOR = {'rozgrzewka':'#8ab4ff','środek':'#7ee7a8','kulminacja':'#ffd166'};
+
+function lukEnergii(punkty, kulminacja){
+  if(!punkty.length) return '';
+  const maks = Math.max(...punkty.map(p=>p.energia), 0.01);
+  return `<div class="lukEnergii">${punkty.map(p=>`
+    <div class="kolumna ${p.i===kulminacja?'szczyt':''}"
+      style="height:${Math.max(4, Math.round(100*p.energia/maks))}%;
+             background:${FAZA_KOLOR[p.faza]||'var(--dim)'}"
+      title="${p.i+1}. ${esc(p.title||p.file)} — energia ${p.energia}, ${esc(p.faza)}"></div>`
+    ).join('')}</div>`;
+}
+
+function listaSetu(utwory){
+  return `<div class="listaSetu" style="margin-top:10px">${utwory.map((u,i)=>`
+    <div class="wiersz">
+      <span class="nr">${i+1}</span>
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+                   white-space:nowrap">${esc(u.title||u.file)}
+        <span class="muted">${esc(u.artist||'')}</span></span>
+      <span class="muted">${u.bpm?u.bpm.toFixed(0):'—'} ${u.camelot||''}</span>
+      <span class="fazaZnak" style="color:${FAZA_KOLOR[u.faza]||'var(--dim)'};
+        border-color:${FAZA_KOLOR[u.faza]||'var(--line)'}">${esc(u.faza||'')}</span>
+      <span class="muted" style="min-width:78px;text-align:right"
+        title="jak wchodzić">${esc(u.intro_typ||'')}</span>
+    </div>`).join('')}</div>`;
+}
+
+async function ladujEnergie(){
+  const host = document.getElementById('energiaTresc');
+  if(!host) return;
+  if(ZAKRES.tryb==='biblioteka'){
+    host.innerHTML = '<div class="muted" style="font-size:12.5px">'+
+      'Łuk energii liczymy dla SETU — zaznacz utwory w bibliotece albo wybierz '+
+      'playlistę. Dla całej biblioteki nie ma sensownej kolejności.</div>';
+    return;
+  }
+  host.innerHTML = '<span class="spin"></span> liczę energię i strukturę…';
+  try{
+    const r = await fetch('/api/energia',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(zakresCiało())});
+    const d = await r.json(); if(!r.ok) throw new Error(d.detail||'nie udało się');
+    const uwagi = d.uwagi.length
+      ? d.uwagi.map(w=>`<div style="color:var(--warn);font-size:12.5px;margin-top:4px">
+           ⚠ ${esc(w.opis)}</div>`).join('')
+      : '<div class="q-ok" style="font-size:12.5px;margin-top:4px">✓ łuk wygląda dobrze</div>';
+    host.innerHTML = `
+      <div class="muted" style="font-size:12.5px">
+        ${esc(d.zakres)} · ${d.utworow} utworów · kolejność jak przy eksporcie ·
+        kulminacja na pozycji <b>${d.kulminacja+1}</b></div>
+      ${lukEnergii(d.punkty, d.kulminacja)}
+      ${uwagi}
+      ${listaSetu(d.utwory)}`;
+  }catch(e){ host.innerHTML = `<span class="q-bad">✗ ${esc(e.message)}</span>`; }
+}
+
 async function ladujStatystyki(){
   const host = document.getElementById('statyTresc');
   host.innerHTML = '<span class="spin"></span> liczę…';
   try{
-    const d = await (await fetch('/api/statystyki')).json();
+    const r = await fetch('/api/statystyki',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(zakresCiało())});
+    const d = await r.json(); if(!r.ok) throw new Error(d.detail||'nie udało się');
     const obs = await (await fetch('/api/obserwator')).json();
     host.innerHTML = `
       <div class="col" style="margin-bottom:14px">
-        <h3>Folder obserwowany
-          <span class="cnt ${obs.dziala&&obs.wlaczony?'q-ok':'muted'}">
-            ${obs.dziala&&obs.wlaczony?'działa':'wyłączony'}</span></h3>
-        <div class="muted" style="font-size:12.5px">
-          Nowe pliki analizują się same — bez klikania „Analizuj wszystko”.
-          ${obs.przeanalizowane?`Od uruchomienia: <b>${obs.przeanalizowane}</b>.`:''}
-          ${obs.w_toku?`Teraz: ${esc(obs.w_toku)}`:''}
-          ${d.bez_analizy?`<span class="q-warn">Czeka jeszcze ${d.bez_analizy}.</span>`:''}
-        </div>
-        <label style="display:flex;align-items:center;gap:7px;margin-top:8px;font-size:12.5px">
-          <input type="checkbox" id="obsWlacz" ${obs.wlaczony?'checked':''}>
-          analizuj nowe pliki automatycznie</label>
+        <h3>⚡ Łuk energii setu</h3>
+        <div id="energiaTresc"></div>
       </div>
 
       <div class="col" style="margin-bottom:14px">
-        <h3>Tempo <span class="cnt muted">${d.przeanalizowanych} utworów</span></h3>
+        <h3>Tempo <span class="cnt muted">${esc(d.zakres)} · ${d.przeanalizowanych} utworów</span></h3>
         ${statySlupki(d.rozklad_bpm, 'bpm', x=>x.bpm+' BPM')}
       </div>
 
@@ -764,24 +840,66 @@ async function ladujStatystyki(){
           nic nie masz w: ${d.puste_tonacje.join(', ')}</div>`:''}
       </div>
 
-      <div class="col">
+      <div class="col" style="margin-bottom:14px">
         <h3>⚠️ Luki w przejściach <span class="cnt muted">${d.luki.length}</span></h3>
         <div class="muted" style="font-size:12.5px;margin-bottom:6px">
           Gniazda, z których trudno wyjść: dużo utworów tutaj, mało w tonacjach,
           do których wolno przejść przy tym tempie (±6% pitcha).</div>
         ${statyLuki(d.luki)}
+      </div>
+
+      <div class="col">
+        <h3>Folder obserwowany
+          <span class="cnt ${obs.dziala&&obs.wlaczony?'q-ok':'muted'}">
+            ${obs.dziala&&obs.wlaczony?'działa':'wyłączony'}</span></h3>
+        <div class="muted" style="font-size:12.5px">
+          Nowe pliki analizują się same.
+          ${obs.przeanalizowane?`Od uruchomienia: <b>${obs.przeanalizowane}</b>.`:''}
+          ${obs.w_toku?`Teraz: ${esc(obs.w_toku)}`:''}
+          ${d.bez_analizy?`<span class="q-warn">Czeka jeszcze ${d.bez_analizy}.</span>`:''}</div>
+        <label style="display:flex;align-items:center;gap:7px;margin-top:8px;font-size:12.5px">
+          <input type="checkbox" id="obsWlacz" ${obs.wlaczony?'checked':''}>
+          analizuj nowe pliki automatycznie</label>
       </div>`;
     document.getElementById('obsWlacz').onchange = async (e)=>{
       await fetch('/api/obserwator',{method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({wlaczony:e.target.checked})});
-      ladujStatystyki();
     };
     document.getElementById('statyProg').textContent =
-      `${d.przeanalizowanych} utworów, ${d.gniazd} gniazd, ${d.luki.length} luk`;
+      `${esc(d.zakres)}: ${d.przeanalizowanych} utworów, ${d.luki.length} luk`;
+    ladujEnergie();
   }catch(e){
     host.innerHTML = `<span class="q-bad">✗ ${esc(e.message)}</span>`;
   }
+}
+
+async function wireZakres(){
+  document.querySelectorAll('.zakres').forEach(b=>b.onclick=()=>{
+    if(b.dataset.z==='zaznaczenie' && !WYBRANE.size){
+      document.getElementById('statyProg').innerHTML =
+        '<span class="q-warn">Najpierw zaznacz utwory w Bibliotece.</span>';
+      return;
+    }
+    document.querySelectorAll('.zakres').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    document.getElementById('zakrPlaylista').value='';
+    ZAKRES.tryb = b.dataset.z; ZAKRES.playlista='';
+    ladujStatystyki();
+  });
+  const sel = document.getElementById('zakrPlaylista');
+  sel.onchange = ()=>{
+    if(!sel.value) return;
+    document.querySelectorAll('.zakres').forEach(x=>x.classList.remove('on'));
+    ZAKRES.tryb='playlista'; ZAKRES.playlista=sel.value;
+    ladujStatystyki();
+  };
+  try{
+    const d = await (await fetch('/api/playlisty')).json();
+    sel.innerHTML = '<option value="">— playlista —</option>' +
+      d.playlisty.filter(p=>p.utworow>0)
+        .map(p=>`<option value="${esc(p.name)}">${esc(p.name)} (${p.utworow})</option>`).join('');
+  }catch(e){}
 }
 
 // ——— przebieg fali i ręczna korekta siatki beatów ———
@@ -1484,6 +1602,8 @@ function odswiezWybor(){
     const f=decodeURIComponent(tr.dataset.file||'');
     tr.classList.toggle('wybrany', WYBRANE.has(f));
   });
+  const licz=document.getElementById('zakrLicz');
+  if(licz) licz.textContent=n;
   const all=document.getElementById('zaznaczWszystkie');
   const w=widoczne().length;
   if(all) all.checked = n>0 && n>=w;
@@ -2726,6 +2846,7 @@ wireExport();
 wireBiblioteke();
 wireDecyzje();
 document.getElementById('statyOdswiez').onclick=ladujStatystyki;
+wireZakres();
 wireRekordbox();
 wireTutorial();
 kreatorSprawdzNaStarcie();

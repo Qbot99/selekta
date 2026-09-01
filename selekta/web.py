@@ -32,7 +32,7 @@ from . import (
     dlqueue, folderpick, localplaylist, playlists, slskd_client, slskd_ctl,
     spotify,
     stores, tagfix,
-    rbimport, statystyki, tagger, usb, waveform,
+    energia, rbimport, statystyki, tagger, usb, waveform,
     wishlist,
 )
 from .slskd_client import SearchHit, SlskdClient
@@ -1318,6 +1318,113 @@ def api_rekordbox_zapomnij(payload: dict | None = None) -> JSONResponse:
     plik = _field(payload or {}, "file")
     ile = rbimport.wyczysc(_safe(plik) if plik else None)
     return JSONResponse({"ok": True, "usunietych": ile})
+
+
+def _zakres(payload: dict | None) -> tuple[list[str], str]:
+    """Pliki do analizy: zaznaczenie, playlista albo cała biblioteka.
+
+    Analiza całej biblioteki rzadko odpowiada na pytanie DJ-a. Pytanie
+    brzmi „czy TEN set się klei", a set to garść zaznaczonych utworów
+    albo konkretna playlista — nie wszystko, co leży na dysku.
+    """
+    dane = payload or {}
+    pliki = [str(x) for x in (dane.get("files") or [])]
+    if pliki:
+        sciezki, widziane = [], set()
+        for f in pliki:
+            p = matcher.resolve_in_library(_folder(), f)
+            if p and p not in widziane and p.lower().endswith(matcher.AUDIO_EXT):
+                widziane.add(p); sciezki.append(p)
+        return sciezki, "zaznaczenie"
+
+    nazwa = _field(dane, "name")
+    if nazwa:
+        z_manifestu = [f for f in playlists.load_manifest(nazwa)
+                       if os.path.isfile(f)]
+        if not z_manifestu:
+            raise HTTPException(404, f"nie znam playlisty „{nazwa}”")
+        return z_manifestu, f"playlista „{nazwa}”"
+
+    return matcher.audio_files(_folder()), "cała biblioteka"
+
+
+def _struktura_dla(path: str) -> dict:
+    """Kształt utworu z pamięci podręcznej; policz, gdy go nie ma."""
+    dane = cache.get(path, "energia")
+    if dane is not None:
+        return dane
+    h = cache.get(path, "harmonic")
+    if h is None:
+        h = asdict(harmonic.analyze(path)); cache.put(path, "harmonic", h)
+    c = cache.get(path, "cues")
+    if c is None:
+        c = asdict(cues.analyze(path, bpm=h.get("bpm"))); cache.put(path, "cues", c)
+    kotwica = ((waveform.wczytaj_siatke(path) or {}).get("first_beat_s")
+               or c.get("first_beat_s") or 0.0)
+    dane = asdict(energia.analizuj(path, bpm=h.get("bpm"), kotwica=kotwica))
+    cache.put(path, "energia", dane)
+    return dane
+
+
+@app.get("/api/playlisty")
+def api_playlisty() -> JSONResponse:
+    """Playlisty utworzone w apce — do wyboru zakresu analizy."""
+    return JSONResponse(_clean({"playlisty": playlists.wszystkie()}))
+
+
+@app.post("/api/energia")
+def api_energia(payload: dict | None = None) -> JSONResponse:
+    """Energia i struktura — dla zaznaczenia, playlisty albo biblioteki.
+
+    Kolejność liczy się: przy playliście i zaznaczeniu układamy set
+    harmonicznie i oceniamy łuk energii w tej właśnie kolejności.
+    """
+    sciezki, opis = _zakres(payload)
+    if not sciezki:
+        raise HTTPException(400, "nie ma czego analizować")
+    if len(sciezki) > 400:
+        raise HTTPException(400, f"{len(sciezki)} utworów to za dużo naraz — "
+                                 "zaznacz set albo wskaż playlistę")
+
+    kolejnosc = sciezki
+    if len(sciezki) > 1:
+        # ta sama kolejność, którą dostaniesz przy eksporcie
+        items = _harmonic_for(sciezki)
+        kolejnosc = [p for p, _ta, _n in harmonic.order_set(items)]
+
+    utwory = []
+    for path in kolejnosc:
+        s = _struktura_dla(path)
+        h = cache.get(path, "harmonic") or {}
+        artysta, tytul = _tags(path)
+        utwory.append({**s, "file": os.path.basename(path), "path": path,
+                       "artist": artysta, "title": tytul,
+                       "bpm": h.get("bpm"), "camelot": h.get("camelot")})
+
+    luk = energia.luk_setu(utwory)
+    return JSONResponse(_clean({
+        "zakres": opis, "utworow": len(utwory),
+        "utwory": utwory, **luk,
+    }))
+
+
+@app.post("/api/statystyki")
+def api_statystyki_zakres(payload: dict | None = None) -> JSONResponse:
+    """Rozkład i luki — dla zaznaczenia, playlisty albo biblioteki."""
+    sciezki, opis = _zakres(payload)
+    utwory = []
+    for path in sciezki:
+        h = cache.get(path, "harmonic")
+        if not h:
+            continue
+        artysta, tytul = _tags(path)
+        utwory.append({"bpm": h.get("bpm"), "camelot": h.get("camelot"),
+                       "key": h.get("key"), "file": os.path.basename(path),
+                       "artist": artysta, "title": tytul})
+    d = statystyki.policz(utwory)
+    d["bez_analizy"] = len(sciezki) - d["przeanalizowanych"]
+    d["zakres"] = opis
+    return JSONResponse(_clean(d))
 
 
 @app.get("/api/statystyki")

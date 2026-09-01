@@ -150,3 +150,20 @@ def audio_in(name: str) -> list[str]:
     if not os.path.isdir(folder):
         return []
     return sorted(p for p in _all_files(folder) if p.lower().endswith(AUDIO_EXT))
+
+
+def wszystkie() -> list[dict]:
+    """Playlisty utworzone w apce — nazwa, liczba utworów, katalog."""
+    korzen = root()
+    if not os.path.isdir(korzen):
+        return []
+    out = []
+    for nazwa in sorted(os.listdir(korzen), key=str.lower):
+        folder = os.path.join(korzen, nazwa)
+        if not os.path.isdir(folder) or nazwa.startswith("."):
+            continue
+        pliki = [f for f in load_manifest(nazwa) if os.path.isfile(f)]
+        if not pliki:
+            pliki = audio_in(nazwa)
+        out.append({"name": nazwa, "utworow": len(pliki), "folder": folder})
+    return out
