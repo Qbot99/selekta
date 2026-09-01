@@ -8,7 +8,10 @@ from mutagen.flac import FLAC, Picture
 from mutagen.id3 import APIC, ID3, ID3NoHeaderError, TIT2, TPE1
 from mutagen.wave import WAVE
 
-FORBIDDEN = re.compile(r'[/\\:?"<>|*]')  # FAT32-safe for CDJ USB exports
+# Znaki zakazane w exFAT/FAT plus ZNAKI STERUJĄCE (0x00-0x1F). Te drugie
+# przechodzą przez system plików, ale potrafią zawiesić parser nazw
+# w CDJ-u — a to znaczy przerwany set, nie brzydką nazwę.
+FORBIDDEN = re.compile("[" + re.escape('/\\:?"<>|*') + "\u0000-\u001f]")
 
 
 def safe_name(artist: str, title: str) -> str:

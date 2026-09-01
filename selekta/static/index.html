@@ -348,6 +348,20 @@
   </div>
   <div id="health" class="hide"></div>
   <div id="export" class="hide">
+    <div class="panel" style="margin-bottom:12px">
+      <h3>↔ Wymiana z rekordboxem</h3>
+      <div class="muted" style="font-size:12.5px;margin-top:4px">
+        Wczytaj XML wyeksportowany z rekordboxa (File → Export Collection in xml format).
+        Apka zapamięta Twoje hot cue, kolory, oceny i komentarze — przy następnym
+        eksporcie odda je nietknięte, zamiast zastąpić własnym wyliczeniem.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px">
+        <button class="act" id="rbWczytaj">Wczytaj XML z rekordboxa</button>
+        <input type="file" id="rbPlik" accept=".xml" class="hide">
+        <button class="mini" id="rbOdswiez">Odśwież stan</button>
+        <span class="prog" id="rbProg"></span>
+      </div>
+      <div id="rbStan" style="margin-top:10px"></div>
+    </div>
     <div class="panel">
       <h3>Eksport biblioteki</h3>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
@@ -599,6 +613,70 @@ function wireZarzadzanie(){
 // Konfiguracja slskd i konta Soulseek to najczęstszy powód, dla którego
 // ktoś odbija się od apki. Hasła do Soulseeka NIE dotykamy — wpisuje je
 // użytkownik w panelu slskd, a my tylko sprawdzamy, czy połączenie działa.
+
+// ——— wymiana z rekordboxem ———
+// Apka przestaje być rurą jednokierunkową: to, co dopiszesz w rekordboksie
+// (hot cue z CDJ-a, kolory, oceny), wraca tu i jest oddawane przy eksporcie.
+
+async function rbPokazStan(){
+  const host = document.getElementById('rbStan');
+  try{
+    const d = await (await fetch('/api/rekordbox/stan')).json();
+    if(!d.utworow){
+      host.innerHTML = '<div class="muted" style="font-size:12.5px">'+
+        'Nic jeszcze nie wczytano — eksport użyje własnych punktów cue.</div>';
+      return;
+    }
+    const roz = d.rozbieznosci.length ? `
+      <div style="margin-top:10px">
+        <div style="font-size:12.5px;color:var(--warn)">
+          ⚠ ${d.rozbieznosci_razem} rozbieżności między naszą analizą a rekordboxem
+          <span class="muted">— pokazuję, nie poprawiam</span></div>
+        ${d.rozbieznosci.slice(0,8).map(r=>`
+          <div class="a" style="margin-top:3px">
+            ${esc(r.file)} — ${r.pole}: my <b>${r.nasze}</b>, rekordbox <b>${r.rekordbox}</b>
+            ${r.polowa_lub_podwojenie?'<span class="q-warn">(połowa/podwojenie tempa)</span>':''}
+          </div>`).join('')}
+      </div>` : '';
+    host.innerHTML = `
+      <div class="stat3" style="margin-top:6px">
+        <div><b>${d.utworow}</b><span>utworów</span></div>
+        <div><b class="q-ok">${d.hot_cue}</b><span>hot cue</span></div>
+        <div><b>${d.z_ocena}</b><span>z oceną</span></div>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:6px">
+        Ta praca ma pierwszeństwo przed wyliczeniami apki.</div>
+      ${roz}
+      <button class="mini" id="rbZapomnij" style="margin-top:10px">Zapomnij dane z rekordboxa</button>`;
+    document.getElementById('rbZapomnij').onclick = async ()=>{
+      const j = await (await fetch('/api/rekordbox/zapomnij',{method:'POST',
+        headers:{'Content-Type':'application/json'}, body:'{}'})).json();
+      document.getElementById('rbProg').textContent = `zapomniano ${j.usunietych} utworów`;
+      rbPokazStan();
+    };
+  }catch(e){ host.innerHTML = `<span class="q-bad">✗ ${esc(e.message)}</span>`; }
+}
+
+function wireRekordbox(){
+  const wejscie = document.getElementById('rbPlik');
+  document.getElementById('rbWczytaj').onclick = ()=>wejscie.click();
+  document.getElementById('rbOdswiez').onclick = rbPokazStan;
+  wejscie.onchange = async ()=>{
+    const f = wejscie.files[0]; if(!f) return;
+    const prog = document.getElementById('rbProg');
+    prog.innerHTML = '<span class="spin"></span> czytam XML…';
+    const fd = new FormData(); fd.append('file', f);
+    try{
+      const r = await fetch('/api/rekordbox/wczytaj',{method:'POST', body:fd});
+      const d = await r.json(); if(!r.ok) throw new Error(d.detail||'nie udało się');
+      prog.innerHTML = `wczytano <b>${d.dopasowane}</b> z ${d.w_xml} utworów`
+        + (d.z_reczna_praca?` · <b>${d.z_reczna_praca}</b> z ręczną pracą`:'')
+        + (d.nieodnalezionych?` · <span class="q-warn">${d.nieodnalezionych} nie ma w bibliotece</span>`:'');
+      rbPokazStan();
+    }catch(e){ prog.innerHTML = `<span class="q-bad">✗ ${esc(e.message)}</span>`; }
+    wejscie.value = '';
+  };
+}
 
 // ——— statystyki i luki w przejściach ———
 // Sklep powie, co popularne. Nie powie, że masz 40 kawałków 138 w 11A
@@ -1959,6 +2037,7 @@ document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>{
   ['lib','import','order','health','export','radar','setup','dl','decyzje','staty'].forEach(id=>document.getElementById(id).classList.add('hide'));
   document.getElementById(tab.dataset.t).classList.remove('hide');
   if(tab.dataset.t==='staty') ladujStatystyki();
+  if(tab.dataset.t==='export') rbPokazStan();
   if(tab.dataset.t==='order') loadOrder();
   if(tab.dataset.t==='health') loadHealth();
   if(tab.dataset.t==='radar') loadRadar();
@@ -2647,6 +2726,7 @@ wireExport();
 wireBiblioteke();
 wireDecyzje();
 document.getElementById('statyOdswiez').onclick=ladujStatystyki;
+wireRekordbox();
 wireTutorial();
 kreatorSprawdzNaStarcie();
 wireFiltry();

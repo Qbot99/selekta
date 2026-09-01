@@ -21,6 +21,7 @@ config.json
 kolejka.json
 decyzje.json
 siatki.json
+rekordbox.json
 
 # muzyka i eksporty
 *.mp3

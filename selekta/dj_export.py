@@ -204,6 +204,13 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
             attrs["AverageBpm"] = f"{bpm:.2f}"
         if track.get("key"):
             attrs["Tonality"] = str(track["key"])
+        # Dane, których apka NIE potrafi wyliczyć — istnieją tylko dlatego,
+        # że użytkownik je ustawił. Zawsze przepisujemy je bez zmian.
+        for pole, klucz in (("Colour", "kolor"), ("Rating", "ocena"),
+                            ("PlayCount", "odtworzen"), ("Comments", "komentarz")):
+            wartosc = track.get(klucz)
+            if wartosc not in (None, "", 0):
+                attrs[pole] = str(wartosc)
         el = ET.SubElement(collection, "TRACK", attrs)
 
         # Siatka beatów. Bez elementu TEMPO rekordbox analizuje utwór po
@@ -215,16 +222,39 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
             ET.SubElement(el, "TEMPO", Inizio=f"{first_beat:.3f}",
                           Bpm=f"{bpm:.2f}", Metro="4/4", Battito="1")
 
-        # Punkty cue: wejście, drop i wyjście — gotowe do miksu.
-        for nazwa, sekundy, numer in (
-                ("intro", track.get("intro_end_s"), 0),
-                ("drop", track.get("drop_s"), 1),
-                ("outro", track.get("outro_start_s"), 2)):
-            czas = _czas_lub_none(sekundy)
-            if czas is None:
-                continue
-            ET.SubElement(el, "POSITION_MARK", Name=nazwa, Type="0",
-                          Start=f"{czas:.3f}", Num=str(numer))
+        # Punkty cue. RĘCZNA PRACA WYGRYWA: jeśli utwór wrócił z rekordboxa
+        # z własnymi hot cue'ami, oddajemy dokładnie je. Własne wyliczenie
+        # intro/drop/outro dokładamy tylko tam, gdzie użytkownik nie postawił
+        # nic — nadpisanie cudzego cue widać dopiero na parkiecie.
+        reczne = track.get("znaczniki") or []
+        if reczne:
+            for z in reczne:
+                czas = _czas_lub_none(z.get("start_s"))
+                if czas is None:
+                    continue
+                attrs_m = {"Name": str(z.get("nazwa") or ""),
+                           "Type": str(z.get("typ") or "0"),
+                           "Start": f"{czas:.3f}",
+                           "Num": str(z.get("num", -1))}
+                koniec = _czas_lub_none(z.get("koniec_s"))
+                if koniec is not None:
+                    attrs_m["End"] = f"{koniec:.3f}"
+                kolor = str(z.get("kolor") or "")
+                if kolor.startswith("#") and len(kolor) == 7:
+                    attrs_m.update(Red=str(int(kolor[1:3], 16)),
+                                   Green=str(int(kolor[3:5], 16)),
+                                   Blue=str(int(kolor[5:7], 16)))
+                ET.SubElement(el, "POSITION_MARK", attrs_m)
+        else:
+            for nazwa, sekundy, numer in (
+                    ("intro", track.get("intro_end_s"), 0),
+                    ("drop", track.get("drop_s"), 1),
+                    ("outro", track.get("outro_start_s"), 2)):
+                czas = _czas_lub_none(sekundy)
+                if czas is None:
+                    continue
+                ET.SubElement(el, "POSITION_MARK", Name=nazwa, Type="0",
+                              Start=f"{czas:.3f}", Num=str(numer))
 
     playlists = ET.SubElement(root, "PLAYLISTS")
     node_root = ET.SubElement(playlists, "NODE", Type="0", Name="ROOT", Count="1")

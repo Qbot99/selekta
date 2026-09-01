@@ -209,3 +209,54 @@ def test_ascii_fold_examples():
     assert usb.ascii_fold("Straße œuvre") == "Strasse oeuvre"
     assert usb.ascii_fold("") == ""
     assert usb.ascii_fold("plain ASCII 123") == "plain ASCII 123"
+
+
+class TestBezpieczenstwoCDJ:
+    """Uszkodzony plik albo dziwna nazwa na pendrive = przerwany set."""
+
+    def test_znaki_sterujace_sa_usuwane_z_nazw(self):
+        """Przechodzą przez system plików, ale wieszają parser w CDJ-u."""
+        from selekta.tagger import FORBIDDEN
+        assert FORBIDDEN.sub("", "Utw\x07or\x00zly") == "Utworzly"
+
+    def test_zakazane_znaki_exfat_sa_usuwane(self):
+        from selekta.tagger import FORBIDDEN
+        assert FORBIDDEN.sub("", 'a/b\\c:d?e"f<g>h|i*j') == "abcdefghij"
+
+    def test_polskie_znaki_przezywaja_filtr(self):
+        from selekta.tagger import FORBIDDEN
+        assert FORBIDDEN.sub("", "Zażółć gęślą jaźń") == "Zażółć gęślą jaźń"
+
+    def test_weryfikacja_wykrywa_uciety_plik(self, tmp_path):
+        from selekta import usb
+        src = tmp_path / "src.flac"; src.write_bytes(b"x" * 10000)
+        uciety = tmp_path / "uciety.flac"; uciety.write_bytes(b"x" * 5000)
+        r = usb.zweryfikuj([(str(src), str(uciety))])
+        assert r["ok"] is False and len(r["rozne"]) == 1
+
+    def test_weryfikacja_wykrywa_przeklamany_bajt(self, tmp_path):
+        from selekta import usb
+        src = tmp_path / "src.flac"; src.write_bytes(b"x" * 10000)
+        zly = tmp_path / "zly.flac"; zly.write_bytes(b"x" * 9999 + b"y")
+        assert usb.zweryfikuj([(str(src), str(zly))])["ok"] is False
+
+    def test_weryfikacja_wykrywa_brak_pliku(self, tmp_path):
+        from selekta import usb
+        src = tmp_path / "src.flac"; src.write_bytes(b"x")
+        r = usb.zweryfikuj([(str(src), str(tmp_path / "nie-ma.flac"))])
+        assert r["brakujace"] and r["ok"] is False
+
+    def test_identyczna_kopia_przechodzi(self, tmp_path):
+        import shutil
+        from selekta import usb
+        src = tmp_path / "src.flac"; src.write_bytes(b"x" * 10000)
+        dst = tmp_path / "dst.flac"; shutil.copy2(src, dst)
+        r = usb.zweryfikuj([(str(src), str(dst))])
+        assert r["ok"] is True and r["zgodne"] == 1
+
+    def test_konwersja_nie_jest_porownywana_bajt_w_bajt(self, tmp_path):
+        """WAV→AIFF ma z założenia inną zawartość — liczy się, że powstał."""
+        from selekta import usb
+        src = tmp_path / "src.wav"; src.write_bytes(b"x" * 10000)
+        dst = tmp_path / "dst.aiff"; dst.write_bytes(b"cokolwiek")
+        assert usb.zweryfikuj([(str(src), str(dst))])["ok"] is True

@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 import time
 from dataclasses import asdict
 
@@ -31,7 +32,7 @@ from . import (
     dlqueue, folderpick, localplaylist, playlists, slskd_client, slskd_ctl,
     spotify,
     stores, tagfix,
-    statystyki, tagger, usb, waveform,
+    rbimport, statystyki, tagger, usb, waveform,
     wishlist,
 )
 from .slskd_client import SearchHit, SlskdClient
@@ -417,11 +418,22 @@ def _wzbogac_o_siatke(tracks: list[dict]) -> list[dict]:
         if c is None:
             c = asdict(cues.analyze(path, bpm=h.get("bpm")))
             cache.put(path, "cues", c)
-        # ręczna poprawka użytkownika ma pierwszeństwo przed wyliczeniem
+        # Kolejność ważności kotwicy: poprawka zrobiona w selekcie (ostatnia
+        # świadoma decyzja w tej apce) > to, co przyszło z rekordboxa >
+        # nasze wyliczenie.
+        rb = rbimport.dla_pliku(path) or {}
         reczna = waveform.wczytaj_siatke(path) or {}
-        t["first_beat_s"] = reczna.get("first_beat_s", c.get("first_beat_s"))
+        t["first_beat_s"] = (reczna.get("first_beat_s")
+                             or rb.get("first_beat_s")
+                             or c.get("first_beat_s"))
         if reczna.get("bpm"):
             t["bpm"] = reczna["bpm"]
+        # Ręczna praca z rekordboxa przechodzi dalej nietknięta.
+        if rb:
+            t["znaczniki"] = rb.get("znaczniki") or []
+            for klucz in ("kolor", "ocena", "odtworzen", "komentarz"):
+                if rb.get(klucz):
+                    t[klucz] = rb[klucz]
         t["intro_end_s"] = c.get("intro_end_s")
         t["drop_s"] = c.get("drop_s")
         t["outro_start_s"] = c.get("outro_start_s")
@@ -1225,6 +1237,87 @@ def api_obserwator_ustaw(payload: dict) -> JSONResponse:
     if wlaczony:
         obserwator.OBSERWATOR.start(_folder())
     return JSONResponse(_clean(obserwator.OBSERWATOR.stan()))
+
+
+@app.post("/api/rekordbox/wczytaj")
+async def api_rekordbox_wczytaj(file: UploadFile = File(...)) -> JSONResponse:
+    """Wciągnij XML wyeksportowany z rekordboxa i zapamiętaj ręczną pracę."""
+    raw = await file.read(64 * 1024 * 1024)
+    if not raw.strip():
+        raise HTTPException(400, "plik jest pusty")
+    tmp = os.path.join(config.STATE_DIR, "_rb_import.xml")
+    os.makedirs(config.STATE_DIR, exist_ok=True)
+    with open(tmp, "wb") as fh:
+        fh.write(raw)
+    try:
+        wynik = rbimport.scal(tmp, _folder())
+    except ET.ParseError as exc:
+        raise HTTPException(400, f"to nie jest poprawny XML rekordboxa: {exc}")
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    return JSONResponse(_clean(wynik))
+
+
+@app.post("/api/rekordbox/wczytaj-sciezke")
+def api_rekordbox_wczytaj_sciezke(payload: dict) -> JSONResponse:
+    """To samo, ale ze ścieżki na dysku."""
+    sciezka = os.path.expanduser(_field(payload, "path"))
+    if not sciezka or not os.path.isfile(sciezka):
+        raise HTTPException(404, f"nie ma takiego pliku: {sciezka}")
+    try:
+        return JSONResponse(_clean(rbimport.scal(sciezka, _folder())))
+    except ET.ParseError as exc:
+        raise HTTPException(400, f"to nie jest poprawny XML rekordboxa: {exc}")
+
+
+@app.get("/api/rekordbox/stan")
+def api_rekordbox_stan() -> JSONResponse:
+    """Ile utworów ma zapamiętaną pracę z rekordboxa i jaką."""
+    stan = rbimport._wczytaj_stan()
+    utworow, hot, kolorow, ocen = 0, 0, 0, 0
+    rozbieznosci = []
+    for path, dane in stan.items():
+        if not os.path.isfile(path):
+            continue
+        utworow += 1
+        hot += sum(1 for z in (dane.get("znaczniki") or []) if z.get("num", -1) >= 0)
+        if dane.get("kolor"):
+            kolorow += 1
+        if dane.get("ocena"):
+            ocen += 1
+        # rozbieżności między naszą analizą a rekordboxem — informacyjnie,
+        # niczego nie poprawiamy automatycznie
+        h = cache.get(path, "harmonic") or {}
+        nasze_bpm, ich_bpm = h.get("bpm"), dane.get("bpm")
+        if nasze_bpm and ich_bpm and abs(nasze_bpm - ich_bpm) > 1.0:
+            podwojone = (abs(nasze_bpm - 2 * ich_bpm) < 2
+                         or abs(2 * nasze_bpm - ich_bpm) < 2)
+            rozbieznosci.append({
+                "file": os.path.basename(path), "pole": "BPM",
+                "nasze": round(nasze_bpm, 1), "rekordbox": round(ich_bpm, 1),
+                "polowa_lub_podwojenie": podwojone})
+        if (h.get("camelot") and dane.get("tonality")
+                and h["camelot"] != dane["tonality"]):
+            rozbieznosci.append({
+                "file": os.path.basename(path), "pole": "tonacja",
+                "nasze": h["camelot"], "rekordbox": dane["tonality"],
+                "polowa_lub_podwojenie": False})
+    return JSONResponse(_clean({
+        "utworow": utworow, "hot_cue": hot, "z_kolorem": kolorow,
+        "z_ocena": ocen, "rozbieznosci": rozbieznosci[:40],
+        "rozbieznosci_razem": len(rozbieznosci),
+    }))
+
+
+@app.post("/api/rekordbox/zapomnij")
+def api_rekordbox_zapomnij(payload: dict | None = None) -> JSONResponse:
+    """Skasuj zapamiętane dane z rekordboxa."""
+    plik = _field(payload or {}, "file")
+    ile = rbimport.wyczysc(_safe(plik) if plik else None)
+    return JSONResponse({"ok": True, "usunietych": ile})
 
 
 @app.get("/api/statystyki")

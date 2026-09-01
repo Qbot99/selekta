@@ -270,3 +270,56 @@ def prepare(
                 on_progress(done, len(entries), name)
 
     return report
+
+
+# --------------------------------------------------------------------------- #
+# weryfikacja po skopiowaniu
+# --------------------------------------------------------------------------- #
+
+def _suma(path: str, blok: int = 1024 * 1024) -> str:
+    """SHA-1 zawartości pliku. Szybsze niż SHA-256, a do wykrycia
+    przekłamanego kopiowania w zupełności wystarczy."""
+    import hashlib
+    h = hashlib.sha1()
+    with open(path, "rb") as fh:
+        while True:
+            kawalek = fh.read(blok)
+            if not kawalek:
+                break
+            h.update(kawalek)
+    return h.hexdigest()
+
+
+def zweryfikuj(pary: list[tuple[str, str]],
+               on_progress: Callable[[int, int, str], None] | None = None) -> dict:
+    """Sprawdź, czy pliki na pendrive są identyczne ze źródłem.
+
+    Pendrive'y potrafią zapisać plik po cichu uszkodzony — zwłaszcza gdy
+    wyjmie się go bez odmontowania. Ucięty albo przekłamany plik na CDJ-u
+    kończy się przerwaniem odtwarzania w środku setu, więc lepiej
+    dowiedzieć się o tym w domu.
+
+    `pary` to lista (źródło, cel). Kopie WAV→AIFF pomijamy: mają inną
+    zawartość z założenia, więc porównujemy tylko rozmiar celu > 0.
+    """
+    zgodne, rozne, brakujace = [], [], []
+    for i, (src, dst) in enumerate(pary, start=1):
+        if on_progress:
+            on_progress(i, len(pary), os.path.basename(dst))
+        if not os.path.isfile(dst):
+            brakujace.append(dst)
+            continue
+        try:
+            if os.path.splitext(src)[1].lower() != os.path.splitext(dst)[1].lower():
+                # plik przekonwertowany — porównanie bajt w bajt nie ma sensu
+                (zgodne if os.path.getsize(dst) > 0 else rozne).append(dst)
+                continue
+            if os.path.getsize(src) != os.path.getsize(dst):
+                rozne.append(dst)
+                continue
+            (zgodne if _suma(src) == _suma(dst) else rozne).append(dst)
+        except OSError:
+            rozne.append(dst)
+    return {"sprawdzonych": len(pary), "zgodne": len(zgodne),
+            "rozne": rozne, "brakujace": brakujace,
+            "ok": not rozne and not brakujace}
