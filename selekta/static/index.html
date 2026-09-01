@@ -62,6 +62,7 @@
   .tutKropki span.on{background:var(--accent)}
   .tutNawigacja{display:flex;gap:10px;align-items:center;margin-top:24px}
   .tutIkona{font-size:34px;margin-bottom:10px}
+  .siatkaPrzyciski{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:12px}
   .tutLista{margin:14px 0 0;padding-left:0;list-style:none}
   .tutLista li{padding:7px 0;border-bottom:1px solid var(--line);font-size:13.5px;
     display:flex;gap:10px;align-items:flex-start}
@@ -115,7 +116,7 @@
      (#wiz z-index:70) i ekranem wyboru trybu (#modePick z-index:80),
      inaczej otwierają się pod nimi i wyglądają jakby nie działały */
   .ovl{position:fixed;inset:0;background:rgba(6,8,12,.72);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;z-index:90;overflow:auto}
-  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:640px;width:100%;padding:22px 24px}
+  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:760px;width:100%;padding:22px 24px}
   .wave{display:flex;align-items:flex-end;gap:2px;height:52px;margin:6px 0}
   .wave i{flex:1;background:var(--line2);border-radius:1px}
   .stat3{display:flex;gap:22px;margin:6px 0}
@@ -577,6 +578,197 @@ function wireZarzadzanie(){
 // Konfiguracja slskd i konta Soulseek to najczęstszy powód, dla którego
 // ktoś odbija się od apki. Hasła do Soulseeka NIE dotykamy — wpisuje je
 // użytkownik w panelu slskd, a my tylko sprawdzamy, czy połączenie działa.
+
+// ——— przebieg fali i ręczna korekta siatki beatów ———
+// Dwa widoki, bo jeden nie wystarcza: w całym utworze linie co 0,4 s zlałyby
+// się w plamę, a bez powiększenia nie da się ocenić, czy siatka trafia
+// w uderzenia. Góra = orientacja i punkty cue, dół = weryfikacja co do bitu.
+
+const FALA = {file:null, dane:null, kotwica:0, bpm:0, srodek:0, okno:4.0};
+
+async function rysujFale(file){
+  const host = document.getElementById('falaTresc');
+  if(!host) return;
+  try{
+    const r = await fetch('/api/waveform?file='+encodeURIComponent(file));
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail||'nie udało się');
+    if(!d.punkty) throw new Error('nie udało się odczytać dźwięku z tego pliku');
+    FALA.file=file; FALA.dane=d; FALA.bpm=d.bpm||0;
+    FALA.kotwica=d.first_beat_s||0;
+    FALA.srodek=FALA.kotwica;
+    host.innerHTML = `
+      <canvas id="falaCala" height="72" style="width:100%;display:block;
+        border-radius:6px;background:var(--panel2);cursor:crosshair"></canvas>
+      <div class="muted" style="font-size:11px;margin:4px 0 10px">
+        cały utwór — kliknij, żeby przybliżyć to miejsce</div>
+      <canvas id="falaZoom" height="104" style="width:100%;display:block;
+        border-radius:6px;background:var(--panel2);cursor:crosshair"></canvas>
+      <div class="muted" style="font-size:11px;margin-top:4px">
+        powiększenie — kliknij dokładnie na uderzeniu, żeby tam ustawić siatkę</div>
+      <div class="siatkaPrzyciski">
+        <span class="muted" style="font-size:12px">przesuń:</span>
+        <button class="mini" data-krok="-0.05">−50 ms</button>
+        <button class="mini" data-krok="-0.005">−5 ms</button>
+        <button class="mini" data-krok="0.005">+5 ms</button>
+        <button class="mini" data-krok="0.05">+50 ms</button>
+        <span class="muted" style="font-size:12px;margin-left:8px">o bit:</span>
+        <button class="mini" data-bit="-1">−1</button>
+        <button class="mini" data-bit="-0.5">−½</button>
+        <button class="mini" data-bit="0.5">+½</button>
+        <button class="mini" data-bit="1">+1</button>
+        <span style="margin-left:auto;display:flex;gap:8px">
+          <button class="act" id="siatkaZapisz">Zapisz siatkę</button>
+          <button class="mini" id="siatkaReset">Przywróć wyliczoną</button>
+        </span>
+      </div>`;
+    wireFala();
+    przerysujFale();
+  }catch(e){
+    host.innerHTML = `<span class="q-bad">✗ ${esc(e.message)}</span>`;
+  }
+}
+
+function falaStan(tekst, klasa){
+  const el=document.getElementById('falaStan');
+  if(el) el.innerHTML = klasa?`<span class="${klasa}">${tekst}</span>`:tekst;
+}
+
+function _rysujObwiednie(cv, szczyt, rms, od, do_){
+  // Rozmiar bufora ustawiamy w pikselach URZĄDZENIA (Retina ma ich 2x
+  // więcej), a rysujemy w pikselach CSS — stąd jednolite skalowanie.
+  // Ustawienie tylko szerokości zostawiało rysunek poza obszarem.
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || cv.parentElement.clientWidth || 600;
+  const h = parseInt(cv.getAttribute('height'), 10) || 72;
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(h * dpr);
+  cv.style.height = h + 'px';
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const n = szczyt.length, sr = n/FALA.dane.czas_s;
+  const i0 = Math.max(0, Math.floor(od*sr)), i1 = Math.min(n, Math.ceil(do_*sr));
+  const ile = Math.max(1, i1-i0);
+  const srodekY = h/2;
+  const rysuj = (tab, kolor) => {
+    g.fillStyle = kolor;
+    for(let x=0; x<w; x++){
+      const a = i0 + Math.floor(x*ile/w), b = i0 + Math.floor((x+1)*ile/w);
+      let m = 0;
+      for(let i=a; i<Math.max(b,a+1) && i<n; i++) m = Math.max(m, tab[i]);
+      const hh = Math.max(1, m*(h/2-2));
+      g.fillRect(x, srodekY-hh, 1, hh*2);
+    }
+  };
+  rysuj(szczyt, 'rgba(126,231,168,.30)');
+  rysuj(rms,    'rgba(126,231,168,.85)');
+  return {w, h, i0, i1};
+}
+
+function przerysujFale(){
+  const d = FALA.dane; if(!d) return;
+  // --- widok całego utworu ---
+  const cała = document.getElementById('falaCala');
+  if(cała){
+    const {w,h} = _rysujObwiednie(cała, d.szczyt, d.rms, 0, d.czas_s);
+    const g = cała.getContext('2d');
+    const x = t => (t/d.czas_s)*w;
+    // punkty cue
+    const cue = d.cues||{};
+    [['intro',cue.intro,'#7ee7a8'],['drop',cue.drop,'#ffd166'],['outro',cue.outro,'#8ab4ff']]
+      .forEach(([nazwa,t,kolor])=>{
+        if(t==null) return;
+        g.fillStyle=kolor; g.fillRect(x(t),0,1.5,h);
+        g.font='9px system-ui'; g.fillText(nazwa, Math.min(x(t)+3,w-30), 9);
+      });
+    // okno powiększenia
+    g.fillStyle='rgba(255,255,255,.10)';
+    g.fillRect(x(FALA.srodek-FALA.okno/2),0, Math.max(2,x(FALA.okno)), h);
+    // kotwica
+    g.fillStyle='#ff4d6d'; g.fillRect(x(FALA.kotwica),0,1.5,h);
+  }
+
+  // --- powiększenie z siatką ---
+  const zoom = document.getElementById('falaZoom');
+  if(zoom){
+    const od = Math.max(0, FALA.srodek - FALA.okno/2);
+    const do_ = Math.min(d.czas_s, od + FALA.okno);
+    const {w,h} = _rysujObwiednie(zoom, d.szczyt, d.rms, od, do_);
+    const g = zoom.getContext('2d');
+    const x = t => ((t-od)/(do_-od))*w;
+    if(FALA.bpm>0){
+      const okres = 60/FALA.bpm;
+      let k = Math.ceil((od - FALA.kotwica)/okres);
+      for(let t = FALA.kotwica + k*okres; t <= do_; t += okres, k++){
+        if(t < od) continue;
+        const takt = ((k % 4) + 4) % 4 === 0;      // co czwarty bit = takt
+        g.fillStyle = takt ? 'rgba(255,255,255,.65)' : 'rgba(255,255,255,.22)';
+        g.fillRect(x(t), takt?0:h*0.18, takt?1.5:1, takt?h:h*0.64);
+      }
+    }
+    g.fillStyle='#ff4d6d';
+    g.fillRect(x(FALA.kotwica),0,2,h);
+    g.font='10px system-ui'; g.fillStyle='#ff4d6d';
+    g.fillText('kotwica', Math.min(x(FALA.kotwica)+4, w-46), h-4);
+  }
+
+  const d2 = FALA.dane;
+  falaStan(`kotwica ${FALA.kotwica.toFixed(3)} s` +
+    (FALA.bpm?` · ${FALA.bpm.toFixed(1)} BPM`:'') +
+    (d2.reczna_korekta?' · <b>poprawiona ręcznie</b>':''));
+}
+
+function wireFala(){
+  const cała=document.getElementById('falaCala'), zoom=document.getElementById('falaZoom');
+  cała.onclick = e=>{
+    const r=cała.getBoundingClientRect();
+    FALA.srodek = ((e.clientX-r.left)/r.width) * FALA.dane.czas_s;
+    przerysujFale();
+  };
+  zoom.onclick = e=>{
+    const r=zoom.getBoundingClientRect();
+    const od = Math.max(0, FALA.srodek - FALA.okno/2);
+    const do_ = Math.min(FALA.dane.czas_s, od + FALA.okno);
+    // kliknięcie ustawia kotwicę dokładnie tam, gdzie użytkownik widzi uderzenie
+    FALA.kotwica = Math.max(0, od + ((e.clientX-r.left)/r.width)*(do_-od));
+    przerysujFale();
+  };
+  document.querySelectorAll('[data-krok]').forEach(b=>b.onclick=()=>{
+    FALA.kotwica = Math.max(0, FALA.kotwica + parseFloat(b.dataset.krok));
+    przerysujFale();
+  });
+  document.querySelectorAll('[data-bit]').forEach(b=>b.onclick=()=>{
+    if(!FALA.bpm) return;
+    FALA.kotwica = Math.max(0, FALA.kotwica + parseFloat(b.dataset.bit)*(60/FALA.bpm));
+    przerysujFale();
+  });
+  document.getElementById('siatkaZapisz').onclick = async (e)=>{
+    e.target.disabled=true;
+    try{
+      const r = await fetch('/api/siatka',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({file:FALA.file, first_beat_s:FALA.kotwica, bpm:FALA.bpm})});
+      const j = await r.json(); if(!r.ok) throw new Error(j.detail||'nie udało się');
+      FALA.dane.reczna_korekta = true;
+      falaStan('✅ zapisane — eksport użyje tej siatki');
+      przerysujFale();
+    }catch(err){ falaStan('✗ '+esc(err.message),'q-bad'); }
+    e.target.disabled=false;
+  };
+  document.getElementById('siatkaReset').onclick = async ()=>{
+    try{
+      const r = await fetch('/api/siatka',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({file:FALA.file, reset:true})});
+      const j = await r.json(); if(!r.ok) throw new Error(j.detail||'nie udało się');
+      FALA.kotwica = j.first_beat_s||0;
+      FALA.dane.reczna_korekta = false;
+      falaStan('przywrócono wartość wyliczoną');
+      przerysujFale();
+    }catch(err){ falaStan('✗ '+esc(err.message),'q-bad'); }
+  };
+}
 
 // ——— tutorial: co to za apka i jak jej używać ———
 // Pokazuje się raz, przy pierwszym uruchomieniu. Potem dostępny pod „?”.
@@ -1614,7 +1806,15 @@ async function openDetail(file){
     ${igWarn}
     <div class="panel" style="margin-bottom:10px"><div class="muted" style="font-size:11px;letter-spacing:.05em">JAKOŚĆ</div><div class="${qClass(q.grade)}" style="margin-top:3px">${qIcon(q.grade)} ${esc(q.verdict||'')}</div></div>
     <div class="panel" style="margin-bottom:10px"><div class="muted" style="font-size:11px;letter-spacing:.05em">GŁOŚNOŚĆ</div><div class="stat3"><div><b>${nf(l.integrated_lufs,1)}</b><span>LUFS</span></div><div><b>${nf(l.true_peak_dbtp,1)}</b><span>dBTP</span></div><div><b class="q-ok">${nf(l.gain_db,1)}</b><span>ReplayGain</span></div></div></div>
-    <div class="panel"><div class="muted" style="font-size:11px;letter-spacing:.05em">PUNKTY CUE</div><div class="mono" style="font-family:monospace;font-size:12.5px;margin-top:5px">pierwsze uderzenie ${mmss(c.first_beat_s)} · intro ${mmss(c.intro_end_s)} · drop ${mmss(c.drop_s)} · outro ${mmss(c.outro_start_s)}</div></div>`;
+    <div class="panel"><div class="muted" style="font-size:11px;letter-spacing:.05em">PUNKTY CUE</div><div class="mono" style="font-family:monospace;font-size:12.5px;margin-top:5px">pierwsze uderzenie ${mmss(c.first_beat_s)} · intro ${mmss(c.intro_end_s)} · drop ${mmss(c.drop_s)} · outro ${mmss(c.outro_start_s)}</div></div>
+    <div class="panel" style="margin-top:10px" id="falaPanel">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <div class="muted" style="font-size:11px;letter-spacing:.05em">PRZEBIEG I SIATKA BEATÓW</div>
+        <span class="muted" id="falaStan" style="font-size:11.5px;margin-left:auto"></span>
+      </div>
+      <div id="falaTresc"><span class="spin"></span> rysuję przebieg…</div>
+    </div>`;
+  rysujFale(file);
 }
 function closeDetail(){ document.getElementById('detail').classList.add('hide'); }
 document.getElementById('detail').onclick=(e)=>{ if(e.target.id==='detail') closeDetail(); };

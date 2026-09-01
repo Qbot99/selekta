@@ -20,6 +20,7 @@ dist/
 config.json
 kolejka.json
 decyzje.json
+siatki.json
 
 # muzyka i eksporty
 *.mp3

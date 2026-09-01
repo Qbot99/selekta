@@ -31,7 +31,7 @@ from . import (
     dlqueue, folderpick, localplaylist, playlists, slskd_client, slskd_ctl,
     spotify,
     stores, tagfix,
-    tagger, usb,
+    tagger, usb, waveform,
     wishlist,
 )
 from .slskd_client import SearchHit, SlskdClient
@@ -417,7 +417,11 @@ def _wzbogac_o_siatke(tracks: list[dict]) -> list[dict]:
         if c is None:
             c = asdict(cues.analyze(path, bpm=h.get("bpm")))
             cache.put(path, "cues", c)
-        t["first_beat_s"] = c.get("first_beat_s")
+        # ręczna poprawka użytkownika ma pierwszeństwo przed wyliczeniem
+        reczna = waveform.wczytaj_siatke(path) or {}
+        t["first_beat_s"] = reczna.get("first_beat_s", c.get("first_beat_s"))
+        if reczna.get("bpm"):
+            t["bpm"] = reczna["bpm"]
         t["intro_end_s"] = c.get("intro_end_s")
         t["drop_s"] = c.get("drop_s")
         t["outro_start_s"] = c.get("outro_start_s")
@@ -1380,6 +1384,66 @@ def api_decyzje_cofnij(ident: str) -> JSONResponse:
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return JSONResponse(_clean({"ok": True, "decyzja": d}))
+
+
+@app.get("/api/waveform")
+def api_waveform(file: str = Query(...)) -> JSONResponse:
+    """Przebieg fali plus siatka beatów i punkty cue — do podglądu i korekty."""
+    path = _safe(file)
+    dane = cache.get(path, "waveform")
+    if dane is None:
+        dane = waveform.oblicz(path)
+        if dane["punkty"]:
+            cache.put(path, "waveform", dane)
+
+    h = cache.get(path, "harmonic")
+    if h is None:
+        h = asdict(harmonic.analyze(path)); cache.put(path, "harmonic", h)
+    c = cache.get(path, "cues")
+    if c is None:
+        c = asdict(cues.analyze(path, bpm=h.get("bpm"))); cache.put(path, "cues", c)
+
+    reczna = waveform.wczytaj_siatke(path)
+    bpm = (reczna or {}).get("bpm") or h.get("bpm")
+    pierwszy = ((reczna or {}).get("first_beat_s")
+                if reczna else c.get("first_beat_s"))
+    return JSONResponse(_clean({
+        **dane,
+        "file": os.path.basename(path),
+        "bpm": bpm,
+        "first_beat_s": pierwszy,
+        "wyliczony_first_beat_s": c.get("first_beat_s"),
+        "reczna_korekta": bool(reczna),
+        "cues": {"intro": c.get("intro_end_s"), "drop": c.get("drop_s"),
+                 "outro": c.get("outro_start_s")},
+    }))
+
+
+@app.post("/api/siatka")
+def api_siatka(payload: dict) -> JSONResponse:
+    """Zapisz ręcznie poprawioną siatkę beatów dla utworu."""
+    path = _safe(_field(payload, "file"))
+    dane = payload or {}
+    if dane.get("reset"):
+        waveform.skasuj_siatke(path)
+        c = cache.get(path, "cues") or {}
+        return JSONResponse({"ok": True, "reczna_korekta": False,
+                             "first_beat_s": c.get("first_beat_s")})
+    try:
+        first_beat = float(dane.get("first_beat_s"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "podaj first_beat_s w sekundach")
+    if not (0 <= first_beat < 3600):
+        raise HTTPException(400, "kotwica poza sensownym zakresem")
+    bpm = dane.get("bpm")
+    try:
+        bpm = float(bpm) if bpm else None
+    except (TypeError, ValueError):
+        bpm = None
+    if bpm is not None and not (40 <= bpm <= 250):
+        raise HTTPException(400, "BPM poza sensownym zakresem")
+    wpis = waveform.zapisz_siatke(path, first_beat, bpm)
+    return JSONResponse({"ok": True, "reczna_korekta": True, **wpis})
 
 
 @app.post("/api/playlist/review")
