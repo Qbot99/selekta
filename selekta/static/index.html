@@ -63,6 +63,19 @@
   .tutNawigacja{display:flex;gap:10px;align-items:center;margin-top:24px}
   .tutIkona{font-size:34px;margin-bottom:10px}
   .siatkaPrzyciski{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:12px}
+  .slupek{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:1px 0}
+  .slupek .etykieta{min-width:52px;color:var(--dim);font-variant-numeric:tabular-nums}
+  .slupek .pasek{height:12px;background:var(--accent);border-radius:3px;min-width:2px}
+  .slupek .ile{color:var(--dim);font-size:11.5px}
+  .kolo{display:grid;grid-template-columns:repeat(12,1fr);gap:4px;margin-top:8px}
+  .kolo .komorka{text-align:center;padding:6px 2px;border-radius:6px;font-size:11px;
+    border:1px solid var(--line)}
+  .kolo .komorka b{display:block;font-size:12px}
+  .kolo .pusta{opacity:.35}
+  .luka{border-left:2px solid var(--warn);padding:8px 0 8px 10px;margin:10px 0}
+  .wyjscia{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .wyjscie{font-size:11.5px;padding:2px 8px;border-radius:11px;border:1px solid var(--line)}
+  .wyjscie.zle{border-color:var(--warn);color:var(--warn)}
   .tutLista{margin:14px 0 0;padding-left:0;list-style:none}
   .tutLista li{padding:7px 0;border-bottom:1px solid var(--line);font-size:13.5px;
     display:flex;gap:10px;align-items:flex-start}
@@ -247,6 +260,7 @@
   <div class="tab" data-t="health">Zdrowie</div>
   <div class="tab" data-t="export">Eksport</div>
   <div class="tab" data-t="radar">Radar</div>
+  <div class="tab" data-t="staty">Statystyki</div>
   <div class="tab" data-t="decyzje">Porządki <span id="decBadge" class="pill" style="display:none;padding:1px 7px;font-size:11px;margin-left:4px"></span></div>
   <div class="tab" data-t="dl">Pobierania <span id="dlBadge" class="pill" style="display:none;padding:1px 7px;font-size:11px;margin-left:4px"></span></div>
   <div class="tab" data-t="setup">Ustawienia</div>
@@ -355,6 +369,13 @@
   </div>
   <div id="radar" class="hide"></div>
   <div id="dl" class="hide"></div>
+  <div id="staty" class="hide">
+    <div class="toolbar">
+      <button class="act" id="statyOdswiez">Przelicz</button>
+      <span class="prog" id="statyProg">Rozkład tempa i tonacji oraz luki — czego brakuje, żeby wyjść z Twoich najliczniejszych gniazd.</span>
+    </div>
+    <div id="statyTresc"></div>
+  </div>
   <div id="decyzje" class="hide">
     <div class="toolbar">
       <button class="act" id="decSkanuj">Szukaj kopii i ulepszeń</button>
@@ -578,6 +599,112 @@ function wireZarzadzanie(){
 // Konfiguracja slskd i konta Soulseek to najczęstszy powód, dla którego
 // ktoś odbija się od apki. Hasła do Soulseeka NIE dotykamy — wpisuje je
 // użytkownik w panelu slskd, a my tylko sprawdzamy, czy połączenie działa.
+
+// ——— statystyki i luki w przejściach ———
+// Sklep powie, co popularne. Nie powie, że masz 40 kawałków 138 w 11A
+// i ani jednego w 4A, więc z tego gniazda nie ma jak wyjść.
+
+function statySlupki(dane, klucz, etykieta){
+  const maks = Math.max(...dane.map(d=>d.ile), 1);
+  return dane.filter(d=>d.ile>0).map(d=>`
+    <div class="slupek">
+      <span class="etykieta">${etykieta(d)}</span>
+      <span class="pasek" style="width:${Math.round(100*d.ile/maks)}%"></span>
+      <span class="ile">${d.ile}</span>
+    </div>`).join('');
+}
+
+function statyKolo(rozklad){
+  const maks = Math.max(...rozklad.map(d=>d.ile), 1);
+  const komorka = d=>{
+    const moc = d.ile/maks;
+    const tlo = d.ile ? (CAMELOT_COLORS[d.tonacja]||'#888') : 'transparent';
+    return `<div class="komorka ${d.ile?'':'pusta'}"
+      style="background:${d.ile?tlo:'transparent'};opacity:${d.ile?(0.35+0.65*moc):0.35};
+             color:${d.ile?'#0b1410':'var(--dim)'}"
+      title="${d.tonacja}: ${d.ile}">
+      <b>${d.tonacja}</b>${d.ile||'—'}</div>`;
+  };
+  const a = rozklad.filter(d=>d.tonacja.endsWith('A'))
+    .sort((x,y)=>parseInt(x.tonacja)-parseInt(y.tonacja));
+  const b = rozklad.filter(d=>d.tonacja.endsWith('B'))
+    .sort((x,y)=>parseInt(x.tonacja)-parseInt(y.tonacja));
+  return `<div class="kolo">${a.map(komorka).join('')}</div>
+          <div class="kolo" style="margin-top:4px">${b.map(komorka).join('')}</div>`;
+}
+
+function statyLuki(luki){
+  if(!luki.length)
+    return '<div class="muted">Z każdego licznego gniazda masz czym wyjść — nieźle.</div>';
+  return luki.map(l=>`
+    <div class="luka">
+      <div style="font-size:13.5px">
+        <b>${l.masz} utworów</b> w <b>${l.tonacja}</b> przy ~${l.srednie_bpm} BPM —
+        <span class="q-warn">wyjścia są ubogie</span>
+      </div>
+      <div class="wyjscia">
+        ${l.wyjscia.map(w=>`<span class="wyjscie ${w.ubogie?'zle':''}">
+          ${w.tonacja}: ${w.utworow}</span>`).join('')}
+      </div>
+      <div class="muted" style="font-size:11.5px;margin-top:5px">
+        dokup coś w ${l.brakujace.join(', ')} w tempie ${Math.round(l.srednie_bpm*0.94)}–${Math.round(l.srednie_bpm*1.06)} BPM
+      </div>
+    </div>`).join('');
+}
+
+async function ladujStatystyki(){
+  const host = document.getElementById('statyTresc');
+  host.innerHTML = '<span class="spin"></span> liczę…';
+  try{
+    const d = await (await fetch('/api/statystyki')).json();
+    const obs = await (await fetch('/api/obserwator')).json();
+    host.innerHTML = `
+      <div class="col" style="margin-bottom:14px">
+        <h3>Folder obserwowany
+          <span class="cnt ${obs.dziala&&obs.wlaczony?'q-ok':'muted'}">
+            ${obs.dziala&&obs.wlaczony?'działa':'wyłączony'}</span></h3>
+        <div class="muted" style="font-size:12.5px">
+          Nowe pliki analizują się same — bez klikania „Analizuj wszystko”.
+          ${obs.przeanalizowane?`Od uruchomienia: <b>${obs.przeanalizowane}</b>.`:''}
+          ${obs.w_toku?`Teraz: ${esc(obs.w_toku)}`:''}
+          ${d.bez_analizy?`<span class="q-warn">Czeka jeszcze ${d.bez_analizy}.</span>`:''}
+        </div>
+        <label style="display:flex;align-items:center;gap:7px;margin-top:8px;font-size:12.5px">
+          <input type="checkbox" id="obsWlacz" ${obs.wlaczony?'checked':''}>
+          analizuj nowe pliki automatycznie</label>
+      </div>
+
+      <div class="col" style="margin-bottom:14px">
+        <h3>Tempo <span class="cnt muted">${d.przeanalizowanych} utworów</span></h3>
+        ${statySlupki(d.rozklad_bpm, 'bpm', x=>x.bpm+' BPM')}
+      </div>
+
+      <div class="col" style="margin-bottom:14px">
+        <h3>Tonacje <span class="cnt muted">koło Camelota</span></h3>
+        ${statyKolo(d.rozklad_tonacji)}
+        ${d.puste_tonacje.length?`<div class="muted" style="font-size:12px;margin-top:8px">
+          nic nie masz w: ${d.puste_tonacje.join(', ')}</div>`:''}
+      </div>
+
+      <div class="col">
+        <h3>⚠️ Luki w przejściach <span class="cnt muted">${d.luki.length}</span></h3>
+        <div class="muted" style="font-size:12.5px;margin-bottom:6px">
+          Gniazda, z których trudno wyjść: dużo utworów tutaj, mało w tonacjach,
+          do których wolno przejść przy tym tempie (±6% pitcha).</div>
+        ${statyLuki(d.luki)}
+      </div>`;
+    document.getElementById('obsWlacz').onchange = async (e)=>{
+      await fetch('/api/obserwator',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({wlaczony:e.target.checked})});
+      ladujStatystyki();
+    };
+    document.getElementById('statyProg').textContent =
+      `${d.przeanalizowanych} utworów, ${d.gniazd} gniazd, ${d.luki.length} luk`;
+  }catch(e){
+    host.innerHTML = `<span class="q-bad">✗ ${esc(e.message)}</span>`;
+  }
+}
 
 // ——— przebieg fali i ręczna korekta siatki beatów ———
 // Dwa widoki, bo jeden nie wystarcza: w całym utworze linie co 0,4 s zlałyby
@@ -1829,8 +1956,9 @@ document.getElementById('rows').onclick=(e)=>{
 document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
   tab.classList.add('on');
-  ['lib','import','order','health','export','radar','setup','dl','decyzje'].forEach(id=>document.getElementById(id).classList.add('hide'));
+  ['lib','import','order','health','export','radar','setup','dl','decyzje','staty'].forEach(id=>document.getElementById(id).classList.add('hide'));
   document.getElementById(tab.dataset.t).classList.remove('hide');
+  if(tab.dataset.t==='staty') ladujStatystyki();
   if(tab.dataset.t==='order') loadOrder();
   if(tab.dataset.t==='health') loadHealth();
   if(tab.dataset.t==='radar') loadRadar();
@@ -2518,6 +2646,7 @@ pollSlskDot();
 wireExport();
 wireBiblioteke();
 wireDecyzje();
+document.getElementById('statyOdswiez').onclick=ladujStatystyki;
 wireTutorial();
 kreatorSprawdzNaStarcie();
 wireFiltry();

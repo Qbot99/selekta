@@ -26,12 +26,12 @@ from mutagen import File as MutagenFile
 
 from . import (
     cache, config, covers, cues, decyzje, dedupe, dj_export, harmonic, health,
-    instalator,
+    instalator, obserwator,
     importers, loudness, matcher, pipeline, quality, radar, rekordbox,
     dlqueue, folderpick, localplaylist, playlists, slskd_client, slskd_ctl,
     spotify,
     stores, tagfix,
-    tagger, usb, waveform,
+    statystyki, tagger, usb, waveform,
     wishlist,
 )
 from .slskd_client import SearchHit, SlskdClient
@@ -1211,6 +1211,39 @@ def api_setup_folder() -> JSONResponse:
                          "utworow": len(matcher.audio_files(path))})
 
 
+@app.get("/api/obserwator")
+def api_obserwator() -> JSONResponse:
+    """Stan folderu obserwowanego."""
+    return JSONResponse(_clean(obserwator.OBSERWATOR.stan()))
+
+
+@app.post("/api/obserwator")
+def api_obserwator_ustaw(payload: dict) -> JSONResponse:
+    """Włącz albo wyłącz automatyczną analizę nowych plików."""
+    wlaczony = bool((payload or {}).get("wlaczony", True))
+    obserwator.OBSERWATOR.wlaczony = wlaczony
+    if wlaczony:
+        obserwator.OBSERWATOR.start(_folder())
+    return JSONResponse(_clean(obserwator.OBSERWATOR.stan()))
+
+
+@app.get("/api/statystyki")
+def api_statystyki() -> JSONResponse:
+    """Rozkład BPM i tonacji plus luki w możliwych przejściach."""
+    utwory = []
+    for path in matcher.audio_files(_folder()):
+        h = cache.get(path, "harmonic")
+        if not h:
+            continue
+        artysta, tytul = _tags(path)
+        utwory.append({"bpm": h.get("bpm"), "camelot": h.get("camelot"),
+                       "key": h.get("key"), "file": os.path.basename(path),
+                       "artist": artysta, "title": tytul})
+    d = statystyki.policz(utwory)
+    d["bez_analizy"] = len(matcher.audio_files(_folder())) - d["przeanalizowanych"]
+    return JSONResponse(_clean(d))
+
+
 @app.get("/api/decyzje")
 def api_decyzje(wszystkie: bool = Query(False)) -> JSONResponse:
     """Propozycje zmian czekające na zatwierdzenie."""
@@ -1834,6 +1867,9 @@ def serve(folder: str, host: str = "127.0.0.1", port: int = 8756) -> None:
     # Kolejka pobierania przeżywa zamknięcie apki: wklejasz playlistę,
     # zamykasz laptopa, po ponownym uruchomieniu ściąganie idzie dalej.
     wznowione = dlqueue.QUEUE.wczytaj()
+    # nowe pliki mają analizować się same — po pobraniu w tle nie ma sensu
+    # wymagać, żeby użytkownik wracał i klikał „Analizuj wszystko"
+    obserwator.OBSERWATOR.start(folder)
     print(f"selekta — dashboard: http://{host}:{port}  (folder: {_folder()})")
     if wznowione:
         print(f"  wznawiam pobieranie: {wznowione} utworów czeka w kolejce")
