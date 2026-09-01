@@ -23,7 +23,7 @@ class TestStanKreatora:
     def test_zwraca_wszystkie_kroki(self, client):
         d = client.get("/api/setup/stan").json()
         assert {k["id"] for k in d["kroki"]} == {
-            "folder", "slskd", "uruchomiony", "klucz", "konto"}
+            "folder", "slskd", "konfiguracja", "konto", "uruchomiony"}
         assert d["krokow"] == 5
 
     def test_kazdy_krok_ma_tytul_i_opis(self, client):
@@ -52,18 +52,21 @@ class TestStanKreatora:
 class TestBezpieczenstwoHasla:
     """Hasło do Soulseeka nie ma prawa przejść przez selektę."""
 
-    def test_krok_konta_odsyla_do_panelu_slskd(self, client):
+    def test_krok_konta_prosi_o_dane_a_nie_je_wymysla(self, client):
+        """Login i hasło podaje użytkownik — apka ich nie generuje."""
         kroki = {k["id"]: k for k in client.get("/api/setup/stan").json()["kroki"]}
         konto = kroki["konto"]
         if not konto["gotowe"]:
-            assert konto["akcja"] == "otworz-panel-slskd"
-            assert konto["panel"].startswith("http://localhost:")
-            assert "nie przechowuje" in konto["opis"]
+            # istotne jest DZIAŁANIE (użytkownik podaje dane), nie brzmienie
+            # opisu — ten zależy od tego, czy konto jest już zapisane
+            assert konto["akcja"] == "podaj-konto"
+            assert konto["opis"]
 
-    def test_zaden_krok_nie_prosi_o_haslo(self, client):
-        tresc = str(client.get("/api/setup/stan").json())
-        assert "haslo" not in tresc.replace("hasło", "haslo").replace(
-            "hasło i", "").lower() or "nie przechowuje" in tresc
+    def test_stan_kreatora_nigdy_nie_zawiera_wartosci_hasla(self, client):
+        """Lista kroków to opis stanu — nie ma prawa nieść danych logowania."""
+        d = client.get("/api/setup/stan").json()
+        for k in d["kroki"]:
+            assert "password" not in k and "haslo" not in k
 
     def test_nie_ma_endpointu_przyjmujacego_haslo(self, client):
         sciezki = [r.path for r in web.app.routes]

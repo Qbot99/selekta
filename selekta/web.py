@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import asdict
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
@@ -25,6 +26,7 @@ from mutagen import File as MutagenFile
 
 from . import (
     cache, config, covers, cues, decyzje, dedupe, dj_export, harmonic, health,
+    instalator,
     importers, loudness, matcher, pipeline, quality, radar, rekordbox,
     dlqueue, folderpick, localplaylist, playlists, slskd_client, slskd_ctl,
     spotify,
@@ -1021,6 +1023,8 @@ def api_setup_stan() -> JSONResponse:
     binarka = slskd_ctl.find_binary()
     dziala = slskd_ctl.is_running()
     klucz = bool(config.get("slskd_api_key"))
+    yml = slskd_ctl.find_config()
+    konto = instalator.konto_ustawione(yml) if yml else False
     client = SlskdClient()
     polaczony = client.logged_in() if (dziala and klucz) else False
 
@@ -1030,27 +1034,29 @@ def api_setup_stan() -> JSONResponse:
          "opis": (f"{utworow} utworów w {folder}" if ma_folder and utworow
                   else "wskaż katalog, w którym trzymasz muzykę"),
          "akcja": "wybierz-folder"},
-        {"id": "slskd", "tytul": "Program slskd",
+        {"id": "slskd", "tytul": "Program do pobierania (slskd)",
          "gotowe": bool(binarka),
-         "opis": (f"znaleziony: {binarka}" if binarka
-                  else "nie jest zainstalowany"),
-         "akcja": None if binarka else "zainstaluj-slskd",
-         "polecenie": None if binarka else "brew install slskd"},
-        {"id": "uruchomiony", "tytul": "slskd działa",
-         "gotowe": dziala,
-         "opis": "działa w tle" if dziala else "nie jest uruchomiony",
-         "akcja": None if dziala else "uruchom-slskd"},
-        {"id": "klucz", "tytul": "Klucz API",
+         "opis": (f"zainstalowany" if binarka
+                  else "pobiorę go automatycznie, ok. 55 MB"),
+         "akcja": None if binarka else "instaluj-slskd"},
+        {"id": "konfiguracja", "tytul": "Konfiguracja i klucz dostępu",
          "gotowe": klucz,
-         "opis": "zapisany" if klucz else "można odczytać z konfiguracji slskd",
-         "akcja": None if klucz else "wykryj-klucz"},
+         "opis": ("gotowa" if klucz
+                  else "wygeneruję klucz i ustawię katalogi pobierania"),
+         "akcja": None if klucz else "konfiguruj"},
         {"id": "konto", "tytul": "Konto Soulseek",
-         "gotowe": polaczony,
+         "gotowe": konto and polaczony,
          "opis": ("połączony z siecią Soulseek" if polaczony
-                  else "wpisz login i hasło w panelu slskd — selekta ich nie "
-                       "przechowuje ani nie potrzebuje"),
-         "akcja": None if polaczony else "otworz-panel-slskd",
-         "panel": "http://localhost:5030"},
+                  else "zapisane, ale bez połączenia — sprawdź dane"
+                  if konto else
+                  "podaj swój login i hasło; nie ma rejestracji — konto "
+                  "powstaje przy pierwszym logowaniu"),
+         "akcja": None if (konto and polaczony) else "podaj-konto"},
+        {"id": "uruchomiony", "tytul": "Wszystko działa",
+         "gotowe": dziala and polaczony,
+         "opis": ("slskd działa i jest połączony" if (dziala and polaczony)
+                  else "uruchomię i sprawdzę połączenie"),
+         "akcja": None if (dziala and polaczony) else "uruchom-slskd"},
     ]
     zostalo = [k for k in kroki if not k["gotowe"]]
     return JSONResponse(_clean({
@@ -1059,6 +1065,97 @@ def api_setup_stan() -> JSONResponse:
         "nastepny": zostalo[0]["id"] if zostalo else None,
         "kroki": kroki,
     }))
+
+
+@app.post("/api/setup/instaluj")
+def api_setup_instaluj() -> JSONResponse:
+    """Pobierz i zainstaluj slskd — bez terminala i bez Homebrew."""
+    if slskd_ctl.find_binary():
+        return JSONResponse({"ok": True, "message": "slskd jest już zainstalowany",
+                             "sciezka": slskd_ctl.find_binary()})
+    udane, komunikat, sciezka = instalator.zainstaluj()
+    if not udane:
+        raise HTTPException(500, komunikat)
+    config.save({"slskd_binary": sciezka})
+    return JSONResponse({"ok": True, "message": komunikat, "sciezka": sciezka})
+
+
+@app.post("/api/setup/konfiguruj")
+def api_setup_konfiguruj(payload: dict | None = None) -> JSONResponse:
+    """Wygeneruj konfigurację slskd: klucz API i katalogi pobierania.
+
+    Klucz API to sekret między selektą a slskd na tej maszynie — nie ma
+    nic wspólnego z hasłem do Soulseeka i nigdzie nie wychodzi.
+    """
+    yml = slskd_ctl.find_config() or os.path.expanduser(
+        "~/Library/Application Support/slskd/slskd.yml")
+    klucz = config.get("slskd_api_key") or instalator.wygeneruj_klucz()
+    udostepniane = None
+    if (payload or {}).get("udostepniaj"):
+        udostepniane = [_folder()]
+    try:
+        instalator.zapisz_konfiguracje(
+            yml, klucz_api=klucz, katalog_pobran=_folder(),
+            katalog_niepelnych=os.path.join(os.path.dirname(yml), "incomplete"),
+            udostepniane=udostepniane)
+    except OSError as exc:
+        raise HTTPException(500, f"nie udało się zapisać konfiguracji: {exc}")
+    config.save({"slskd_api_key": klucz})
+    return JSONResponse({"ok": True, "plik": yml,
+                         "udostepnianie": bool(udostepniane),
+                         "message": "konfiguracja zapisana"})
+
+
+@app.post("/api/setup/konto")
+def api_setup_konto(payload: dict) -> JSONResponse:
+    """Zapisz dane logowania do Soulseeka podane przez użytkownika.
+
+    Hasło trafia WYŁĄCZNIE do konfiguracji slskd na tym komputerze
+    (prawa 0600). Nie zapisujemy go w ustawieniach selekty, nie zwracamy
+    w żadnej odpowiedzi i nie logujemy — apka nie ma powodu go znać.
+    """
+    login = str((payload or {}).get("login") or "").strip()
+    haslo = str((payload or {}).get("haslo") or "")
+    if not login or not haslo:
+        raise HTTPException(400, "podaj login i hasło do Soulseeka")
+    if len(login) > 64 or len(haslo) > 256:
+        raise HTTPException(400, "login lub hasło są nieprawdopodobnie długie")
+
+    yml = slskd_ctl.find_config() or os.path.expanduser(
+        "~/Library/Application Support/slskd/slskd.yml")
+    klucz = config.get("slskd_api_key") or instalator.wygeneruj_klucz()
+    try:
+        instalator.zapisz_konfiguracje(
+            yml, klucz_api=klucz, katalog_pobran=_folder(),
+            katalog_niepelnych=os.path.join(os.path.dirname(yml), "incomplete"),
+            login=login, haslo=haslo)
+    except OSError as exc:
+        raise HTTPException(500, f"nie udało się zapisać konfiguracji: {exc}")
+    config.save({"slskd_api_key": klucz})
+
+    # slskd czyta konfigurację przy starcie — bez restartu nic się nie zmieni
+    slskd_ctl.stop()
+    time.sleep(1.5)
+    uruchomione, komunikat = slskd_ctl.start()
+    if not uruchomione:
+        raise HTTPException(500, f"zapisano, ale slskd nie wstał: {komunikat}")
+    return JSONResponse({"ok": True, "login": login,
+                         "message": "zapisano — sprawdzam połączenie"})
+
+
+@app.get("/api/setup/polaczenie")
+def api_setup_polaczenie() -> JSONResponse:
+    """Czy slskd zalogował się do sieci Soulseek."""
+    client = SlskdClient()
+    if not client.available():
+        return JSONResponse({"stan": "brak-slskd",
+                             "opis": "slskd nie odpowiada"})
+    if client.logged_in():
+        return JSONResponse({"stan": "polaczony",
+                             "opis": "zalogowany do sieci Soulseek"})
+    return JSONResponse({"stan": "niezalogowany",
+                         "opis": "slskd działa, ale nie jest zalogowany — "
+                                 "sprawdź login i hasło (nazwa mogła być zajęta)"})
 
 
 @app.post("/api/setup/folder")

@@ -49,6 +49,25 @@
     display:flex;align-items:center;justify-content:center;padding:28px}
   #kreator.pokaz{display:flex}
   .kreatorBox{width:100%;max-width:620px}
+  .kontoBox{border:1px solid var(--accent);border-radius:10px;padding:14px;
+    margin-top:12px;background:var(--panel2)}
+  .kontoBox .in{background:var(--panel);border:1px solid var(--line);
+    border-radius:7px;color:var(--txt);font:13px inherit;padding:8px 10px}
+  #tutorial{position:fixed;inset:0;z-index:88;background:var(--bg);overflow:auto;
+    display:flex;align-items:center;justify-content:center;padding:28px}
+  .tutBox{width:100%;max-width:640px}
+  .tutKropki{display:flex;gap:6px;margin-bottom:20px}
+  .tutKropki span{height:3px;flex:1;background:var(--line);border-radius:2px;
+    transition:background .2s}
+  .tutKropki span.on{background:var(--accent)}
+  .tutNawigacja{display:flex;gap:10px;align-items:center;margin-top:24px}
+  .tutIkona{font-size:34px;margin-bottom:10px}
+  .tutLista{margin:14px 0 0;padding-left:0;list-style:none}
+  .tutLista li{padding:7px 0;border-bottom:1px solid var(--line);font-size:13.5px;
+    display:flex;gap:10px;align-items:flex-start}
+  .tutLista li:last-child{border-bottom:0}
+  .tutLista b{color:var(--txt)}
+  .tutNum{color:var(--accent);font-weight:700;min-width:18px}
   .krok{display:flex;gap:12px;align-items:flex-start;padding:12px 0;
     border-bottom:1px solid var(--line)}
   .krok:last-child{border-bottom:0}
@@ -170,9 +189,24 @@
     <h1 class="wizH">Zanim zaczniesz</h1>
     <div class="wizSub">Kilka rzeczy do ustawienia — raz, potem apka pamięta.</div>
     <div class="barBig"><span id="kreatorBar"></span></div>
+    <button class="bigBtn" id="kreatorAuto">USTAW WSZYSTKO ZA MNIE</button>
     <div id="kreatorKroki"></div>
     <div class="bigProg" id="kreatorProg"></div>
-    <button class="mini" id="kreatorPomin" style="margin-top:14px">Pomiń i wejdź do apki</button>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:14px">
+      <button class="act hide" id="kreatorDalej">Gotowe — pokaż mi apkę ▸</button>
+      <button class="mini" id="kreatorPomin">Pomiń konfigurację</button>
+    </div>
+  </div>
+</div>
+<div id="tutorial" class="hide">
+  <div class="tutBox">
+    <div class="tutKropki" id="tutKropki"></div>
+    <div id="tutTresc"></div>
+    <div class="tutNawigacja">
+      <button class="mini" id="tutWstecz">‹ wstecz</button>
+      <button class="act" id="tutDalej">dalej ›</button>
+      <button class="mini" id="tutZamknij" style="margin-left:auto">pomiń</button>
+    </div>
   </div>
 </div>
 <div id="modePick">
@@ -202,6 +236,8 @@
 <header>
   <h1><span class="k">▶</span> selekta</h1>
   <span class="stats" id="stats">ładowanie…</span>
+  <button class="ikona" id="pokazTutorial" title="pokaż wprowadzenie"
+    style="margin-left:auto;font-size:15px">?</button>
 </header>
 <div class="tabs">
   <div class="tab on" data-t="lib">Biblioteka</div>
@@ -542,41 +578,229 @@ function wireZarzadzanie(){
 // ktoś odbija się od apki. Hasła do Soulseeka NIE dotykamy — wpisuje je
 // użytkownik w panelu slskd, a my tylko sprawdzamy, czy połączenie działa.
 
+// ——— tutorial: co to za apka i jak jej używać ———
+// Pokazuje się raz, przy pierwszym uruchomieniu. Potem dostępny pod „?”.
+
+const TUTORIAL = [
+  {ikona:'🎧', tytul:'Playlista ze Spotify → gotowy set w rekordboksie',
+   tresc:`Wklejasz link do playlisty. Selekta sprawdza, co już masz na dysku,
+     resztę próbuje ściągnąć, poprawia nazwy i okładki, liczy BPM i tonację,
+     układa kolejność i wysyła gotowy set do rekordboxa.`,
+   lista:[]},
+
+  {ikona:'🍺', tytul:'Dwa tryby',
+   tresc:'Na pierwszym ekranie wybierasz, jak chcesz pracować.',
+   lista:[
+     ['AUTOMATYCZNY','pięć kroków, duże przyciski, wszystko dzieje się samo. Do użycia także wtedy, gdy jesteś po kilku piwach.'],
+     ['RĘCZNY','pełna kontrola — biblioteka, analiza, zdrowie, eksport, ustawienia osobno.'],
+   ]},
+
+  {ikona:'▸', tytul:'Tryb automatyczny — pięć kroków',
+   tresc:'Klikasz „dalej” i tyle.',
+   lista:[
+     ['1. Wklej playlistę','Spotify, Apple Music, YouTube, Tidal, SoundCloud — albo przeciągnij plik M3U czy XML z rekordboxa.'],
+     ['2. Masz / do ściągnięcia','dwie kolumny. Utwory pobierają się w tle i same przeskakują na lewo, gdy są gotowe.'],
+     ['3. Nazwa playlisty','powstanie osobny folder — tylko z tym setem, nie z całą biblioteką.'],
+     ['4. Analiza','BPM, tonacja, jakość, okładki, uszkodzenia.'],
+     ['5. Sprawdź przed graniem','ostatni moment na poprawki. Potem playlista ląduje w rekordboksie.'],
+   ]},
+
+  {ikona:'🔍', tytul:'Biblioteka',
+   tresc:'Zakładka „Biblioteka” w trybie ręcznym.',
+   lista:[
+     ['Odsłuch','przycisk ▶ przy każdym utworze, z przewijaniem.'],
+     ['Filtry','szukajka plus format, jakość, tonacja, zakres BPM i czasu.'],
+     ['Zaznaczanie','zaznacz kilka utworów i zrób z nich playlistę jednym kliknięciem.'],
+     ['📁 i 🗑','pokaż plik w Finderze albo usuń — usunięte idzie do kosza, z linkiem „cofnij”.'],
+   ]},
+
+  {ikona:'✅', tytul:'Jakość — po to jest ta apka',
+   tresc:`Plik z YouTube’a przerobiony na „FLAC” dalej brzmi jak 128 kbps.
+     Selekta patrzy na widmo i mówi, co naprawdę siedzi w pliku.`,
+   lista:[
+     ['Fałszywy lossless','wykrywany po paśmie — prawdziwy FLAC sięga 20+ kHz, przekodowany urywa się na 16.'],
+     ['Lepsze wersje','apka szuka na Soulseeku FLAC-ów tam, gdzie masz słabe pliki.'],
+     ['Odcisk akustyczny','porównuje sam dźwięk z próbką z iTunes — wyłapuje sytuację, gdy nazwa się zgadza, a utwór jest inny.'],
+   ]},
+
+  {ikona:'🛟', tytul:'Nic nie znika bez Twojej zgody',
+   tresc:`Zakładka „Porządki” pokazuje propozycje: duplikaty, lepsze wersje,
+     podejrzane pobrania. Przy każdej widzisz dowody i możesz odsłuchać pliki.`,
+   lista:[
+     ['Zatwierdzasz Ty','apka sama nigdy nic nie kasuje.'],
+     ['Kosz zamiast kasowania','zatwierdzone pliki idą do kosza i da się je przywrócić.'],
+   ]},
+
+  {ikona:'⚠️', tytul:'Dwie rzeczy o Soulseeku',
+   tresc:'Warto wiedzieć, zanim się zdziwisz.',
+   lista:[
+     ['Jedno konto = jedno zalogowanie','jeśli zalogujesz się na tym samym koncie na innym komputerze, tutaj Cię wyrzuci.'],
+     ['Nie ma odzyskiwania hasła','konto nie ma adresu e-mail. Zapisz hasło w menedżerze haseł.'],
+     ['Pobieranie idzie w tle','możesz zamknąć apkę — kolejka wróci i dokończy przy następnym uruchomieniu.'],
+   ]},
+];
+
+let TUT_KROK = 0;
+
+function tutorialRysuj(){
+  const t = TUTORIAL[TUT_KROK];
+  document.getElementById('tutKropki').innerHTML =
+    TUTORIAL.map((_,i)=>`<span class="${i<=TUT_KROK?'on':''}"></span>`).join('');
+  document.getElementById('tutTresc').innerHTML = `
+    <div class="tutIkona">${t.ikona}</div>
+    <h1 class="wizH" style="font-size:24px">${t.tytul}</h1>
+    <div class="wizSub" style="margin-bottom:0">${t.tresc}</div>
+    ${t.lista.length?`<ul class="tutLista">${t.lista.map(([a,b],i)=>
+      `<li><span class="tutNum">${t.tytul.includes('pięć kroków')?'':'•'}</span>
+        <span><b>${esc(a)}</b> — ${esc(b)}</span></li>`).join('')}</ul>`:''}`;
+  document.getElementById('tutWstecz').style.visibility = TUT_KROK ? 'visible':'hidden';
+  document.getElementById('tutDalej').textContent =
+    TUT_KROK === TUTORIAL.length-1 ? 'zaczynamy ▸' : 'dalej ›';
+}
+
+function tutorialPokaz(){
+  TUT_KROK = 0;
+  document.getElementById('modePick').classList.add('hide');
+  document.getElementById('tutorial').classList.remove('hide');
+  tutorialRysuj();
+}
+
+function tutorialZamknij(){
+  document.getElementById('tutorial').classList.add('hide');
+  document.getElementById('modePick').classList.remove('hide');
+  try{ localStorage.setItem('selekta_tutorial', '1'); }catch(e){}
+}
+
+function tutorialPokazJesliPierwszyRaz(){
+  let widziany = false;
+  try{ widziany = localStorage.getItem('selekta_tutorial') === '1'; }catch(e){}
+  if(!widziany) tutorialPokaz();
+}
+
+function wireTutorial(){
+  document.getElementById('tutDalej').onclick = ()=>{
+    if(TUT_KROK === TUTORIAL.length-1) return tutorialZamknij();
+    TUT_KROK++; tutorialRysuj();
+  };
+  document.getElementById('tutWstecz').onclick = ()=>{ if(TUT_KROK){ TUT_KROK--; tutorialRysuj(); } };
+  document.getElementById('tutZamknij').onclick = tutorialZamknij;
+  const pomoc = document.getElementById('pokazTutorial');
+  if(pomoc) pomoc.onclick = tutorialPokaz;
+}
+
 const KREATOR_AKCJE = {
-  'wybierz-folder':   {etykieta:'Wskaż folder',        fn: kreatorFolder},
-  'zainstaluj-slskd': {etykieta:'Skopiuj polecenie',   fn: kreatorKopiuj},
-  'uruchom-slskd':    {etykieta:'Uruchom',             fn: kreatorUruchom},
-  'wykryj-klucz':     {etykieta:'Wykryj klucz',        fn: kreatorKlucz},
-  'otworz-panel-slskd':{etykieta:'Otwórz panel slskd', fn: kreatorPanel},
+  'wybierz-folder':  {etykieta:'Wskaż folder',   fn: kreatorFolder},
+  'instaluj-slskd':  {etykieta:'Zainstaluj',     fn: kreatorInstaluj},
+  'konfiguruj':      {etykieta:'Skonfiguruj',    fn: kreatorKonfiguruj},
+  'podaj-konto':     {etykieta:'Podaj konto',    fn: kreatorKonto},
+  'uruchom-slskd':   {etykieta:'Uruchom',        fn: kreatorUruchom},
 };
+
+function kreatorProg(tekst, klasa){
+  document.getElementById('kreatorProg').innerHTML =
+    klasa ? `<span class="${klasa}">${tekst}</span>` : tekst;
+}
 
 async function kreatorFolder(){
   const r = await fetch('/api/setup/folder', {method:'POST'});
   const d = await r.json();
-  if(d.cancelled) return 'anulowano';
+  if(d.cancelled) return 'anulowano — wskaż folder, w którym trzymasz muzykę';
   if(!r.ok) throw new Error(d.detail||'nie udało się');
   return `ustawiono: ${d.utworow} utworów`;
 }
-async function kreatorKopiuj(krok){
-  try{ await navigator.clipboard.writeText(krok.polecenie||''); }catch(e){}
-  return 'skopiowane — wklej w Terminalu i uruchom';
+
+async function kreatorInstaluj(){
+  kreatorProg('<span class="spin"></span> pobieram slskd (ok. 55 MB) — to potrwa chwilę…');
+  const r = await fetch('/api/setup/instaluj', {method:'POST'});
+  const d = await r.json();
+  if(!r.ok) throw new Error(d.detail||'nie udało się zainstalować');
+  return d.message;
 }
+
+async function kreatorKonfiguruj(){
+  const r = await fetch('/api/setup/konfiguruj', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({})});
+  const d = await r.json();
+  if(!r.ok) throw new Error(d.detail||'nie udało się');
+  return 'klucz wygenerowany, katalogi ustawione';
+}
+
 async function kreatorUruchom(){
   const r = await fetch('/api/slskd/start', {method:'POST'});
   const d = await r.json();
   if(!d.ok) throw new Error(d.message||'nie udało się uruchomić');
-  await new Promise(res=>setTimeout(res,3000));
-  return d.message;
+  return await kreatorCzekajNaPolaczenie();
 }
-async function kreatorKlucz(){
-  const r = await fetch('/api/config/autodetect', {method:'POST'});
-  const d = await r.json();
-  if(!r.ok) throw new Error(d.detail||'nie znalazłem klucza');
-  return d.message || 'klucz zapisany';
+
+async function kreatorCzekajNaPolaczenie(sekund=25){
+  for(let i=0;i<sekund;i++){
+    kreatorProg(`<span class="spin"></span> łączę z siecią Soulseek… ${i+1}s`);
+    await new Promise(r=>setTimeout(r,1000));
+    try{
+      const d = await (await fetch('/api/setup/polaczenie')).json();
+      if(d.stan==='polaczony') return 'połączono z siecią Soulseek';
+      if(d.stan==='niezalogowany' && i>12) throw new Error(d.opis);
+    }catch(e){ if(i>12) throw e; }
+  }
+  throw new Error('nie udało się połączyć — sprawdź login i hasło');
 }
-async function kreatorPanel(krok){
-  window.open(krok.panel||'http://localhost:5030', '_blank');
-  return 'w panelu slskd wpisz swój login i hasło do Soulseeka, potem wróć tutaj';
+
+// Formularz konta. Hasło wpisuje UŻYTKOWNIK i trafia wyłącznie do
+// konfiguracji slskd na tym komputerze — apka go nie zapisuje u siebie,
+// nie pokazuje i nie wysyła nigdzie dalej.
+function kreatorKonto(){
+  return new Promise((zwroc, odrzuc)=>{
+    const host = document.getElementById('kreatorKroki');
+    const box = document.createElement('div');
+    box.className = 'kontoBox';
+    box.innerHTML = `
+      <div style="font-weight:600;font-size:14px;margin-bottom:4px">Konto Soulseek</div>
+      <div class="muted" style="font-size:12.5px;line-height:1.5">
+        Soulseek <b>nie ma rejestracji</b>. Wymyśl nazwę i hasło — konto powstaje
+        przy pierwszym logowaniu. Jeśli nazwa jest zajęta, logowanie się nie uda
+        i trzeba wybrać inną.<br>
+        <span style="color:var(--warn)">Zapisz hasło w menedżerze haseł — nie ma
+        odzyskiwania, bo konto nie ma adresu e-mail.</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <input id="kontoLogin" class="in" placeholder="nazwa użytkownika" autocomplete="username" style="flex:1;min-width:150px">
+        <input id="kontoHaslo" class="in" type="password" placeholder="hasło" autocomplete="new-password" style="flex:1;min-width:150px">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+        <button class="act" id="kontoZapisz">Połącz</button>
+        <button class="mini" id="kontoAnuluj">Anuluj</button>
+        <span class="muted" style="font-size:11.5px">hasło trafia tylko do
+          konfiguracji slskd na tym komputerze (prawa 0600)</span>
+      </div>`;
+    host.appendChild(box);
+    const login = box.querySelector('#kontoLogin');
+    login.focus();
+
+    box.querySelector('#kontoAnuluj').onclick = ()=>{ box.remove(); zwroc('pominięte'); };
+    box.querySelector('#kontoZapisz').onclick = async ()=>{
+      const l = login.value.trim(), h = box.querySelector('#kontoHaslo').value;
+      if(!l || !h){ kreatorProg('podaj nazwę i hasło','q-warn'); return; }
+      box.querySelector('#kontoZapisz').disabled = true;
+      kreatorProg('<span class="spin"></span> zapisuję i restartuję slskd…');
+      try{
+        const r = await fetch('/api/setup/konto', {method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({login:l, haslo:h})});
+        const d = await r.json();
+        if(!r.ok) throw new Error(d.detail||'nie udało się');
+        box.querySelector('#kontoHaslo').value = '';   // nie trzymamy go w DOM
+        const wynik = await kreatorCzekajNaPolaczenie();
+        box.remove();
+        zwroc(wynik);
+      }catch(e){
+        box.querySelector('#kontoZapisz').disabled = false;
+        odrzuc(e);
+      }
+    };
+    box.querySelector('#kontoHaslo').addEventListener('keydown', e=>{
+      if(e.key==='Enter') box.querySelector('#kontoZapisz').click();
+    });
+  });
 }
 
 function kreatorKrokHTML(k, i){
@@ -588,7 +812,6 @@ function kreatorKrokHTML(k, i){
     <div style="flex:1;min-width:0">
       <div style="font-weight:600;font-size:14px">${esc(k.tytul)}</div>
       <div class="a">${esc(k.opis)}</div>
-      ${k.polecenie?`<div class="krokCmd">${esc(k.polecenie)}</div>`:''}
     </div>
     ${akcja}</div>`;
 }
@@ -604,22 +827,45 @@ async function kreatorOdswiez(){
     Math.round(100*KREATOR_STAN.zrobionych/KREATOR_STAN.krokow)+'%';
   document.querySelectorAll('.krokBtn').forEach(b=>b.onclick=async()=>{
     const krok = KREATOR_STAN.kroki[+b.dataset.i];
-    const prog = document.getElementById('kreatorProg');
     const stary = b.textContent; b.disabled=true; b.textContent='…';
-    prog.innerHTML='<span class="spin"></span> pracuję…';
+    kreatorProg('<span class="spin"></span> pracuję…');
     try{
-      prog.textContent = await KREATOR_AKCJE[krok.akcja].fn(krok);
+      kreatorProg(await KREATOR_AKCJE[krok.akcja].fn(krok));
       await kreatorOdswiez();
     }catch(e){
-      prog.innerHTML=`<span class="q-bad">✗ ${esc(e.message)}</span>`;
+      kreatorProg('✗ '+esc(e.message), 'q-bad');
       b.disabled=false; b.textContent=stary;
     }
   });
   if(KREATOR_STAN.gotowe){
-    document.getElementById('kreatorProg').innerHTML='✅ wszystko gotowe';
-    setTimeout(kreatorZamknij, 900);
+    kreatorProg('✅ wszystko gotowe');
+    document.getElementById('kreatorDalej').classList.remove('hide');
   }
   return KREATOR_STAN;
+}
+
+// jedno kliknięcie robi wszystko, co da się zrobić bez pytania użytkownika
+async function kreatorZrobWszystko(){
+  const b = document.getElementById('kreatorAuto'); b.disabled = true;
+  for(let runda=0; runda<6; runda++){
+    const stan = KREATOR_STAN || await kreatorOdswiez();
+    const krok = stan.kroki.find(k=>!k.gotowe && k.akcja &&
+      ['instaluj-slskd','konfiguruj','uruchom-slskd'].includes(k.akcja));
+    if(!krok) break;
+    try{
+      kreatorProg(await KREATOR_AKCJE[krok.akcja].fn(krok));
+      await kreatorOdswiez();
+    }catch(e){ kreatorProg('✗ '+esc(e.message),'q-bad'); break; }
+  }
+  b.disabled = false;
+  const stan = KREATOR_STAN;
+  if(stan && !stan.gotowe){
+    const brak = stan.kroki.find(k=>!k.gotowe);
+    if(brak && brak.akcja === 'podaj-konto')
+      kreatorProg('resztę zrobiłem — zostało tylko Twoje konto Soulseek ↓');
+    else if(brak && brak.akcja === 'wybierz-folder')
+      kreatorProg('wskaż jeszcze folder z muzyką ↑');
+  }
 }
 
 function kreatorZamknij(){
@@ -628,15 +874,18 @@ function kreatorZamknij(){
 }
 
 async function kreatorSprawdzNaStarcie(){
+  document.getElementById('kreatorPomin').onclick = kreatorZamknij;
+  document.getElementById('kreatorDalej').onclick = ()=>{
+    kreatorZamknij(); tutorialPokaz();
+  };
+  document.getElementById('kreatorAuto').onclick = kreatorZrobWszystko;
   try{
-    const r = await fetch('/api/setup/stan');
-    const d = await r.json();
-    if(d.gotowe) return;                    // nic nie przeszkadzamy
+    const d = await (await fetch('/api/setup/stan')).json();
+    if(d.gotowe){ tutorialPokazJesliPierwszyRaz(); return; }
     document.getElementById('modePick').classList.add('hide');
     document.getElementById('kreator').classList.remove('hide');
     await kreatorOdswiez();
   }catch(e){}
-  document.getElementById('kreatorPomin').onclick = kreatorZamknij;
 }
 
 // ——— porządki: propozycje zmian do zatwierdzenia ———
@@ -2069,6 +2318,7 @@ pollSlskDot();
 wireExport();
 wireBiblioteke();
 wireDecyzje();
+wireTutorial();
 kreatorSprawdzNaStarcie();
 wireFiltry();
 wireZarzadzanie();
