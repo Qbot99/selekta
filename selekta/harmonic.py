@@ -49,6 +49,7 @@ BPM_MIN, BPM_MAX = 60.0, 200.0
 # club-range lobe by more than the prior ratio.
 TEMPO_CENTER = 140.0
 TEMPO_SIGMA = 0.5     # octaves
+AC_UP = 16            # upsampling autokorelacji (gładka interpolacja opóźnień)
 
 # Key stage
 K_NFFT = 8192
@@ -120,10 +121,14 @@ def _bpm_from_signal(x: np.ndarray) -> tuple[float, float]:
     env = env - env.mean()
 
     fps = SR / B_HOP
-    # autocorrelation via FFT (much faster than np.correlate at ~25k frames)
+    # autocorrelation via FFT (much faster than np.correlate at ~25k frames),
+    # band-limit-upsampled AC_UP razy przez dopełnienie widma mocy zerami:
+    # interpolacja liniowa po surowych klatkach ma załamania na całkowitych
+    # opóźnieniach i systematycznie znosiła szczyt o 0.3-0.5 BPM (każda
+    # wielokrotność taktu ciągnęła do własnego całkowitego opóźnienia)
     n = int(2 ** np.ceil(np.log2(2 * len(env))))
-    spec = np.fft.rfft(env, n)
-    ac = np.fft.irfft(spec * np.conj(spec))[: len(env)]
+    power = np.abs(np.fft.rfft(env, n)) ** 2
+    ac = np.fft.irfft(power, n * AC_UP)[: len(env) * AC_UP] * AC_UP
     ac = ac / (ac[0] + 1e-9)
 
     # dense tempo grid: integer envelope lags are several BPM apart around
@@ -131,17 +136,42 @@ def _bpm_from_signal(x: np.ndarray) -> tuple[float, float]:
     # from 148
     grid = np.arange(BPM_MIN, BPM_MAX, 0.05)
     lag_idx = np.arange(len(ac), dtype=float)
+
+    def _ac_at(lag_frames: np.ndarray) -> np.ndarray:
+        pos = lag_frames * AC_UP
+        out = np.zeros_like(np.atleast_1d(pos))
+        valid = pos < len(ac) - 1
+        out[valid] = np.interp(np.atleast_1d(pos)[valid], lag_idx, ac)
+        return out
+
     scores = np.zeros_like(grid)
     for mult, w in ((1, 1.0), (2, 0.9), (3, 0.4), (4, 0.4)):
-        pos = 60.0 * fps / grid * mult
-        valid = pos < len(ac) - 1
-        scores[valid] += w * np.interp(pos[valid], lag_idx, ac)
+        scores += w * _ac_at(60.0 * fps / grid * mult)
 
     prior = np.exp(-0.5 * (np.log2(grid / TEMPO_CENTER) / TEMPO_SIGMA) ** 2)
     weighted = np.clip(scores, 0.0, None) * prior
 
-    # winning lobe under the prior, then locate its raw local peak (+-2 BPM)
+    # winning lobe under the prior
     i0 = int(np.argmax(weighted))
+
+    # strażnik oktawy: prior potrafi wciągnąć wolny utwór na podwojone tempo
+    # (85 -> ~170), ale wtedy WŁASNY takt zwycięzcy nie ma poparcia
+    # w autokorelacji (ac ~ 0), a takt o połowę wolniejszy ma pełne (ac ~ 1);
+    # u prawowitych zwycięzców poparcie własnego taktu to >= ~0.7 — zmierzone
+    # na metronomach 85-174 i realnej bibliotece, progi z ~3x zapasem
+    half = grid[i0] / 2.0
+    if half >= BPM_MIN:
+        lag = 60.0 * fps / grid[i0]
+        if _ac_at(np.array([lag]))[0] < 0.2 and _ac_at(np.array([2 * lag]))[0] > 0.5:
+            refuted = grid[i0]
+            lobe = np.abs(grid - half) <= 2.0
+            i0 = int(np.flatnonzero(lobe)[np.argmax(weighted[lobe])])
+        else:
+            refuted = None
+    else:
+        refuted = None
+
+    # raw local peak (+-2 BPM) around the winning lobe
     lo = int(np.searchsorted(grid, grid[i0] - 2.0))
     hi = int(np.searchsorted(grid, grid[i0] + 2.0))
     i = lo + int(np.argmax(scores[lo:hi]))
@@ -156,9 +186,12 @@ def _bpm_from_signal(x: np.ndarray) -> tuple[float, float]:
     if abs(best - round(best)) < 0.3:
         best = float(round(best))
 
-    # confidence: margin over the strongest competing lobe (>=3 BPM away)
+    # confidence: margin over the strongest competing lobe (>=3 BPM away);
+    # obalone podwojenie nie jest konkurentem — jego takt nie istnieje
     s1 = float(weighted[i0])
     mask = np.abs(grid - grid[i0]) >= 3.0
+    if refuted is not None:
+        mask &= np.abs(grid - refuted) >= 3.0
     s2 = float(weighted[mask].max()) if mask.any() else 0.0
     conf = 0.0 if s1 <= 0 else float(np.clip(1.0 - s2 / s1, 0.0, 1.0))
     return round(best, 1), round(conf, 2)

@@ -40,6 +40,11 @@ def wzorce(tmp_path_factory):
         "mp3_128": probka.do_mp3(probka.pelne_pasmo(p("m.wav")), p("m128.mp3"), 128),
         "metronom128": probka.metronom(p("m128.wav"), 128.0),
         "metronom150": probka.metronom(p("m150.wav"), 150.0),
+        "metronom85": probka.metronom(p("m85.wav"), 85.0, sekund=60),
+        "metronom87": probka.metronom(p("m87.wav"), 87.0, sekund=60),
+        "metronom126_5": probka.metronom(p("m1265.wav"), 126.5, sekund=60),
+        "metronom140": probka.metronom(p("m140.wav"), 140.0, sekund=60),
+        "metronom174": probka.metronom(p("m174.wav"), 174.0, sekund=60),
         "metronom150_faza": probka.metronom(p("m150f.wav"), 150.0, faza=0.137),
         "ton1k": probka.ton(p("ton.wav"), 1000.0, 10.0, 0.5),
         "ton1k_cichy": probka.ton(p("cichy.wav"), 1000.0, 10.0, 0.125),
@@ -93,10 +98,17 @@ class TestJakoscPasma:
 
 class TestTempoIKotwica:
     @pytest.mark.parametrize("klucz,oczekiwane", [
-        ("metronom128", 128.0), ("metronom150", 150.0)])
+        ("metronom128", 128.0), ("metronom150", 150.0),
+        # regresja z 1.09.2026 — te trzy były nietrafione: 85 wychodziło
+        # jako 169.5 (prior wciągał na podwojone tempo), 140 jako 139.7
+        # i 126.5 jako 126.0 (załamania interpolacji liniowej autokorelacji)
+        ("metronom85", 85.0), ("metronom126_5", 126.5), ("metronom140", 140.0),
+        # te dwa pilnują, żeby strażnik oktawy nie przesadził w drugą
+        # stronę: szybkie tempa mają zostać szybkie
+        ("metronom87", 87.0), ("metronom174", 174.0)])
     def test_bpm_metronomu_jest_dokladne(self, wzorce, klucz, oczekiwane):
         a = harmonic.analyze(wzorce[klucz])
-        assert abs(a.bpm - oczekiwane) < 0.5, f"{a.bpm} zamiast {oczekiwane}"
+        assert abs(a.bpm - oczekiwane) <= 0.1, f"{a.bpm} zamiast {oczekiwane}"
 
     def test_kotwica_trafia_w_znana_faze(self, wzorce):
         """Metronom z klikami od 0,137 s — kotwica ma tam wypaść."""

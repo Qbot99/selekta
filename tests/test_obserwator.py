@@ -68,6 +68,48 @@ class TestPlikWTrakciePobierania:
     def test_znikniety_plik_nie_wywala(self, obs, tmp_path):
         assert obs._ustabilizowany(str(tmp_path / "nie-ma.flac")) is False
 
+    def test_produkcyjny_rytm_skanowania_odblokowuje_plik(self, obs, tmp_path,
+                                                          monkeypatch):
+        """Symulacja prawdziwej pętli: skan co ODSTEP_S, plik się nie zmienia.
+
+        Regresja z 1.09.2026: _ustabilizowany nadpisywał znacznik czasu przy
+        KAŻDYM skanie, a spokój wymaga SPOKOJ_S (20 s) między dwoma kolejnymi
+        pomiarami — pomiary były co ODSTEP_S (12 s), więc warunek nie zachodził
+        nigdy i obserwator nie przetworzył żadnego pliku od początku istnienia.
+        Starszy test tego nie łapał, bo antydatował znacznik ręcznie zamiast
+        odtworzyć rytm produkcyjny.
+        """
+        plik = tmp_path / "sciagniety.flac"
+        plik.write_bytes(b"x" * 100)
+        zegar = [1000.0]
+        monkeypatch.setattr(obserwator.time, "time", lambda: zegar[0])
+
+        wyniki = []
+        for _ in range(6):                       # ~minuta prawdziwej pętli
+            wyniki.append(obs._ustabilizowany(str(plik)))
+            zegar[0] += obserwator.ODSTEP_S
+        assert any(wyniki), (
+            "plik o stałym rozmiarze nigdy nie został uznany za stabilny "
+            "przy produkcyjnym rytmie skanowania")
+        # dokładnie: pierwszy skan zapamiętuje, gotowość gdy od tego pomiaru
+        # minie SPOKOJ_S — przy 12 s odstępu ma to być trzeci skan (24 s)
+        assert wyniki.index(True) == 2
+
+    def test_wzrost_rozmiaru_zeruje_odliczanie(self, obs, tmp_path, monkeypatch):
+        plik = tmp_path / "jeszcze-rosnie.flac"
+        plik.write_bytes(b"x" * 100)
+        zegar = [1000.0]
+        monkeypatch.setattr(obserwator.time, "time", lambda: zegar[0])
+        obs._ustabilizowany(str(plik))
+        zegar[0] += obserwator.SPOKOJ_S + 5      # długa przerwa…
+        plik.write_bytes(b"x" * 900)             # …ale plik urósł
+        assert obs._ustabilizowany(str(plik)) is False
+        zegar[0] += obserwator.ODSTEP_S
+        assert obs._ustabilizowany(str(plik)) is False, (
+            "po zmianie rozmiaru odliczanie spokoju ma ruszyć od zera")
+        zegar[0] += obserwator.SPOKOJ_S
+        assert obs._ustabilizowany(str(plik)) is True
+
 
 class TestSterowanie:
     def test_stan_opisuje_co_sie_dzieje(self, obs):

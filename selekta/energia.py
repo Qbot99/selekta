@@ -50,15 +50,15 @@ def _jasnosc_khz(x: np.ndarray) -> float:
     Odróżnia gęste, ostre techno od melodyjnego kawałka o tej samej
     głośności. Sama głośność tego nie pokaże.
     """
-    mags = _stft_mags(x, N_FFT, HOP)
+    mags = _stft_mags(x, N_FFT, HOP)        # (klatki, prążki)
     if mags.size == 0:
         return 0.0
-    czest = np.linspace(0, SR / 2, mags.shape[0])
-    suma = mags.sum(axis=0)
-    aktywne = suma > (suma.max() * 0.05 if suma.size else 0)
+    czest = np.linspace(0, SR / 2, mags.shape[1])
+    energia_klatek = mags.sum(axis=1)
+    aktywne = energia_klatek > energia_klatek.max() * 0.05
     if not aktywne.any():
         return 0.0
-    centroidy = (czest[:, None] * mags[:, aktywne]).sum(axis=0) / suma[aktywne]
+    centroidy = (mags[aktywne] * czest).sum(axis=1) / energia_klatek[aktywne]
     return float(np.median(centroidy) / 1000.0)
 
 

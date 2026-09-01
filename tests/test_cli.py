@@ -128,3 +128,52 @@ def test_wishlist_isolated_home(lib_copy, tmp_path):
     assert "Artysta — Utwór" in r2.stdout
     # stan wylądował w izolowanym HOME, nie u użytkownika
     assert os.path.isfile(os.path.join(home, ".selekta", "wishlist.json"))
+
+
+class TestBledneWejscie:
+    """Błędne wejście = ludzki komunikat, nie ściana tracebacku.
+
+    Regresja z 1.09.2026: moduły miały gotowe polskie komunikaty w wyjątkach,
+    ale main() ich nie przechwytywał — użytkownik dostawał surowy stos wywołań
+    z komunikatem zakopanym na dole. Do tego pusty folder udawał sukces,
+    a plik-śmieć przechodził przez analyze po cichu jako „0.0 BPM".
+    """
+
+    def test_nieistniejacy_folder_bez_tracebacku(self):
+        r = run("verify", "--folder", "/nie/ma/takiego/folderu")
+        assert r.returncode != 0
+        assert "Traceback" not in r.stderr and "Traceback" not in r.stdout
+        assert "błąd:" in r.stderr and "nie ma folderu" in r.stderr
+
+    def test_pusty_folder_nie_udaje_sukcesu(self, tmp_path):
+        r = run("verify", "--folder", str(tmp_path))
+        assert r.returncode != 0
+        assert "nie zawiera plików audio" in r.stderr
+        assert "Traceback" not in r.stderr
+
+    def test_smiec_udajacy_mp3_jest_flagowany_w_verify(self, tmp_path):
+        (tmp_path / "podroba.mp3").write_text("to nie jest zaden mp3")
+        r = run("verify", "--folder", str(tmp_path))
+        assert "Traceback" not in r.stderr and "Traceback" not in r.stdout
+        assert "nie da się odczytać" in r.stdout
+        assert "0/1" in r.stdout
+
+    def test_smiec_udajacy_mp3_nie_przechodzi_przez_analyze(self, tmp_path):
+        (tmp_path / "podroba.mp3").write_text("to nie jest zaden mp3")
+        r = run("analyze", "--folder", str(tmp_path))
+        assert "Traceback" not in r.stderr and "Traceback" not in r.stdout
+        assert "0.0 BPM" not in r.stdout, "śmieć zaraportowany jak wynik"
+        assert "brak sygnału" in r.stdout or "nie da się odczytać" in r.stdout
+        assert "pominięto 1" in r.stdout
+
+    def test_debug_przywraca_traceback(self):
+        r = run("--debug", "verify", "--folder", "/nie/ma/takiego/folderu")
+        assert r.returncode != 0
+        assert "Traceback" in r.stderr
+
+    def test_organize_z_bzdurnym_zrodlem_po_ludzku(self, tmp_path):
+        (tmp_path / "cos.mp3").write_text("x")
+        r = run("organize", "zzz ccc vvv", "--folder", str(tmp_path))
+        assert r.returncode != 0
+        assert "Traceback" not in r.stderr
+        assert "nie rozpoznano" in r.stderr

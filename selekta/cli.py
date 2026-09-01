@@ -63,7 +63,11 @@ def _load_tracks(source: str) -> list[spotify.Track]:
 
 
 def _audio_paths(folder: str) -> list[str]:
-    return matcher.audio_files(folder)
+    files = matcher.audio_files(folder)
+    if not files:
+        raise FileNotFoundError(
+            f"folder nie zawiera plików audio: {folder}")
+    return files
 
 
 # --------------------------------------------------------------------------
@@ -99,7 +103,13 @@ def cmd_verify(args) -> None:
     files = _audio_paths(args.folder)[: args.limit or None]
     bad = 0
     for p in files:
-        rep = analyze_quality(p)
+        try:
+            rep = analyze_quality(p)
+        except Exception as e:
+            bad += 1
+            print(f"❌ {os.path.basename(p)}")
+            print(f"    nie da się odczytać: {e}")
+            continue
         bad += rep.grade != "ok"
         print(f"{GRADE_ICON[rep.grade]} {os.path.basename(p)}")
         print(f"    cutoff {rep.cutoff_hz/1000:.1f} kHz — {rep.verdict}")
@@ -117,7 +127,12 @@ def cmd_check(args) -> None:
     files = _audio_paths(args.folder)[: args.limit or None]
     bad = 0
     for p in files:
-        res = pipeline.verify_download(p, by_id.get(os.path.abspath(p)))
+        try:
+            res = pipeline.verify_download(p, by_id.get(os.path.abspath(p)))
+        except Exception as e:
+            bad += 1
+            print(f"❌ {os.path.basename(p)}: nie da się odczytać: {e}")
+            continue
         bad += not res.ok
         print(res.format())
     print(f"\n{len(files) - bad}/{len(files)} plików przeszło weryfikację")
@@ -193,8 +208,21 @@ def _cached_harmonic(path: str, refresh: bool = False) -> harmonic.TrackAnalysis
 def cmd_analyze(args) -> None:
     paths = _audio_paths(args.folder)[: args.limit or None]
     rows = []
+    pominiete = 0
     for p in paths:
-        ta = _cached_harmonic(p, refresh=args.refresh)
+        try:
+            ta = _cached_harmonic(p, refresh=args.refresh)
+        except Exception as e:
+            pominiete += 1
+            print(f"❌ {os.path.basename(p)}: nie da się odczytać: {e}")
+            continue
+        if ta.bpm == 0 and ta.camelot == "?":
+            # dekoder nie oddał sygnału — to nie jest wynik, tylko brak pliku
+            # do analizy (śmieć udający audio albo czysta cisza)
+            pominiete += 1
+            print(f"❌ {os.path.basename(p)}: brak sygnału do analizy "
+                  f"(uszkodzony albo nie-audio)")
+            continue
         flag = "" if ta.confidence_key >= 0.4 else "  (niepewna tonacja)"
         if args.beatport and ta.confidence_key < 0.5:
             official = cache.get(p, "beatport")
@@ -220,6 +248,9 @@ def cmd_analyze(args) -> None:
             print(f"  {pos:>2}. {ta.camelot:>3}  {ta.bpm:>5.1f}  {name}   [{note}]")
     if args.apply:
         print(f"\nzapisano tagi BPM/tonacja w {len(rows)} plikach")
+    if pominiete:
+        print(f"\n⚠️ pominięto {pominiete} plików nie do odczytania "
+              f"— sprawdź je przez `selekta check`")
 
 
 def cmd_health(args) -> None:
@@ -356,6 +387,8 @@ def cmd_serve(args) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(prog="selekta", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--debug", action="store_true",
+                   help="pokaż pełny traceback zamiast krótkiego komunikatu")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     o = sub.add_parser("organize", help="dopasuj pliki do playlisty, otaguj, okładki")
@@ -456,7 +489,18 @@ def main() -> None:
     s.set_defaults(fn=cmd_serve)
 
     args = p.parse_args()
-    args.fn(args)
+    try:
+        args.fn(args)
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except BrokenPipeError:
+        sys.exit(1)
+    except Exception as e:
+        # moduły rzucają wyjątki z gotowymi polskimi komunikatami — użytkownik
+        # ma dostać sam komunikat, nie ścianę tracebacku (pełny stos: --debug)
+        if args.debug:
+            raise
+        sys.exit(f"błąd: {e}")
 
 
 if __name__ == "__main__":

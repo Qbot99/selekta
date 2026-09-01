@@ -69,12 +69,13 @@ class Obserwator:
             return False
         teraz = time.time()
         poprzedni = self._rozmiary.get(path)
-        self._rozmiary[path] = (st.st_size, teraz)
-        if poprzedni is None:
-            return False                     # pierwszy raz widzimy — poczekaj
-        rozmiar, kiedy = poprzedni
-        if rozmiar != st.st_size:
-            return False                     # nadal rośnie
+        # znacznik czasu = odkąd plik ma TEN rozmiar; odświeżany tylko przy
+        # zmianie rozmiaru, bo odświeżany co skan (a skany są częstsze niż
+        # SPOKOJ_S) nie pozwoliłby warunkowi spokoju zajść nigdy
+        if poprzedni is None or poprzedni[0] != st.st_size:
+            self._rozmiary[path] = (st.st_size, teraz)
+            return False                     # nowy albo nadal rośnie — czekaj
+        _rozmiar, kiedy = poprzedni
         return (teraz - kiedy) >= SPOKOJ_S
 
     def _do_zrobienia(self) -> list[str]:

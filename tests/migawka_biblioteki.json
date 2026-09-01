@@ -9,10 +9,10 @@
   "tempo_stabilne": true
  },
  "15. Aquagen - Hard To Say I'm Sorry.flac": {
-  "bpm": 139.7,
+  "bpm": 140.0,
   "camelot": "12B",
   "cutoff_hz": 22000.0,
-  "first_beat_s": 3.089,
+  "first_beat_s": 2.816,
   "grade": "ok",
   "lufs": -8.03,
   "tempo_stabilne": true
@@ -36,19 +36,19 @@
   "tempo_stabilne": true
  },
  "Billy Gillies, Nu-La - Crystallize (Extended Mix).flac": {
-  "bpm": 143.6,
+  "bpm": 144.0,
   "camelot": "10A",
   "cutoff_hz": 22000.0,
-  "first_beat_s": 0.377,
+  "first_beat_s": 0.412,
   "grade": "ok",
   "lufs": -8.87,
   "tempo_stabilne": true
  },
  "Braaheim - Black Betty (Extended Mix).mp3": {
-  "bpm": 139.7,
+  "bpm": 140.0,
   "camelot": "3A",
   "cutoff_hz": 20100.0,
-  "first_beat_s": 0.244,
+  "first_beat_s": 0.258,
   "grade": "ok",
   "lufs": -6.38,
   "tempo_stabilne": true
@@ -72,10 +72,10 @@
   "tempo_stabilne": false
  },
  "DJ IP, Pegassi - Wanna Feel (Extended).flac": {
-  "bpm": 147.7,
+  "bpm": 148.0,
   "camelot": "2A",
   "cutoff_hz": 20100.0,
-  "first_beat_s": 0.276,
+  "first_beat_s": 0.206,
   "grade": "warn",
   "lufs": -9.21,
   "tempo_stabilne": false

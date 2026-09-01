@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -140,3 +141,44 @@ class TestZakresAnalizy:
     def test_pliki_spoza_biblioteki_sa_pomijane(self, client):
         r = client.post("/api/energia", json={"files": ["../../etc/hosts"]})
         assert r.status_code == 400
+
+
+class TestJasnosc:
+    """Centroida widma na sygnałach o znanej barwie.
+
+    Regresja z 1.09.2026: oś częstotliwości była budowana z liczby KLATEK
+    zamiast liczby PRĄŻKÓW, przez co funkcja liczyła centroidę czasową
+    (kiedy gra dźwięk), a nie widmową (jak wysoko brzmi) — i każdy
+    stacjonarny sygnał dostawał identyczne ~SR/4 niezależnie od barwy.
+    """
+
+    def _sinus(self, hz, sekund=8.0):
+        t = np.arange(int(energia.SR * sekund)) / energia.SR
+        return 0.5 * np.sin(2 * np.pi * hz * t)
+
+    def test_niski_ton_to_niska_centroida(self):
+        assert energia._jasnosc_khz(self._sinus(200)) == pytest.approx(0.2, abs=0.05)
+
+    def test_wysoki_ton_to_wysoka_centroida(self):
+        assert energia._jasnosc_khz(self._sinus(3000)) == pytest.approx(3.0, abs=0.1)
+
+    def test_barwa_a_nie_polozenie_w_czasie(self):
+        """Rozstrzygający kontrtest z weryfikacji: ton grający tylko w
+        pierwszej ćwiartce utworu ma mieć tę samą centroidę co grający cały
+        czas — liczy się wysokość, nie moment."""
+        caly = self._sinus(400, 8.0)
+        cwiartka = caly.copy()
+        cwiartka[len(cwiartka) // 4:] = 0.0
+        pelna = energia._jasnosc_khz(caly)
+        ucieta = energia._jasnosc_khz(cwiartka)
+        assert pelna == pytest.approx(0.4, abs=0.05)
+        assert ucieta == pytest.approx(pelna, abs=0.05)
+
+    def test_ciemne_vs_jasne_rozdzielone_progiem_faz(self):
+        """Progi 2.0/2.2 kHz w _intro/_faza mają po naprawie rozdzielać
+        ciemny pad od jasnej perkusji — wcześniej wszystko było 'jasne'."""
+        rng = np.random.default_rng(7)
+        ciemny_pad = self._sinus(150) + 0.3 * self._sinus(300)
+        jasny_szum = rng.standard_normal(int(energia.SR * 8.0)) * 0.3
+        assert energia._jasnosc_khz(ciemny_pad) < 2.0
+        assert energia._jasnosc_khz(jasny_szum) > 2.2
