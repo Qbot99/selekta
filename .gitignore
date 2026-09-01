@@ -1,0 +1,29 @@
+# środowisko i artefakty budowania
+.venv/
+*.egg-info/
+__pycache__/
+*.py[cod]
+build/
+dist/
+
+# pamięć podręczna testów i narzędzi
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# macOS
+.DS_Store
+
+# stan użytkownika — klucz API slskd, kolejka pobierania, decyzje.
+# Nigdy nie trafia do repozytorium: to dane i sekrety konkretnej osoby.
+.selekta/
+config.json
+kolejka.json
+decyzje.json
+
+# muzyka i eksporty
+*.mp3
+*.flac
+*.wav
+*.aiff
+*.m4a

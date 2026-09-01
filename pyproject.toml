@@ -1,0 +1,27 @@
+[project]
+name = "selekta"
+version = "0.2.0"
+description = "Playlista → czysta, zweryfikowana biblioteka DJ-ska (Soulseek hunt, weryfikacja jakości/odsłuchu, BPM+tonacja, eksport rekordbox/Serato, dashboard)"
+requires-python = ">=3.11"
+dependencies = [
+    "mutagen>=1.47",
+    "numpy>=1.26",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+web = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+macos = ["pyobjc-framework-Cocoa>=10.0"]
+
+[project.scripts]
+selekta = "selekta.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["selekta"]
+
+[tool.setuptools.package-data]
+selekta = ["static/*.html"]
