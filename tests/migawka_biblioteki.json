@@ -1,0 +1,110 @@
+{
+ "101 Wavey.flac": {
+  "bpm": 145.0,
+  "camelot": "6B",
+  "cutoff_hz": 24100.0,
+  "first_beat_s": 1.456,
+  "grade": "ok",
+  "lufs": -13.99,
+  "tempo_stabilne": true
+ },
+ "15. Aquagen - Hard To Say I'm Sorry.flac": {
+  "bpm": 139.7,
+  "camelot": "12B",
+  "cutoff_hz": 22000.0,
+  "first_beat_s": 3.089,
+  "grade": "ok",
+  "lufs": -8.03,
+  "tempo_stabilne": true
+ },
+ "Alt8 - On The Beat (Extended Mix) [www.dj-promo.org].mp3": {
+  "bpm": 152.0,
+  "camelot": "8A",
+  "cutoff_hz": 20000.0,
+  "first_beat_s": 0.442,
+  "grade": "ok",
+  "lufs": -7.28,
+  "tempo_stabilne": true
+ },
+ "Antonym - Bass Go.flac": {
+  "bpm": 155.0,
+  "camelot": "3A",
+  "cutoff_hz": 21900.0,
+  "first_beat_s": 0.197,
+  "grade": "ok",
+  "lufs": -6.6,
+  "tempo_stabilne": true
+ },
+ "Billy Gillies, Nu-La - Crystallize (Extended Mix).flac": {
+  "bpm": 143.6,
+  "camelot": "10A",
+  "cutoff_hz": 22000.0,
+  "first_beat_s": 0.377,
+  "grade": "ok",
+  "lufs": -8.87,
+  "tempo_stabilne": true
+ },
+ "Braaheim - Black Betty (Extended Mix).mp3": {
+  "bpm": 139.7,
+  "camelot": "3A",
+  "cutoff_hz": 20100.0,
+  "first_beat_s": 0.244,
+  "grade": "ok",
+  "lufs": -6.38,
+  "tempo_stabilne": true
+ },
+ "DJ Gigola - La Batteria.flac": {
+  "bpm": 150.0,
+  "camelot": "1A",
+  "cutoff_hz": 20700.0,
+  "first_beat_s": 0.401,
+  "grade": "warn",
+  "lufs": -8.41,
+  "tempo_stabilne": true
+ },
+ "DJ HEARTSTRING - Will You Remember Me When I'm Gone.flac": {
+  "bpm": 150.0,
+  "camelot": "2B",
+  "cutoff_hz": 22000.0,
+  "first_beat_s": 13.076,
+  "grade": "ok",
+  "lufs": -8.24,
+  "tempo_stabilne": false
+ },
+ "DJ IP, Pegassi - Wanna Feel (Extended).flac": {
+  "bpm": 147.7,
+  "camelot": "2A",
+  "cutoff_hz": 20100.0,
+  "first_beat_s": 0.276,
+  "grade": "warn",
+  "lufs": -9.21,
+  "tempo_stabilne": false
+ },
+ "Dimitri Vegas & Like Mike, Marlon Hoffstadt, DJ Konik - Makina Time (Extended Mix).flac": {
+  "bpm": 165.0,
+  "camelot": "5A",
+  "cutoff_hz": 22000.0,
+  "first_beat_s": 0.005,
+  "grade": "ok",
+  "lufs": -8.19,
+  "tempo_stabilne": false
+ },
+ "Dimitri Vegas, Sylver, Pat B - Turn The Tide (ft. Sylver).flac": {
+  "bpm": 155.0,
+  "camelot": "3A",
+  "cutoff_hz": 22000.0,
+  "first_beat_s": 1.164,
+  "grade": "ok",
+  "lufs": -6.0,
+  "tempo_stabilne": true
+ },
+ "FOVOS, Sarah de Warren - Call Me (Extended Mix).mp3": {
+  "bpm": 137.0,
+  "camelot": "1A",
+  "cutoff_hz": 20200.0,
+  "first_beat_s": 0.454,
+  "grade": "ok",
+  "lufs": -6.32,
+  "tempo_stabilne": true
+ }
+}

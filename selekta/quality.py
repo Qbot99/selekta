@@ -37,6 +37,7 @@ def _decode(path: str, ss: float, dur: float, fmt: str, extra: list[str]) -> byt
 
 
 def spectral_cutoff(path: str, length: float, sr: int) -> float:
+
     ss = max(0.0, length / 2 - 30)
     raw = _decode(path, ss, 60, "f32le", ["-ac", "1", "-ar", str(sr)])
     x = np.frombuffer(raw, dtype=np.float32)

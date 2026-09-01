@@ -43,6 +43,15 @@ SR = 11025            # częstotliwość analizy (mono)
 N_FFT = 1024          # okno STFT ~92.9 ms
 HOP = 512             # hop ~46.4 ms  ->  fps ~21.53 klatek/s
 FPS = SR / HOP
+# Klatka k obejmuje próbki [k*HOP, k*HOP+N_FFT), a indeks etykietuje jej
+# POCZĄTEK. Czas zdarzenia leży bliżej środka okna, więc bez tej poprawki
+# każdy moment liczony z klatek wypada systematycznie o pół okna za wcześnie
+# — przy 150 BPM to 12% bitu, czyli widocznie przesunięta siatka.
+# Stosujemy ją TYLKO tam, gdzie faza zamienia się na moment w pliku:
+# przy pomiarze dryfu tempa jest to stałe przesunięcie, które i tak
+# znika przy odejmowaniu, a na sztucznej obwiedni w testach nie ma
+# żadnego okna STFT, więc korekta byłaby błędem.
+OPOZNIENIE_OKNA_S = N_FFT / (2 * SR)
 
 LOW_HZ = 250.0        # górna granica pasma "stopa + bas"
 
@@ -240,7 +249,10 @@ def _first_beat(total: np.ndarray, flux: np.ndarray,
         return klatka / FPS
 
     okres = 60.0 / bpm
-    przesuniecie = faza_siatki(flux, bpm)
+    # Dopiero tutaj faza staje się momentem w pliku, więc dopiero tutaj
+    # trzeba oddać opóźnienie okna STFT. Sama faza_siatki liczy czystą
+    # matematykę na obwiedni i nie wie, jak ta obwiednia powstała.
+    przesuniecie = (faza_siatki(flux, bpm) + OPOZNIENIE_OKNA_S) % okres
     start = i0 / FPS
     # pierwsze uderzenie siatki nie wcześniejsze niż początek muzyki
     k = math.ceil((start - przesuniecie) / okres - 1e-9)

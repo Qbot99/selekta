@@ -76,3 +76,39 @@ Opcjonalnie: slskd (Soulseek), `.[macos]` (ikony Findera).
 2. Soulseek zawsze jako *bring-your-own slskd* — apka jest menedżerem
    biblioteki i wyszukiwarką zakupową; nie dystrybuuje cudzych nagrań.
 3. Spotify przez oficjalne Web API przed publikacją.
+
+## Testy regresyjne
+
+Zestaw ma dwie warstwy, które sprawdzają różne rzeczy.
+
+**Testy zachowania** (większość) pilnują, czy kod nie rzuca wyjątkiem
+i czy przepływ ma sens.
+
+**Testy regresyjne** pilnują LICZB. Bez nich przestawienie progu
+w detekcji fałszywego lossless albo zmiana okna przy liczeniu BPM
+przechodzi przez cały zestaw, a wyniki cicho się przesuwają — i człowiek
+dowiaduje się o tym, ufając złej liczbie w klubie.
+
+* `tests/test_regresja_dsp.py` — sygnały o ZNANYCH właściwościach,
+  generowane kodem (`tests/probka.py`). Metronom o zadanym tempie, szum
+  z pasmem uciętym dokładnie na 16 kHz, ton o znanej amplitudzie.
+  Odpowiadają na pytanie „czy wynik jest POPRAWNY”, bo prawdę znamy
+  z fizyki sygnału. Nie ma tu żadnych cudzych nagrań — pliki powstają
+  deterministycznie przy uruchomieniu testu.
+
+* `tests/test_regresja_biblioteka.py` — migawka wyników dla stałego
+  zestawu prawdziwych plików. Odpowiada na inne pytanie: „czy moja zmiana
+  ruszyła coś, czego nie zamierzałem ruszyć”. Prawdziwy utwór ma synkopy,
+  pogłos i breakdowny, których metronom nie odtworzy. Test pomija się sam,
+  gdy nie ma biblioteki albo migawki.
+
+Odświeżenie migawki po ZAMIERZONEJ zmianie algorytmu:
+
+```
+python -m tests.test_regresja_biblioteka --zapisz
+```
+
+Obie warstwy są potrzebne. Przy sprawdzeniu: celowe zaniżenie wykrywanej
+granicy pasma o 4% wywaliło całą migawkę (12/12), a sygnały wzorcowe
+przepuściły je przy zbyt luźnej tolerancji — dopiero jej zaostrzenie
+sprawiło, że łapią to obie.

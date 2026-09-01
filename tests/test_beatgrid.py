@@ -56,12 +56,19 @@ class TestFazaSiatki:
 class TestKotwicaNaSiatce:
     @pytest.mark.parametrize("bpm,faza_ms", [(150.0, 120), (128.0, 40), (174.0, 250)])
     def test_kotwica_lezy_na_uderzeniu(self, bpm, faza_ms):
-        """Kotwica ma wypadać na jednym z impulsów, nie pomiędzy nimi."""
+        """Kotwica ma wypadać na jednym z impulsów, nie pomiędzy nimi.
+
+        Podajemy tu SZTUCZNĄ obwiednię, w której nie ma okna STFT — a
+        `_first_beat` oddaje jego opóźnienie, bo w produkcji obwiednia
+        zawsze z niego pochodzi. Dlatego odejmujemy tę znaną stałą; na
+        prawdziwym dźwięku sprawdza to test regresyjny z modułu
+        test_regresja_dsp.
+        """
         okres = 60.0 / bpm
         faza = (faza_ms / 1000.0) % okres
         flux = _obwiednia_z_uderzeniami(bpm, faza)
         total = np.ones_like(flux)                  # muzyka gra od początku
-        kotwica = cues._first_beat(total, flux, bpm)
+        kotwica = cues._first_beat(total, flux, bpm) - cues.OPOZNIENIE_OKNA_S
         reszta = (kotwica - faza) % okres
         odchylka = min(reszta, okres - reszta)
         assert odchylka < 0.030, f"kotwica obok siatki o {odchylka*1000:.0f} ms"
