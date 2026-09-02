@@ -449,3 +449,23 @@ class TestTrafnoscTytulu:
         d = c.describe(h, "Captain Jack", "Captain Jack", 200)
         assert d["title_match"] == 0.0
         assert d["artist_match"] == 1.0      # artysta wolno z całej ścieżki
+
+
+def test_jakosc_wygrywa_z_wolnym_slotem():
+    """320 kbps z zajętym slotem > 128 kbps z wolnym.
+
+    Regresja z 1.09.2026: „free" stało w _RANK_ORDER przed „br", więc dla
+    MP3 popularna 128-tka z wolnym slotem ogrywała 320-tkę z kolejką.
+    Wolny slot przyspiesza pobranie, ale nie ratuje jakości — dokładnie
+    ta pomyłka zapełniła kiedyś bibliotekę 128-tkami.
+    """
+    c = SlskdClient(base_url="http://localhost:9", api_key="x")
+    szybkie_128 = [SearchHit(f"u{i}", "Artist - Tytul X.mp3", 4_000_000,
+                             128, 200, False, True) for i in range(5)]
+    wolne_320 = SearchHit("u320", "Artist - Tytul X.mp3", 9_600_000,
+                          320, 200, False, False)
+    ranked = c.rank(szybkie_128 + [wolne_320], want_duration_s=200,
+                    artist="Artist", title="Tytul X")
+    assert ranked[0].bitrate == 320, (
+        f"wygrał {ranked[0].bitrate} kbps (free_slot="
+        f"{ranked[0].free_slot}) — jakość ma stać przed wolnym slotem")

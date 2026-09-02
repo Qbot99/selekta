@@ -117,8 +117,8 @@ def test_check_marks_found_and_records_best_hit():
     mp3 = SearchHit("userB", "Odymel - Gucci.mp3", 8_000_000, 320, 213, False, True)
     client = _StubClient([mp3, flac])
 
-    finds = wishlist.check(client)
-    assert len(finds) == 1
+    finds, nieudane = wishlist.check(client)
+    assert len(finds) == 1 and nieudane == 0
     assert client.queries == ["Odymel Gucci"]
     entry = wishlist.items()[0]
     assert entry["found"] is True
@@ -127,19 +127,22 @@ def test_check_marks_found_and_records_best_hit():
     assert "found_at" in entry
 
     # drugi przebieg: wpis już znaleziony — nie szukamy ponownie
-    assert wishlist.check(client) == []
+    assert wishlist.check(client) == ([], 0)
     assert client.queries == ["Odymel Gucci"]
 
 
 def test_check_network_error_is_skipped_not_fatal():
     wishlist.add("A", "1")
-    assert wishlist.check(_DeadClient()) == []
+    finds, nieudane = wishlist.check(_DeadClient())
+    assert finds == [] and nieudane == 1, (
+        "błąd sieci ma być POLICZONY — zlewanie go z 'nic nowego' "
+        "ukrywało martwego slskd miesiącami")
     assert wishlist.items()[0]["found"] is False
 
 
 def test_check_no_hits_leaves_entry_pending():
     wishlist.add("A", "1")
-    assert wishlist.check(_StubClient([])) == []
+    assert wishlist.check(_StubClient([])) == ([], 0)
     assert wishlist.items()[0]["found"] is False
 
 

@@ -111,8 +111,9 @@ def cmd_verify(args) -> None:
             print(f"    nie da się odczytać: {e}")
             continue
         bad += rep.grade != "ok"
+        kbps = f" · {rep.bitrate_kbps} kbps" if rep.bitrate_kbps else ""
         print(f"{GRADE_ICON[rep.grade]} {os.path.basename(p)}")
-        print(f"    cutoff {rep.cutoff_hz/1000:.1f} kHz — {rep.verdict}")
+        print(f"    cutoff {rep.cutoff_hz/1000:.1f} kHz{kbps} — {rep.verdict}")
     print(f"\n{len(files) - bad}/{len(files)} plików bez zastrzeżeń")
 
 
@@ -240,6 +241,9 @@ def cmd_analyze(args) -> None:
         rows.append((os.path.basename(p), ta))
         if args.apply:
             harmonic.write_tags(p, ta)
+            # zapis tagów zmienia mtime, a mtime jest częścią klucza cache —
+            # bez ponownego put następne uruchomienie liczyłoby wszystko od zera
+            cache.put(p, "harmonic", asdict(ta))
         print(f"{ta.bpm:>5.1f} BPM  {ta.camelot:>3}  {ta.key:<8} {os.path.basename(p)}{flag}")
 
     if args.order:
@@ -267,6 +271,9 @@ def cmd_export(args) -> None:
         tracks = dj_export.collect(args.folder)
     name = args.name or os.path.basename(os.path.normpath(args.folder))
     if args.target == "rekordbox":
+        # to samo wzbogacenie co eksport z aplikacji: siatka, cue i ręczna
+        # praca z rekordboxa — XML z terminala był bez TEMPO/POSITION_MARK
+        tracks = dj_export.wzbogac_o_siatke(tracks)
         out = args.out or os.path.join(args.folder, f"{name}.xml")
         print("zapisano rekordbox XML:", dj_export.to_rekordbox_xml(tracks, name, out))
     elif args.target == "m3u8":
@@ -296,11 +303,18 @@ def cmd_wishlist(args) -> None:
         removed = wishlist.remove(args.remove)
         print(f"usunięto: {removed['artist']} — {removed['title']}" if removed else "nie znaleziono")
     elif args.check:
-        found = wishlist.check(SlskdClient())
-        print(f"{len(found)} pozycji z listy życzeń pojawiło się na Soulseeku"
-              if found else "nic nowego z listy życzeń")
-        for it in found:
-            print(f"  ★ {it['artist']} — {it['title']}")
+        found, nieudane = wishlist.check(SlskdClient())
+        if found:
+            print(f"{len(found)} pozycji z listy życzeń pojawiło się na Soulseeku")
+            for it in found:
+                print(f"  ★ {it['artist']} — {it['title']}")
+        elif nieudane:
+            sys.exit(f"nie udało się sprawdzić {nieudane} pozycji — slskd "
+                     f"nie odpowiada (uruchom go w aplikacji albo `selekta serve`)")
+        else:
+            print("nic nowego z listy życzeń")
+        if found and nieudane:
+            print(f"⚠️ {nieudane} pozycji nie udało się sprawdzić — slskd przerywał")
     elif args.daemon:
         print(f"wishlist daemon: sprawdzam co {args.interval//60} min (Ctrl+C przerywa)")
         wishlist.daemon(interval_s=args.interval, client=SlskdClient())

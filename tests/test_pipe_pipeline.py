@@ -129,3 +129,46 @@ def test_next_source_all_tried_returns_none():
 
 def test_next_source_empty_hits_returns_none():
     assert pipeline.next_source([], set(), None) is None
+
+
+def test_transkod_z_320_oblewa_pelna_weryfikacje(tmp_path):
+    """Regresja z 1.09.2026: FLAC z pasmem MP3 320 przechodził `check`
+    jako „warn" — ostrzeżenie łatwe do przeoczenia. PRAWDZIWY transkod
+    (ściana + cyfrowa cisza nad cięciem) ma OBLAĆ bramkę."""
+    import subprocess
+    import sys
+    sys.path.insert(0, "/Users/hubert/claude/selekta/tests")
+    import probka
+    wav = probka.pelne_pasmo(str(tmp_path / "a.wav"), sekund=70)
+    mp3 = probka.do_mp3(wav, str(tmp_path / "a.mp3"), 320)
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "quiet", "-i", mp3,
+                    str(tmp_path / "dekod.wav")], check=True)
+    flac = probka.do_flac(str(tmp_path / "dekod.wav"),
+                          str(tmp_path / "transkod.flac"))
+    wynik = pipeline.sound_quality(flac)
+    assert wynik.passed is False, wynik.detail
+    assert "transkod" in wynik.detail
+
+
+def test_master_z_lowpassem_przechodzi_check(tmp_path):
+    """Druga strona dyskryminatora: 1/5 legalnych plików w bibliotece to
+    mastery z lowpassem ~20.1-20.8 kHz — mają energię nad cięciem
+    (zmierzone -45..-60 dB) i NIE mogą oblewać weryfikacji pobrań."""
+    import sys
+    sys.path.insert(0, "/Users/hubert/claude/selekta/tests")
+    import probka
+    wav = probka.obciete_pasmo(str(tmp_path / "m.wav"), 20.3, sekund=70)
+    flac = probka.do_flac(wav, str(tmp_path / "master.flac"))
+    wynik = pipeline.sound_quality(flac)
+    assert wynik.passed is True, wynik.detail
+
+
+def test_mp3_256_dalej_przechodzi_check(tmp_path):
+    """Warn dla stratnych to niższa półka, nie fałszerstwo — przechodzi."""
+    import sys
+    sys.path.insert(0, "/Users/hubert/claude/selekta/tests")
+    import probka
+    wav = probka.obciete_pasmo(str(tmp_path / "t.wav"), 19.0)
+    mp3 = probka.do_mp3(wav, str(tmp_path / "srednie.mp3"), 256)
+    wynik = pipeline.sound_quality(mp3)
+    assert wynik.passed is True, wynik.detail

@@ -121,8 +121,17 @@ def _challenged(text: str) -> bool:
 
 
 def _curl(url: str, post_json: str | None = None) -> str | None:
-    """Fetch via system curl (its TLS fingerprint passes the bot-wall)."""
+    """Fetch via system curl (its TLS fingerprint passes the bot-wall).
+
+    Honoruje proxy ze środowiska: ścieżka requests je respektuje, a goły
+    curl je omijał — radaru nie dało się odciąć od sieci ani przepuścić
+    przez proxy, bo fallback i tak szedł prosto w internet.
+    """
     cmd = ["curl", "-sL", "--max-time", str(TIMEOUT), "-A", UA_STRING]
+    proxy = (os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+             or os.environ.get("ALL_PROXY") or os.environ.get("all_proxy"))
+    if proxy:
+        cmd += ["--proxy", proxy]
     if post_json is not None:
         cmd += ["-X", "POST", "-H", "Content-Type: application/json",
                 "-d", post_json]

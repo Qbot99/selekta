@@ -340,3 +340,51 @@ def install_serato_crate(tracks: list[dict], library_root: str,
     safe = FORBIDDEN.sub("", crate_name).strip().rstrip(".") or "crate"
     crate_path = os.path.join(library_root, "_Serato_", "Subcrates", safe + ".crate")
     return to_serato_crate(tracks, crate_path)
+
+def wzbogac_o_siatke(tracks: list[dict]) -> list[dict]:
+    """Dołóż do eksportu siatkę beatów i punkty cue.
+
+    Bez tego rekordbox analizuje utwór po swojemu i sam ustawia kotwicę —
+    nasze wyliczenie pierwszego uderzenia przepada, a razem z nim intro,
+    drop i outro. Dane bierzemy z pamięci podręcznej; liczymy tylko to,
+    czego jeszcze nie ma.
+    """
+    from dataclasses import asdict
+
+    from . import cache, cues, harmonic, rbimport, waveform
+
+    for t in tracks:
+        path = t.get("path")
+        if not path or not os.path.isfile(path):
+            continue
+        h = cache.get(path, "harmonic")
+        if h is None:
+            h = asdict(harmonic.analyze(path)); cache.put(path, "harmonic", h)
+        if not t.get("bpm") and h.get("bpm"):
+            t["bpm"] = h["bpm"]
+        if not t.get("key") and h.get("key"):
+            t["key"] = h["key"]
+        c = cache.get(path, "cues")
+        if c is None:
+            c = asdict(cues.analyze(path, bpm=h.get("bpm")))
+            cache.put(path, "cues", c)
+        # Kolejność ważności kotwicy: poprawka zrobiona w selekcie (ostatnia
+        # świadoma decyzja w tej apce) > to, co przyszło z rekordboxa >
+        # nasze wyliczenie.
+        rb = rbimport.dla_pliku(path) or {}
+        reczna = waveform.wczytaj_siatke(path) or {}
+        t["first_beat_s"] = (reczna.get("first_beat_s")
+                             or rb.get("first_beat_s")
+                             or c.get("first_beat_s"))
+        if reczna.get("bpm"):
+            t["bpm"] = reczna["bpm"]
+        # Ręczna praca z rekordboxa przechodzi dalej nietknięta.
+        if rb:
+            t["znaczniki"] = rb.get("znaczniki") or []
+            for klucz in ("kolor", "ocena", "odtworzen", "komentarz"):
+                if rb.get(klucz):
+                    t[klucz] = rb[klucz]
+        t["intro_end_s"] = c.get("intro_end_s")
+        t["drop_s"] = c.get("drop_s")
+        t["outro_start_s"] = c.get("outro_start_s")
+    return tracks

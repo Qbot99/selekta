@@ -21,7 +21,10 @@ from urllib.parse import quote_plus
 from .spotify import Track
 
 # słowa, po których poznajemy wydawnictwo nieoficjalne
-_NIEOFICJALNE = ("bootleg", "mashup", "mash-up", "edit", "flip", "rework")
+# „edit" bez „radio " przed sobą: Radio Edit to oficjalna wersja sklepowa,
+# a trafiała na SoundCloud jako rzekomy bootleg
+_NIEOFICJALNE = ("bootleg", "mashup", "mash-up", r"(?<!radio )edit",
+                 "flip", "rework")
 
 
 def beatport_search(track: Track) -> str:

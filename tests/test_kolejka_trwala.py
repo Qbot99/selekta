@@ -100,3 +100,48 @@ class TestOdpornoscNaRozlaczenia:
                 job.status, job.detail = "waiting", "wrócę, gdy połączenie wróci"
         assert job.status == "waiting", "utwór ma czekać, nie zostać spalony"
         assert job.attempts == 0, "rozłączenie nie liczy się jako próba utworu"
+
+
+def test_rownolegly_zapis_nie_zostawia_uszkodzonego_pliku(tmp_path, monkeypatch):
+    """Młócka zapisów z wielu wątków — plik stanu ma być ZAWSZE parsowalny.
+
+    Regresja z 1.09.2026: wspólna nazwa pliku tymczasowego i zapis poza
+    blokadą pozwalały drugiemu wątkowi dopisywać do i-węzła opublikowanego
+    już przez os.replace — restart trafiony w to okno wstawał z pustą
+    kolejką bez żadnego błędu.
+    """
+    import json as _json
+    import threading as _th
+    from selekta import config as _cfg, dlqueue as _dl
+    monkeypatch.setattr(_cfg, "STATE_DIR", str(tmp_path))
+    monkeypatch.setattr(_dl, "PLIK_KOLEJKI", str(tmp_path / "kolejka.json"))
+
+    q = _dl.Queue.__new__(_dl.Queue)
+    q._jobs = [_dl.Job(artist=f"a{i}", title=f"t{i}") for i in range(40)]
+    q._lock = __import__("threading").Lock()
+
+    stop = _th.Event()
+    zepsute = []
+
+    def mloc():
+        while not stop.is_set():
+            q._zapisz()
+
+    def czytaj():
+        while not stop.is_set():
+            try:
+                with open(str(tmp_path / "kolejka.json"), encoding="utf-8") as fh:
+                    _json.load(fh)
+            except FileNotFoundError:
+                pass
+            except ValueError as e:
+                zepsute.append(str(e))
+
+    q._zapisz()
+    watki = [_th.Thread(target=mloc) for _ in range(4)] + [_th.Thread(target=czytaj)]
+    for w in watki: w.start()
+    import time as _t; _t.sleep(1.5); stop.set()
+    for w in watki: w.join()
+    assert not zepsute, f"plik stanu bywał nieparsowalny: {zepsute[:3]}"
+    with open(str(tmp_path / "kolejka.json"), encoding="utf-8") as fh:
+        assert len(_json.load(fh)) == 40

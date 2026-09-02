@@ -68,3 +68,13 @@ def test_zwykly_utwor_bez_tropu_do_soundcloud():
     from selekta.stores import is_unofficial
     assert not is_unofficial(t)
     assert "soundcloud" not in buy_links(t)
+
+
+def test_radio_edit_jest_oficjalny():
+    """Regresja z 1.09.2026: słowo „edit" na liście nieoficjalnych wysyłało
+    oficjalny Radio Edit na SoundCloud z komunikatem „nie ma go w sklepach"."""
+    from selekta import stores
+    assert stores.is_unofficial(_t("Cascada",
+                                   "Everytime We Touch (Radio Edit)")) is False
+    assert stores.is_unofficial(_t("Ktoś", "Cudzy Utwór (DJ X Edit)")) is True
+    assert stores.is_unofficial(_t("Ktoś", "Utwór (Bootleg)")) is True

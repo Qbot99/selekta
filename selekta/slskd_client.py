@@ -139,8 +139,10 @@ _AUDIO_EXT_HIT = (".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a",
 # przed „nvar"/„copies" podniosło udział plików bezstratnych z 10/21 do
 # 16/21 przy niezmienionej trafności 95%. Wcześniej rzadki FLAC przegrywał
 # z rozpowszechnionym MP3 128 kbps — stąd biblioteka pełna 128-tek.
+# „br" przed „free": 320 kbps z zajętym slotem ma wygrywać ze 128 kbps
+# z wolnym — wolny slot przyspiesza pobranie, ale nie ratuje jakości
 _RANK_ORDER = ("ok", "tcov", "d15", "acov", "d3",
-               "loss", "free", "br", "nvar", "copies", "size")
+               "loss", "br", "free", "nvar", "copies", "size")
 
 
 def build_ladder(artist: str, title: str) -> list[str]:
@@ -340,11 +342,14 @@ class SlskdClient:
 
         1. trafność nazwy (czy ścieżka zawiera artystę i tytuł),
         2. zgodny czas trwania (±3 s) — najmocniejszy dowód,
-        3. bezstratność, 4. wolny slot, 5. bitrate, 6. rozmiar.
+        3. bezstratność, 4. bitrate, 5. wolny slot, 6. rozmiar.
 
         Format jest NIŻEJ niż czas i nazwa: FLAC innego utworu jest gorszy
-        niż MP3 tego właściwego. Rozmiar rozstrzyga na końcu, bo największy
-        plik to zwykle godzinny miks zawierający utwór, a nie utwór.
+        niż MP3 tego właściwego. Bitrate stoi PRZED wolnym slotem — slot
+        przyspiesza pobranie, ale nie ratuje jakości, a popularna 128-tka
+        z wolnym slotem ogrywała tu 320-tkę z kolejką. Rozmiar rozstrzyga
+        na końcu, bo największy plik to zwykle godzinny miks zawierający
+        utwór, a nie utwór.
         """
         a_tok, t_tok = _tokens(primary_artist(artist)), _tokens(title)
 
@@ -354,8 +359,8 @@ class SlskdClient:
                 want_duration_s and h.length_s
                 and abs(h.length_s - want_duration_s) <= 3
             )
-            return (round(rel, 2), bool(dur_ok), h.is_lossless, h.free_slot,
-                    h.bitrate or 0, h.size)
+            return (round(rel, 2), bool(dur_ok), h.is_lossless,
+                    h.bitrate or 0, h.free_slot, h.size)
 
         return sorted(hits, key=key, reverse=True)
 

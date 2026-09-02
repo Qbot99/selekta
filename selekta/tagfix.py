@@ -49,12 +49,17 @@ _MP4_EXT = (".m4a",)
 
 # Glify bajtów wiodących sekwencji UTF-8 (0xC2-0xC5 oraz 0xE2). W mojibake
 # występują sparowane z kolejnym znakiem spoza ASCII — to główny odcisk palca.
-_LEAD_BYTES = frozenset({0xC2, 0xC3, 0xC4, 0xC5, 0xE2})
+# ordy GLIFÓW, na które bajty wiodące UTF-8 (0xC2-0xC5, 0xE2) mapują się
+# w cp1252/latin-1 (Â Ã Ä Å â) ORAZ w cp1250 (Â Ă Ä Ĺ â) — polskie tagi
+# z lat MP3 to najczęściej właśnie cp1250
+_LEAD_BYTES = frozenset({0xC2, 0xC3, 0xC4, 0xC5, 0xE2, 0x102, 0x139})
 
 # Charakterystyczne sekwencje mojibake (dla czytelności i szybkiego testu).
 MOJIBAKE_MARKERS: tuple[str, ...] = (
     "Ã", "Â", "â€", "Ã©", "Ã¨", "Ã¼", "Ã¶", "Ã¤", "Ã ", "Ã§", "Ã±",
     "Ã…", "Ãœ", "Ã–", "Ã„", "Ã‰", "Å", "â€™", "â€œ", "â€“", "â‚¬",
+    # cp1250 (polskie): ż→ĹĽ, ó→Ăł, ł→Ĺ‚, ś→Ĺ›, ć→Ä‡, ń→Ĺ„, ę→Ä™
+    "ĹĽ", "Ăł", "Ĺ‚", "Ĺ›", "Ä‡", "Ĺ„", "Ä™",
 )
 
 
@@ -149,6 +154,14 @@ def _mojibake_score(text: str) -> int:
     score = text.count("�")
     for i in range(len(text) - 1):
         if ord(text[i]) in _LEAD_BYTES and ord(text[i + 1]) >= 0x80:
+            # rumuńska pułapka: Ă i Â to zwykłe rumuńskie litery, a Ş (stara
+            # cedilla, standard w tagach z ery cp1250) ma w cp1250 bajt
+            # KONTYNUACJI UTF-8 — więc zdrowe „MĂŞTI" czy „CÂŞTIG" wygląda
+            # bajtowo jak poprawne UTF-8 i bezpiecznik enkodowania go nie
+            # łapie. Ceną jest przepuszczenie mojibake francuskiego ê/ª
+            # czytanego jako cp1250 — rzadszego niż rumuńskie wersaliki.
+            if text[i] in "ĂÂ" and text[i + 1] in "ŞşȘș":
+                continue
             score += 1
     return score
 
@@ -156,14 +169,14 @@ def _mojibake_score(text: str) -> int:
 def _decode_once(text: str) -> str | None:
     """Jedna próba odwrócenia mojibake.
 
-    Próbuje kolejno cp1252 i latin-1; zwraca najlepszy wariant, który jest
+    Próbuje kolejno cp1252, cp1250 i latin-1; zwraca najlepszy wariant, który jest
     poprawnym UTF-8 i obniża wynik ``_mojibake_score`` względem wejścia.
     Zwraca ``None``, gdy żaden wariant nie poprawia napisu.
     """
     base = _mojibake_score(text)
     best: str | None = None
     best_score = base
-    for enc in ("cp1252", "latin-1"):
+    for enc in ("cp1252", "cp1250", "latin-1"):
         try:
             candidate = text.encode(enc).decode("utf-8")
         except (UnicodeEncodeError, UnicodeDecodeError):

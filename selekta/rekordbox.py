@@ -73,12 +73,19 @@ def imported_library() -> str | None:
     if not p:
         return None
     m = re.search(rf'<VALUE name="{KEY}" val="([^"]*)"', _read(p))
-    return m.group(1) if m else None
+    if not m:
+        return None
+    return _xml_unescape(m.group(1))
 
 
 def _xml_escape(value: str) -> str:
     return (value.replace("&", "&amp;").replace('"', "&quot;")
             .replace("<", "&lt;").replace(">", "&gt;"))
+
+
+def _xml_unescape(value: str) -> str:
+    return (value.replace("&quot;", '"').replace("&lt;", "<")
+            .replace("&gt;", ">").replace("&amp;", "&"))
 
 
 def install(xml_path: str) -> InstallResult:
@@ -110,7 +117,9 @@ def install(xml_path: str) -> InstallResult:
                    "— wskaż plik ręcznie w Preferencjach",
             settings_path=settings)
 
-    previous = m.group(2)
+    # porównujemy po odescapowaniu: wartość w pliku ma '&amp;', ścieżka '&'
+    # — bez tego ponowny install ścieżki z '&' nie poznawał własnego wpisu
+    previous = _xml_unescape(m.group(2))
     if previous == xml_path:
         return InstallResult(True, "playlista była już podpięta — odpal rekordbox",
                              settings_path=settings, previous=previous)

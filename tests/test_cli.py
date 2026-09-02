@@ -177,3 +177,45 @@ class TestBledneWejscie:
         assert r.returncode != 0
         assert "Traceback" not in r.stderr
         assert "nie rozpoznano" in r.stderr
+
+
+class TestNaprawyZastrzezen:
+    """Regresje z listy zastrzeżeń weryfikacji 1.09.2026."""
+
+    def test_export_z_cli_ma_siatke_i_cue(self, tmp_path):
+        """XML z terminala był bez TEMPO/POSITION_MARK — pełny eksport
+        robiła tylko aplikacja webowa."""
+        import sys
+        sys.path.insert(0, "/Users/hubert/claude/selekta/tests")
+        import probka
+        probka.metronom(str(tmp_path / "Test - Utwor.wav"), 128.0, sekund=30)
+        dom = tmp_path / "dom"; dom.mkdir()
+        r = run("analyze", "--folder", str(tmp_path), env_home=str(dom))
+        assert r.returncode == 0
+        r = run("export", "--folder", str(tmp_path), "--target", "rekordbox",
+                env_home=str(dom))
+        assert r.returncode == 0, r.stderr
+        xml = (tmp_path / f"{tmp_path.name}.xml").read_text(encoding="utf-8")
+        assert "<TEMPO" in xml and 'Bpm="128' in xml, "brak siatki w XML z CLI"
+
+    def test_analyze_apply_nie_uniewaznia_wlasnego_cache(self, tmp_path):
+        """Zapis tagów zmieniał mtime po włożeniu do cache, więc następne
+        uruchomienie liczyło wszystko od zera."""
+        import sys, time
+        sys.path.insert(0, "/Users/hubert/claude/selekta/tests")
+        import probka
+        probka.metronom(str(tmp_path / "Test - Utwor.wav"), 128.0, sekund=30)
+        dom = tmp_path / "dom"; dom.mkdir()
+        start = time.time()
+        r = run("analyze", "--folder", str(tmp_path), "--apply", env_home=str(dom))
+        czas_zimny = time.time() - start
+        assert r.returncode == 0, r.stderr
+        start = time.time()
+        r = run("analyze", "--folder", str(tmp_path), env_home=str(dom))
+        czas_cieply = time.time() - start
+        assert r.returncode == 0
+        # miara względna, nie bezwzględna — sztywne sekundy przewracały
+        # test przy obciążonej maszynie (zestaw + agenci równolegle)
+        assert czas_cieply < czas_zimny * 0.6, (
+            f"druga analiza {czas_cieply:.1f}s vs zimna {czas_zimny:.1f}s "
+            f"— cache po --apply nie zadziałał")

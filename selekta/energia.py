@@ -63,13 +63,38 @@ def _jasnosc_khz(x: np.ndarray) -> float:
 
 
 def _gestosc(flux: np.ndarray, bpm: float | None) -> float:
-    """Ile wyraźnych uderzeń przypada na takt."""
-    if flux.size == 0 or not bpm:
+    """Ile wyraźnych uderzeń przypada na takt.
+
+    Dwa mechanizmy, każdy z pomiarów:
+
+    * BRAMKA OKRESOWOŚCI — perkusja koreluje sama ze sobą przy opóźnieniu
+      bitu, migotanie szumu na padzie nie. Zmierzone (autokorelacja fluxu
+      przy 60/bpm): pad bez perkusji -0.56, wszystko z perkusją — także
+      ciche i zmiksowane z melodią — od +0.27 (Flashback) do +0.88.
+      Poniżej progu zwracamy 0: nie ma pulsu, nie ma gęstości.
+    * PRÓG NA MAD (nie na odchyleniu standardowym, bo std zawyżają same
+      kopnięcia). k=3 z pomiarów na realnej bibliotece: utwory klubowe
+      139-150 BPM dają 4.7-6.9 zbocza na takt (syntetyczny bit 8.0), więc
+      próg fazy >= 4.0 jest osiągalny z zapasem; wcześniejsze k=8 było
+      przestrojone pod syntetyki i realne techno dawało 1.1-1.8, przez co
+      peak-time lądował w „rozgrzewce". Liczymy zbocza narastające
+      (osobne uderzenia), nie klatki nad progiem.
+    """
+    if flux.size < 8 or not bpm:
         return 0.0
-    prog = float(np.median(flux) + np.std(flux))
-    szczyty = int(np.sum(flux > prog))
+    f = flux - flux.mean()
+    lag = 60.0 / bpm * FPS
+    n = int(2 ** np.ceil(np.log2(2 * len(f))))
+    ac = np.fft.irfft(np.abs(np.fft.rfft(f, n)) ** 2)[: len(f)]
+    ac = ac / (ac[0] + 1e-12)
+    if lag >= len(ac) - 1 or np.interp(lag, np.arange(len(ac)), ac) < 0.1:
+        return 0.0
+    med = float(np.median(flux))
+    mad = float(np.median(np.abs(flux - med)))
+    prog = med + 3.0 * mad
+    zbocza = int(np.sum((flux[1:] > prog) & (flux[:-1] <= prog)))
     taktow = (flux.size / FPS) / (TAKT * 60.0 / bpm)
-    return round(szczyty / taktow, 2) if taktow > 0 else 0.0
+    return round(zbocza / taktow, 2) if taktow > 0 else 0.0
 
 
 def granice_fraz(czas_s: float, bpm: float | None, kotwica: float,
@@ -102,7 +127,10 @@ def _intro(krzywa: np.ndarray, jasnosc_intro: float, srednia: float) -> str:
     poczatek = float(krzywa[:max(2, krzywa.size // 12)].mean())
     if poczatek > 0.75 * srednia:
         return "od razu"
-    return "perkusyjne" if jasnosc_intro > 2.0 else "miękkie"
+    # próg 1.4 kHz z pomiarów po naprawie centroidy (analiza mono 11 kHz):
+    # realne utwory klubowe mają jasność 1.16-1.54; stare 2.0/2.2 były
+    # kalibrowane pod zepsutą funkcję zwracającą zawsze ~2.76
+    return "perkusyjne" if jasnosc_intro > 1.4 else "miękkie"
 
 
 def analizuj(path: str, bpm: float | None = None,
@@ -158,7 +186,7 @@ def _faza(s: Struktura) -> str:
     punkty = 0
     if s.srednia >= 0.55:
         punkty += 1
-    if s.jasnosc >= 2.2:
+    if s.jasnosc >= 1.4:
         punkty += 1
     if s.gestosc_perkusji >= 4.0:
         punkty += 1

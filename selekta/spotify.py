@@ -84,9 +84,14 @@ def track(sid: str) -> Track:
     )
 
 
-def playlist_tracks(sid: str) -> list[Track]:
-    """Track list from a playlist/album embed (embed caps very long playlists)."""
-    e = _entity("playlist" if True else "album", sid)
+def playlist_tracks(sid: str, kind: str = "playlist") -> list[Track]:
+    """Track list from a playlist/album embed (embed caps very long playlists).
+
+    ``kind`` musi zgadzać się z linkiem: album pytany przez endpoint playlist
+    („playlist" if True else „album" — pozostałość z debugowania) zwracał
+    pustkę, którą resolve() po cichu połykał — link do albumu dawał 0 utworów.
+    """
+    e = _entity(kind, sid)
     out = []
     for t in e.get("trackList", []):
         tid = t["uri"].rsplit(":", 1)[-1]
@@ -115,7 +120,7 @@ def resolve(text: str) -> list[Track]:
             if kind == "track":
                 tracks.append(track(sid))
             else:
-                tracks.extend(playlist_tracks(sid))
+                tracks.extend(playlist_tracks(sid, kind))
         except Exception:  # noqa: BLE001 — skip this item, keep the rest
             continue
     return tracks

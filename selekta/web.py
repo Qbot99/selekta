@@ -395,51 +395,6 @@ def api_redownload(payload: dict) -> JSONResponse:
 # eksport / USB
 # --------------------------------------------------------------------------
 
-def _wzbogac_o_siatke(tracks: list[dict]) -> list[dict]:
-    """Dołóż do eksportu siatkę beatów i punkty cue.
-
-    Bez tego rekordbox analizuje utwór po swojemu i sam ustawia kotwicę —
-    nasze wyliczenie pierwszego uderzenia przepada, a razem z nim intro,
-    drop i outro. Dane bierzemy z pamięci podręcznej; liczymy tylko to,
-    czego jeszcze nie ma.
-    """
-    for t in tracks:
-        path = t.get("path")
-        if not path or not os.path.isfile(path):
-            continue
-        h = cache.get(path, "harmonic")
-        if h is None:
-            h = asdict(harmonic.analyze(path)); cache.put(path, "harmonic", h)
-        if not t.get("bpm") and h.get("bpm"):
-            t["bpm"] = h["bpm"]
-        if not t.get("key") and h.get("key"):
-            t["key"] = h["key"]
-        c = cache.get(path, "cues")
-        if c is None:
-            c = asdict(cues.analyze(path, bpm=h.get("bpm")))
-            cache.put(path, "cues", c)
-        # Kolejność ważności kotwicy: poprawka zrobiona w selekcie (ostatnia
-        # świadoma decyzja w tej apce) > to, co przyszło z rekordboxa >
-        # nasze wyliczenie.
-        rb = rbimport.dla_pliku(path) or {}
-        reczna = waveform.wczytaj_siatke(path) or {}
-        t["first_beat_s"] = (reczna.get("first_beat_s")
-                             or rb.get("first_beat_s")
-                             or c.get("first_beat_s"))
-        if reczna.get("bpm"):
-            t["bpm"] = reczna["bpm"]
-        # Ręczna praca z rekordboxa przechodzi dalej nietknięta.
-        if rb:
-            t["znaczniki"] = rb.get("znaczniki") or []
-            for klucz in ("kolor", "ocena", "odtworzen", "komentarz"):
-                if rb.get(klucz):
-                    t[klucz] = rb[klucz]
-        t["intro_end_s"] = c.get("intro_end_s")
-        t["drop_s"] = c.get("drop_s")
-        t["outro_start_s"] = c.get("outro_start_s")
-    return tracks
-
-
 def _in_set_order(tracks: list[dict]) -> list[dict]:
     """Ułóż utwory w kolejności harmonicznej (koło Camelot, energia rosnąco).
 
@@ -471,7 +426,7 @@ def api_export(payload: dict) -> JSONResponse:
     if _field(payload, "order") == "set":
         tracks = _in_set_order(tracks)
     if target == "rekordbox":
-        out = dj_export.to_rekordbox_xml(_wzbogac_o_siatke(tracks), name,
+        out = dj_export.to_rekordbox_xml(dj_export.wzbogac_o_siatke(tracks), name,
                                          os.path.join(_folder(), f"{name}.xml"))
     elif target == "m3u8":
         out = dj_export.to_m3u8(tracks, os.path.join(_folder(), f"{name}.m3u8"))
@@ -1134,8 +1089,7 @@ def api_setup_konfiguruj(payload: dict | None = None) -> JSONResponse:
     Klucz API to sekret między selektą a slskd na tej maszynie — nie ma
     nic wspólnego z hasłem do Soulseeka i nigdzie nie wychodzi.
     """
-    yml = slskd_ctl.find_config() or os.path.expanduser(
-        "~/Library/Application Support/slskd/slskd.yml")
+    yml = slskd_ctl.config_write_path()
     klucz = config.get("slskd_api_key") or instalator.wygeneruj_klucz()
     udostepniane = None
     if (payload or {}).get("udostepniaj"):
@@ -1168,8 +1122,7 @@ def api_setup_konto(payload: dict) -> JSONResponse:
     if len(login) > 64 or len(haslo) > 256:
         raise HTTPException(400, "login lub hasło są nieprawdopodobnie długie")
 
-    yml = slskd_ctl.find_config() or os.path.expanduser(
-        "~/Library/Application Support/slskd/slskd.yml")
+    yml = slskd_ctl.config_write_path()
     klucz = config.get("slskd_api_key") or instalator.wygeneruj_klucz()
     try:
         instalator.zapisz_konfiguracje(
@@ -2018,7 +1971,7 @@ def api_playlist_export(payload: dict) -> JSONResponse:
 
     items = _harmonic_for(files)
     ordered = harmonic.order_set(items)
-    tracks = _wzbogac_o_siatke(
+    tracks = dj_export.wzbogac_o_siatke(
         [dj_export.track_from_file(path) for path, _ta, _n in ordered])
     out = os.path.join(playlists.folder_for(name), f"{playlists.safe_name(name)}.xml")
     dj_export.to_rekordbox_xml(tracks, playlists.safe_name(name), out)

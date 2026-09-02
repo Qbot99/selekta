@@ -160,3 +160,22 @@ def test_playlist_tracks_public_playlist():
     # brak duplikatów id w obrębie playlisty
     ids = [t.id for t in tracks]
     assert len(ids) == len(set(ids))
+
+
+def test_album_pytany_przez_endpoint_albumu(monkeypatch):
+    """Regresja z 1.09.2026: '"playlist" if True else "album"' kierowało
+    linki do ALBUMÓW na endpoint playlisty; pustą odpowiedź resolve()
+    po cichu połykał i album dawał 0 utworów."""
+    from selekta import spotify
+    zapytane = []
+
+    def udawany_entity(kind, sid):
+        zapytane.append((kind, sid))
+        return {"trackList": []}
+
+    monkeypatch.setattr(spotify, "_entity", udawany_entity)
+    spotify.playlist_tracks("ID1")                      # domyślnie playlista
+    spotify.playlist_tracks("ID2", kind="album")
+    spotify.resolve("https://open.spotify.com/album/4aawyAB9vmqN3uQ7FjRGTy")
+    assert zapytane == [("playlist", "ID1"), ("album", "ID2"),
+                        ("album", "4aawyAB9vmqN3uQ7FjRGTy")]

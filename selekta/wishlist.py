@@ -87,14 +87,18 @@ def remove(id_or_index: str | int) -> dict | None:
 
 # ---------------------------------------------------------------- hunting
 
-def check(client: SlskdClient) -> list[dict]:
-    """Search slskd for every entry not yet found; return the new finds.
+def check(client: SlskdClient) -> tuple[list[dict], int]:
+    """Search slskd for every entry not yet found; return (finds, failures).
 
     A find marks the entry found=True and records the best-ranked hit.
-    Network errors on a single entry are skipped, not fatal.
+    Network errors on a single entry are skipped, not fatal — but COUNTED:
+    „0 znalezisk, 12 błędów sieci" i „0 znalezisk, wszystko sprawdzone"
+    to dwie różne wiadomości, a zlewanie ich w jedną pozwalało miesiącami
+    nie zauważyć, że slskd w ogóle nie działa.
     """
     entries = _load()
     finds: list[dict] = []
+    nieudane = 0
     for entry in entries:
         if entry.get("found"):
             continue
@@ -102,6 +106,7 @@ def check(client: SlskdClient) -> list[dict]:
         try:
             hits = client.search(query)
         except (requests.RequestException, KeyError, ValueError):
+            nieudane += 1
             continue  # slskd padł w trakcie — spróbujemy w następnym cyklu
         ranked = client.rank(hits, entry.get("duration_s"))
         if not ranked:
@@ -120,7 +125,7 @@ def check(client: SlskdClient) -> list[dict]:
         finds.append(entry)
     if finds:
         _save(entries)
-    return finds
+    return finds, nieudane
 
 
 # ---------------------------------------------------------------- notify
@@ -153,7 +158,7 @@ def daemon(interval_s: int = 3600, client: SlskdClient | None = None) -> None:
     try:
         while True:
             if client.available():
-                finds = check(client)
+                finds, _nieudane = check(client)
                 for entry in finds:
                     name = os.path.basename(entry["found_hit"]["filename"])
                     print(f"✓ znaleziono: {entry['artist']} — {entry['title']} ({name})")

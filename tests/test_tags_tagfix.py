@@ -124,3 +124,51 @@ class TestFixFile:
     def test_nonexistent_file_returns_empty(self, tmp_path):
         # _read_fields połyka błędy odczytu -> brak pól -> brak zmian.
         assert fix_file(str(tmp_path / "brak.mp3"), dry_run=True) == []
+
+
+from selekta import tagfix
+
+
+class TestCp1250:
+    """Polskie mojibake — UTF-8 przeczytane jako cp1250.
+
+    Regresja z 1.09.2026: moduł odwracał tylko cp1252/latin-1, a najczęstsze
+    krzaczki w starych polskich MP3 pochodzą z cp1250 (Ĺ/Ľ/Ă nie istnieją
+    w cp1252, więc naprawa je pomijała).
+    """
+
+    def test_odwraca_polskie_mojibake(self):
+        zepsute = "Zażółć gęślą jaźń".encode("utf-8").decode("cp1250")
+        assert "ĹĽ" in zepsute            # upewniamy się, że to cp1250-krzaczki
+        assert tagfix._decode_repair(zepsute) == "Zażółć gęślą jaźń"
+
+    def test_przyklad_z_weryfikacji(self):
+        assert tagfix._decode_repair("ZaĹĽĂłĹ‚Ä‡ gÄ™Ĺ›lÄ… jaĹşĹ„") == \
+            "Zażółć gęślą jaźń"
+
+    def test_zdrowe_polskie_tagi_nietkniete(self):
+        for ok in ("Zażółć gęślą jaźń", "Kwęgiel — Łódź (Oryginał)",
+                   "Beyoncé", "Öwes", "ÅMRTÜM po naprawie"):
+            assert tagfix._decode_repair(ok) is None, f"ruszono zdrowy: {ok!r}"
+
+
+class TestRumunskaKolizja:
+    """Kontrprzykłady z kontroli 1.09.2026: para Ă/Â + Ş koduje się w cp1250
+    do POPRAWNEGO UTF-8, więc bezpiecznik enkodowania nie działa i zdrowe
+    rumuńskie wersaliki były „naprawiane" na śmieci."""
+
+    ZDROWE = ["MĂŞTI", "CÂŞTIG", "PĂŞUNE", "MĂŞTILE", "CÂŞTIGURI",
+              "MĂŞTI - CÂŞTIG"]
+
+    def test_zdrowe_rumunskie_nietkniete(self):
+        for w in self.ZDROWE:
+            assert tagfix._decode_repair(w) is None, f"ruszono: {w!r}"
+
+    def test_zdrowe_rumunskie_nie_wygladaja_na_mojibake(self):
+        for w in self.ZDROWE:
+            assert tagfix.looks_mojibake(w) is False, w
+
+    def test_polskie_mojibake_dalej_naprawiane(self):
+        assert tagfix._decode_repair("ZaĹĽĂłĹ‚Ä‡ gÄ™Ĺ›lÄ… jaĹşĹ„") == \
+            "Zażółć gęślą jaźń"
+        assert tagfix._decode_repair("GĂłry") == "Góry"

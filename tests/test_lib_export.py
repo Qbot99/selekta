@@ -257,3 +257,25 @@ class TestSiatkaWEksporcie:
         """Ujemny czas to błędne dane — lepiej nic, niż zła siatka."""
         assert self._xml(tmp_path, first_beat_s=-0.4).find(
             ".//COLLECTION/TRACK/TEMPO") is None
+
+
+def test_ponowny_install_ze_znakiem_and_jest_idempotentny(tmp_path, monkeypatch):
+    """Regresja z 1.09.2026: imported_library() oddawało ścieżkę w formie
+    escapowanej ('&amp;'), więc ponowny install tej samej playlisty z '&'
+    w nazwie nie poznawał własnego wpisu i podpinał ją od nowa."""
+    from selekta import rekordbox
+    ustawienia = tmp_path / "MASTER.SETTING.xml"
+    ustawienia.write_text(
+        f'<PROPERTIES><VALUE name="{rekordbox.KEY}" val=""/></PROPERTIES>',
+        encoding="utf-8")
+    monkeypatch.setattr(rekordbox, "settings_path", lambda: str(ustawienia))
+    monkeypatch.setattr(rekordbox, "is_running", lambda: False)
+    xml = tmp_path / "Moje sety & selekty.xml"
+    xml.write_text("<DJ_PLAYLISTS/>", encoding="utf-8")
+
+    pierwszy = rekordbox.install(str(xml))
+    assert pierwszy.ok and "była już" not in pierwszy.message
+    assert rekordbox.imported_library() == str(xml), "ma wrócić surowa ścieżka"
+    drugi = rekordbox.install(str(xml))
+    assert drugi.ok and "była już podpięta" in drugi.message, (
+        f"drugi install ścieżki z '&' ma poznać własny wpis: {drugi.message}")

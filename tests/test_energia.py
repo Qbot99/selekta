@@ -90,7 +90,7 @@ class TestFazaUtworu:
                                      gestosc_perkusji=6.0)) == "kulminacja"
 
     def test_cichy_i_rzadki_to_rozgrzewka(self):
-        assert energia._faza(self._s(srednia=.3, jasnosc=1.5,
+        assert energia._faza(self._s(srednia=.3, jasnosc=1.1,
                                      gestosc_perkusji=2.0)) == "rozgrzewka"
 
     def test_duzy_breakdown_odbiera_punkt(self):
@@ -175,10 +175,53 @@ class TestJasnosc:
         assert ucieta == pytest.approx(pelna, abs=0.05)
 
     def test_ciemne_vs_jasne_rozdzielone_progiem_faz(self):
-        """Progi 2.0/2.2 kHz w _intro/_faza mają po naprawie rozdzielać
-        ciemny pad od jasnej perkusji — wcześniej wszystko było 'jasne'."""
+        """Próg 1.4 kHz w _intro/_faza (z pomiarów na realnej bibliotece:
+        utwory klubowe 1.16-1.54) ma rozdzielać ciemny pad od jasnej
+        perkusji — przed naprawą osi wszystko było 'jasne' (2.76)."""
         rng = np.random.default_rng(7)
         ciemny_pad = self._sinus(150) + 0.3 * self._sinus(300)
         jasny_szum = rng.standard_normal(int(energia.SR * 8.0)) * 0.3
-        assert energia._jasnosc_khz(ciemny_pad) < 2.0
-        assert energia._jasnosc_khz(jasny_szum) > 2.2
+        assert energia._jasnosc_khz(ciemny_pad) < 1.4
+        assert energia._jasnosc_khz(jasny_szum) > 1.4
+
+
+class TestGestoscPerkusji:
+    """Regresja z 1.09.2026: próg mediana+std łapał migotanie szumu i pad
+    bez perkusji dostawał kilkanaście „uderzeń" na takt (a stąd zawyżoną
+    fazę). Po przejściu na MAD i zbocza pad ma dawać zero."""
+
+    def _flux(self, x):
+        from selekta.cues import _envelopes
+        return _envelopes(x.astype(np.float32))[2]
+
+    def _pad(self, sekund=30.0):
+        t = np.arange(int(energia.SR * sekund)) / energia.SR
+        pad = (np.sin(2*np.pi*110*t) + 0.6*np.sin(2*np.pi*165*t)
+               + 0.4*np.sin(2*np.pi*220*t))
+        return pad * 0.4 * (1 + 0.3*np.sin(2*np.pi*0.1*t))
+
+    def _bit(self, sekund=30.0):
+        t = np.arange(int(energia.SR * sekund)) / energia.SR
+        x = np.zeros_like(t)
+        okres = int(energia.SR * 60 / 128)
+        for i in range(0, len(t) - 2000, okres):
+            x[i:i+800] += (np.sin(2*np.pi*55*np.arange(800)/energia.SR)
+                           * np.exp(-np.arange(800)/200))
+        rng = np.random.default_rng(3)
+        x += 0.1*rng.standard_normal(len(t))*(np.arange(len(t)) % (okres//2) < 900)
+        return x
+
+    def test_pad_bez_perkusji_ma_zero(self):
+        """Bramka okresowości: pad nie koreluje przy opóźnieniu bitu
+        (zmierzone AC -0.56), więc gęstość ma być dokładnie 0."""
+        assert energia._gestosc(self._flux(self._pad()), 128.0) == 0.0
+
+    def test_bit_ma_pelna_gestosc(self):
+        assert energia._gestosc(self._flux(self._bit()), 128.0) > 6.0
+
+    def test_cichy_bit_tez_wykryty(self):
+        assert energia._gestosc(self._flux(self._bit() * 0.05), 128.0) > 6.0
+
+    def test_perkusja_na_tle_melodii_wykryta(self):
+        miks = self._pad() * 0.7 + self._bit() * 0.5
+        assert energia._gestosc(self._flux(miks), 128.0) > 6.0

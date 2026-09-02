@@ -62,6 +62,16 @@ def find_config() -> str:
     return ""
 
 
+def config_write_path() -> str:
+    """Dokąd pisać konfigurację slskd: istniejąca albo pierwszy kandydat.
+
+    KAŻDY zapis konfiguracji ma przechodzić tędy. Fallback rozstrzelony po
+    endpointach ominął 1.09.2026 stub testu i nadpisał prawdziwy plik
+    użytkownika — jedna funkcja daje testom jedno miejsce do podmiany.
+    """
+    return find_config() or os.path.expanduser(CONFIG_CANDIDATES[0])
+
+
 def api_key_from_slskd_config() -> str:
     """Wyłuskaj klucz API z konfiguracji slskd (sekcja api_keys).
 

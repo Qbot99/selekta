@@ -14,8 +14,10 @@ Dlatego:
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field, asdict
@@ -57,13 +59,23 @@ class Queue:
     def _zapisz(self) -> None:
         """Zrzuć kolejkę na dysk, żeby przeżyła zamknięcie apki."""
         try:
+            os.makedirs(config.STATE_DIR, exist_ok=True)
+            # cały zapis pod blokadą i z unikalną nazwą tymczasową: wspólny
+            # ".tmp" poza blokadą pozwalał drugiemu wątkowi dopisywać do
+            # i-węzła już opublikowanego przez os.replace — restart trafiony
+            # w to okno wstawał z pustą kolejką
             with self._lock:
                 dane = [asdict(j) for j in self._jobs]
-            os.makedirs(config.STATE_DIR, exist_ok=True)
-            tmp = PLIK_KOLEJKI + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(dane, fh, ensure_ascii=False)
-            os.replace(tmp, PLIK_KOLEJKI)
+                fd, tmp = tempfile.mkstemp(dir=config.STATE_DIR,
+                                           prefix="kolejka.", suffix=".tmp")
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                        json.dump(dane, fh, ensure_ascii=False)
+                    os.replace(tmp, PLIK_KOLEJKI)
+                except BaseException:
+                    with contextlib.suppress(OSError):
+                        os.unlink(tmp)
+                    raise
         except OSError:
             pass                              # zapis stanu nie może wywalić apki
 
