@@ -200,22 +200,27 @@ class TestNaprawyZastrzezen:
 
     def test_analyze_apply_nie_uniewaznia_wlasnego_cache(self, tmp_path):
         """Zapis tagów zmieniał mtime po włożeniu do cache, więc następne
-        uruchomienie liczyło wszystko od zera."""
-        import sys, time
+        uruchomienie liczyło wszystko od zera.
+
+        Bez pomiaru czasu (dwie wersje tego testu na stoperze okazały się
+        niestabilne pod obciążeniem): sprawdzamy wprost semantykę naprawy —
+        po --apply wpis w cache ma pasować do NOWEGO mtime pliku."""
+        import subprocess, sys
         sys.path.insert(0, "/Users/hubert/claude/selekta/tests")
         import probka
-        probka.metronom(str(tmp_path / "Test - Utwor.wav"), 128.0, sekund=30)
+        plik = str(tmp_path / "Test - Utwor.wav")
+        probka.metronom(plik, 128.0, sekund=30)
         dom = tmp_path / "dom"; dom.mkdir()
-        start = time.time()
         r = run("analyze", "--folder", str(tmp_path), "--apply", env_home=str(dom))
-        czas_zimny = time.time() - start
         assert r.returncode == 0, r.stderr
-        start = time.time()
-        r = run("analyze", "--folder", str(tmp_path), env_home=str(dom))
-        czas_cieply = time.time() - start
-        assert r.returncode == 0
-        # miara względna, nie bezwzględna — sztywne sekundy przewracały
-        # test przy obciążonej maszynie (zestaw + agenci równolegle)
-        assert czas_cieply < czas_zimny * 0.6, (
-            f"druga analiza {czas_cieply:.1f}s vs zimna {czas_zimny:.1f}s "
-            f"— cache po --apply nie zadziałał")
+        sonda = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; from selekta import cache; "
+             "sys.exit(0 if cache.get(sys.argv[1], 'harmonic') else 1)",
+             plik],
+            env={**__import__('os').environ, "HOME": str(dom)},
+            capture_output=True, text=True)
+        assert sonda.returncode == 0, (
+            f"wpis cache nie pasuje do mtime po zapisie tagów — "
+            f"następna analiza liczyłaby wszystko od zera "
+            f"(stderr sondy: {sonda.stderr[-400:]!r})")
