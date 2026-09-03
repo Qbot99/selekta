@@ -174,17 +174,18 @@ def _track_row(path: str) -> dict:
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
 
 
+def _wersja_pakietu() -> str:
+    from . import __version__
+    return __version__
+
+
 def _wersja_statykow() -> str:
     """Stempel do ?v= przy skryptach: wersja pakietu + czas ostatniej zmiany.
 
     Bez tego przeglądarka po aktualizacji apki potrafi trzymać stare
     ekrany z pamięci podręcznej i pokazywać błędy, których w kodzie już nie ma.
     """
-    try:
-        from importlib.metadata import version
-        w = version("selekta")
-    except Exception:  # noqa: BLE001 — uruchomienie ze źródeł bez instalacji
-        w = "dev"
+    w = _wersja_pakietu()
     katalog = os.path.join(HERE, "static", "ekrany")
     try:
         mt = max(os.path.getmtime(os.path.join(katalog, f)) for f in os.listdir(katalog))
@@ -502,12 +503,15 @@ def api_status() -> JSONResponse:
     client = SlskdClient()
     if not client.available():
         return JSONResponse({"level": "red", "label": "slskd nie działa",
-                             "hint": "Uruchom slskd w zakładce Ustawienia."})
+                             "hint": "Uruchom slskd w zakładce Ustawienia.",
+                             "wersja": _wersja_pakietu()})
     if not client.logged_in():
         return JSONResponse({"level": "amber", "label": "Soulseek: rozłączony",
                              "hint": "slskd działa, ale nie jest zalogowany do sieci "
-                                     "Soulseek. Zwykle wraca samo po chwili."})
-    return JSONResponse({"level": "green", "label": "Soulseek: połączony", "hint": ""})
+                                     "Soulseek. Zwykle wraca samo po chwili.",
+                             "wersja": _wersja_pakietu()})
+    return JSONResponse({"level": "green", "label": "Soulseek: połączony", "hint": "",
+                         "wersja": _wersja_pakietu()})
 
 
 @app.get("/api/config")

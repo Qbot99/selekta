@@ -89,3 +89,26 @@ def test_powloka_rejestruje_wszystkie_pozycje_nawigacji():
             zarejestrowane |= set(re.findall(r"S\.ekran\(\s*['\"]([a-z]+)['\"]", js))
     brak = pozycje - zarejestrowane
     assert not brak, f"pozycje nawigacji bez ekranu: {sorted(brak)}"
+
+
+def test_czcionki_sa_lokalne(client):
+    """Dashboard nie może zależeć od Google Fonts: apka do pobrania ma
+    wyglądać tak samo bez internetu i nie wysyłać zapytań na zewnątrz."""
+    html = client.get("/").text
+    assert "fonts.googleapis.com" not in html and "fonts.gstatic.com" not in html
+    css = client.get("/static/fonts/fonts.css")
+    assert css.status_code == 200 and "Urbanist" in css.text and "DM Mono" in css.text
+    import re
+    pliki = set(re.findall(r"/static/fonts/([\w.-]+\.woff2)", css.text))
+    assert pliki, "fonts.css nie wskazuje żadnych plików woff2"
+    for nazwa in pliki:
+        r = client.get(f"/static/fonts/{nazwa}")
+        assert r.status_code == 200 and len(r.content) > 1000, nazwa
+
+
+def test_status_zwraca_wersje(client):
+    """Regresja 3.09.2026: użycie pomocnika weszło do /api/status, definicja
+    nie — dev przeszedł, a pakiet .app padał na pierwszym zapytaniu."""
+    d = client.get("/api/status").json()
+    assert d["level"] in ("red", "amber", "green")
+    assert isinstance(d.get("wersja"), str) and d["wersja"]

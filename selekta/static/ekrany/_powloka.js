@@ -192,6 +192,7 @@ window.S = (() => {
     if(!dot) return;
     const kl = {green:'ok swieci', amber:'warn', red:'bad'}[d.level] || '';
     dot.className = 'dot '+kl; tx.textContent = d.label; tx.title = d.hint || '';
+    if(d.wersja) stan.wersja = d.wersja;
     document.dispatchEvent(new CustomEvent('selekta:status', {detail:d}));
   }
   async function pollLiczniki(){

@@ -16,14 +16,21 @@ pod CDJ.
    dla swojego Maca: **arm64** (Apple Silicon: M1/M2/M3/M4) albo
    **x86_64** (Intel).
 2. Rozpakuj i przenieś `Selekta.app` do Aplikacji.
-3. Przy pierwszym uruchomieniu kliknij ikonę **prawym przyciskiem → Otwórz**.
-   Apka nie jest podpisana certyfikatem Apple (to kosztuje 99 $ rocznie),
-   więc macOS zapyta raz, czy na pewno. Potem otwiera się normalnie.
-4. Otworzy się przeglądarka z dashboardem. Kreator w zakładce
-   **Ustawienia** przeprowadzi Cię przez resztę: wskazanie folderu
-   z muzyką, instalację slskd (klient Soulseeka) i logowanie.
+3. Apka nie jest podpisana certyfikatem Apple (to kosztuje 99 $ rocznie),
+   więc macOS przy pierwszym otwarciu powie, że nie może jej sprawdzić.
+   Na **macOS 15 i nowszych**: zamknij ten komunikat, wejdź w Ustawienia
+   systemowe → Prywatność i bezpieczeństwo, przewiń na dół i kliknij
+   **„Otwórz mimo to"** przy Selekcie. Na starszych systemach wystarczy
+   kliknąć ikonę prawym przyciskiem → Otwórz. Pytanie pojawia się raz.
+   (Dla wprawionych: `xattr -d com.apple.quarantine /Applications/Selekta.app`
+   robi to samo bez klikania.)
+4. Otworzy się ekran powitalny, a po nim dashboard w przeglądarce.
+   Kreator **„Zanim zaczniesz"** przeprowadzi Cię przez resztę: wskazanie
+   folderu z muzyką, instalację slskd (klient Soulseeka) i logowanie.
 
-Nic więcej nie trzeba instalować — ffmpeg do analizy audio jest w środku.
+Nic więcej nie trzeba instalować — ffmpeg do analizy audio i czcionki są
+w środku; apka działa bez internetu (Soulseek, Spotify i sklepy oczywiście
+go potrzebują).
 
 ## Co robi
 

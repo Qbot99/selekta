@@ -680,9 +680,9 @@
       <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1">${fmtLicz(analiz)}</span><span style="font-size:13px;color:var(--dim)">${lm(analiz, U)} z policzoną analizą${czeka ? ` · ${czeka} czeka` : ''}</span></div>
       <div class="dim2" style="font-size:11.5px;line-height:1.45">BPM, tonacja i jakość liczą się raz — kolejne otwarcie bierze wynik z pamięci podręcznej (~/.selekta/cache).</div>`;
     $('#doktorBody', host).innerHTML = doktorHTML(dok);
-    if(S.biezacy() === 'ustawienia') S.tytul('USTAWIENIA · SELEKTA');
+    if(S.biezacy() === 'ustawienia') S.tytul('USTAWIENIA · SELEKTA' + (S.stan.wersja ? ' ' + S.stan.wersja : ''));
   }
-  S.ekran('ustawienia', {tytul: 'USTAWIENIA · SELEKTA', render: ustRender, load: ustLaduj});
+  S.ekran('ustawienia', {tytul: () => 'USTAWIENIA · SELEKTA' + (S.stan.wersja ? ' ' + S.stan.wersja : ''), render: ustRender, load: ustLaduj});
 
   // ============================================================
   // 6b · ZANIM ZACZNIESZ — pierwsze uruchomienie, konfiguracja w jednym kliknięciu

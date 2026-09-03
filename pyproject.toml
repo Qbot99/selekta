@@ -1,6 +1,6 @@
 [project]
 name = "selekta"
-version = "0.3.0"
+dynamic = ["version"]
 description = "Playlista → czysta, zweryfikowana biblioteka DJ-ska (Soulseek hunt, weryfikacja jakości/odsłuchu, BPM+tonacja, eksport rekordbox/Serato, dashboard)"
 requires-python = ">=3.11"
 readme = "README.md"
@@ -35,5 +35,8 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["selekta"]
 
+[tool.setuptools.dynamic]
+version = {attr = "selekta.__version__"}
+
 [tool.setuptools.package-data]
-selekta = ["static/*.html", "static/assets/*", "static/ekrany/*"]
+selekta = ["static/*.html", "static/assets/*", "static/ekrany/*", "static/fonts/*"]

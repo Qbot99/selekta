@@ -62,6 +62,8 @@ jobs:
           body: |
             **Jak zainstalować (macOS):** pobierz zip dla swojego Maca
             (`arm64` = Apple Silicon M1/M2/M3/M4, `x86_64` = Intel), rozpakuj,
-            przenieś Selekta.app do Aplikacji. Przy pierwszym uruchomieniu
-            kliknij ikonę **prawym przyciskiem → Otwórz** (apka nie jest
-            podpisana certyfikatem Apple, macOS o to zapyta tylko raz).
+            przenieś Selekta.app do Aplikacji. Apka nie jest podpisana
+            certyfikatem Apple, więc przy pierwszym otwarciu macOS ją zatrzyma:
+            na macOS 15+ wejdź w Ustawienia systemowe → Prywatność
+            i bezpieczeństwo → **„Otwórz mimo to"**; na starszych kliknij ikonę
+            prawym przyciskiem → Otwórz. Pyta tylko raz.

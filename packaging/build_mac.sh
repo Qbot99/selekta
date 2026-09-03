@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-WERSJA="${SELEKTA_VERSION:-$(python3 -c 'import tomllib;print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')}"
+WERSJA="${SELEKTA_VERSION:-$(python3 -c 'import re;print(re.search(r"__version__ = \"([^\"]+)\"", open("selekta/__init__.py").read()).group(1))')}"
 ARCH="$(uname -m)"
 export SELEKTA_VERSION="$WERSJA"
 
