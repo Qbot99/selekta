@@ -16,7 +16,8 @@ jobs:
         include:
           - runner: macos-14
             arch: arm64
-          - runner: macos-13
+          # macos-13 wycofany (2026) — Intel to teraz macos-15-intel
+          - runner: macos-15-intel
             arch: x86_64
     runs-on: ${{ matrix.runner }}
     steps:
@@ -31,7 +32,7 @@ jobs:
       - run: pyinstaller --noconfirm --clean packaging/selekta.spec
       - name: test dymny
         run: |
-          SELEKTA_PORT=8799 dist/Selekta.app/Contents/MacOS/Selekta &
+          SELEKTA_PORT=8799 SELEKTA_BEZ_PRZEGLADARKI=1 dist/Selekta.app/Contents/MacOS/Selekta &
           PID=$!
           for _ in $(seq 1 60); do
             if curl -fs http://127.0.0.1:8799/api/status >/dev/null; then echo OK; break; fi

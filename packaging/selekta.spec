@@ -29,7 +29,8 @@ def _bin(nazwa: str) -> str:
     return os.path.realpath(p)
 
 binaries = [(_bin("ffmpeg"), "."), (_bin("ffprobe"), ".")]
-datas = [(os.path.join(KORZEN, "selekta", "static"), "selekta/static")]
+datas = [(os.path.join(KORZEN, "selekta", "static"), "selekta/static"),
+         (os.path.join(SPECPATH, "logo.png"), "packaging")]
 
 hiddenimports = (
     collect_submodules("uvicorn")

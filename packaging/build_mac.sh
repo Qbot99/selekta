@@ -22,7 +22,7 @@ pyinstaller --noconfirm --clean packaging/selekta.spec
 
 # test dymny: binarka startuje i odpowiada na /api/status — inaczej budowanie
 # ma PAŚĆ, nie zostawić zip z apką, która wywala się po kliknięciu
-SELEKTA_PORT=8799 dist/Selekta.app/Contents/MacOS/Selekta &
+SELEKTA_PORT=8799 SELEKTA_BEZ_PRZEGLADARKI=1 dist/Selekta.app/Contents/MacOS/Selekta &
 PID=$!
 OK=0
 for _ in $(seq 1 40); do
