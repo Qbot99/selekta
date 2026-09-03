@@ -165,7 +165,8 @@ def _track_row(path: str) -> dict:
                    key_conf=h["confidence_key"], analyzed=True)
     q = cache.get(path, "quality")
     if q:
-        row.update(quality=q["grade"], quality_note=q["verdict"])
+        row.update(quality=q["grade"], quality_note=q["verdict"],
+                   bitrate_kbps=q.get("bitrate_kbps"))
     return row
 
 
@@ -234,7 +235,15 @@ def api_analyze(file: str = Query(...)) -> JSONResponse:
     cache.put(path, "harmonic", asdict(ta))
     rep = quality.analyze(path)
     cache.put(path, "quality", {"grade": rep.grade, "verdict": rep.verdict,
-                                "cutoff_hz": rep.cutoff_hz})
+                                "cutoff_hz": rep.cutoff_hz,
+                                "bitrate_kbps": rep.bitrate_kbps})
+    # „Przelicz analizę" ma przeliczyć WSZYSTKO: głośność i cue też —
+    # wcześniej zostawały z cache i arkusz pokazywał stare wartości
+    try:
+        cache.put(path, "loudness", asdict(loudness.analyze(path)))
+        cache.put(path, "cues", asdict(cues.analyze(path, bpm=ta.bpm)))
+    except Exception:  # noqa: BLE001 — brak głośności nie unieważnia BPM/tonacji
+        pass
     return JSONResponse(_track_row(path))
 
 
@@ -1419,9 +1428,33 @@ def api_historia() -> JSONResponse:
     """Co grasz, czego nie grasz i co po czym idzie."""
     d = historia.podsumowanie(_folder())
     d["lista_sesji"] = [{"nazwa": s.get("nazwa"), "data": s.get("data"),
-                         "utworow": len(s.get("sciezki") or [])}
+                         "utworow": len(s.get("sciezki") or []),
+                         "sciezki": list(s.get("sciezki") or []),
+                         **_metryki_sesji(s.get("sciezki") or [])}
                         for s in historia.sesje()]
     return JSONResponse(_clean(d))
+
+
+def _metryki_sesji(sciezki: list[str]) -> dict:
+    """Czas, mediana BPM i tonacje sesji z cache analiz (bez liczenia audio)."""
+    czas = 0.0
+    bpmy: list[float] = []
+    tonacje: list[str] = []
+    for p in sciezki:
+        h = cache.get(p, "harmonic") or {}
+        if h.get("bpm"):
+            bpmy.append(float(h["bpm"]))
+        if h.get("camelot"):
+            tonacje.append(h["camelot"])
+        try:
+            a = MutagenFile(p)
+            czas += float(getattr(getattr(a, "info", None), "length", 0) or 0)
+        except Exception:  # noqa: BLE001 — plik mógł zniknąć
+            pass
+    bpmy.sort()
+    mediana = bpmy[len(bpmy) // 2] if bpmy else None
+    return {"czas_s": round(czas), "bpm_mediana": round(mediana, 1) if mediana else None,
+            "tonacje": tonacje, "tonacje_opis": (f"{tonacje[0]} → {tonacje[-1]}" if tonacje else "")}
 
 
 @app.post("/api/historia/wyczysc")
@@ -1567,9 +1600,26 @@ def api_statystyki_zakres(payload: dict | None = None) -> JSONResponse:
                        "key": h.get("key"), "file": os.path.basename(path),
                        "artist": artysta, "title": tytul})
     d = statystyki.policz(utwory)
+    d.update(_glosnosc_zbiorcza(sciezki))
     d["bez_analizy"] = len(sciezki) - d["przeanalizowanych"]
     d["zakres"] = opis
     return JSONResponse(_clean(d))
+
+
+def _glosnosc_zbiorcza(sciezki: list[str]) -> dict:
+    """Średnia (i skrajne) zintegrowana głośność z cache loudness — dashboard
+    pokazuje ją w kaflu ŚREDNIA GŁOŚNOŚĆ; wcześniej stało tam „—"."""
+    wartosci = []
+    for p in sciezki:
+        l = cache.get(p, "loudness")
+        v = l.get("integrated_lufs") if l else None
+        if isinstance(v, (int, float)):
+            wartosci.append(float(v))
+    if not wartosci:
+        return {"srednia_lufs": None, "lufs_min": None, "lufs_max": None, "z_glosnoscia": 0}
+    return {"srednia_lufs": round(sum(wartosci) / len(wartosci), 1),
+            "lufs_min": round(min(wartosci), 1), "lufs_max": round(max(wartosci), 1),
+            "z_glosnoscia": len(wartosci)}
 
 
 @app.get("/api/statystyki")
@@ -1586,6 +1636,7 @@ def api_statystyki() -> JSONResponse:
                        "artist": artysta, "title": tytul})
     d = statystyki.policz(utwory)
     d["bez_analizy"] = len(matcher.audio_files(_folder())) - d["przeanalizowanych"]
+    d.update(_glosnosc_zbiorcza(matcher.audio_files(_folder())))
     return JSONResponse(_clean(d))
 
 
@@ -2104,15 +2155,38 @@ def api_usb(payload: dict) -> JSONResponse:
 # --------------------------------------------------------------------------
 
 @app.get("/api/radar")
-def api_radar(limit: int = 10) -> JSONResponse:
-    every = sorted(radar.artists_from_library(_folder()))
-    items = []
-    for a in every[:limit]:
-        for it in radar.check_beatport(a):
-            items.append({"artist": a, "title": it.get("title"),
-                          "url": it.get("url"), "store": "beatport"})
-    return JSONResponse({"checked": min(limit, len(every)),
-                         "total_artists": len(every), "items": items})
+def api_radar() -> JSONResponse:
+    """Zapamiętane znaleziska — bez sieci, natychmiast po wejściu."""
+    d = radar.wyniki()
+    d["total_artists"] = len(radar.artists_from_library(_folder()))
+    return JSONResponse(_clean(d))
+
+
+@app.post("/api/radar/sprawdz")
+def api_radar_sprawdz(payload: dict | None = None) -> JSONResponse:
+    """Sprawdź porcję artystów w Beatporcie i Bandcampie (sieć, sekundy–minuty)."""
+    p = payload or {}
+    limit = max(1, min(int(p.get("limit") or 10), 200))
+    offset = max(0, int(p.get("offset") or 0))
+    try:
+        return JSONResponse(_clean(radar.sprawdz(_folder(), limit=limit, offset=offset)))
+    except Exception as exc:  # noqa: BLE001 — sklepy nie mogą wywalić UI
+        raise HTTPException(502, f"radar nie dał rady: {exc}")
+
+
+@app.get("/api/cache")
+def api_cache() -> JSONResponse:
+    return JSONResponse(cache.stats())
+
+
+@app.post("/api/cache/wyczysc")
+def api_cache_wyczysc(payload: dict | None = None) -> JSONResponse:
+    """Skasuj cache analiz (cały albo jeden rodzaj) — utwory policzą się od nowa."""
+    kind = (payload or {}).get("kind") or None
+    if kind is not None and not re.fullmatch(r"[a-z_]{1,32}", str(kind)):
+        raise HTTPException(400, "nieznany rodzaj cache")
+    usuniete = cache.clear(kind)
+    return JSONResponse({"removed": usuniete, **cache.stats()})
 
 
 @app.get("/api/wishlist")

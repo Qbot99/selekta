@@ -649,6 +649,12 @@
           </div>
         </div>
       </div>`;
+    on(host, 'click', '[data-a="cache-wyczysc"]', async (e, b) => {
+      if(b.dataset.uzbrojony !== '1'){ b.dataset.uzbrojony = '1'; b.textContent = 'Na pewno? Kliknij ponownie'; b.classList.add('bad'); setTimeout(() => { b.dataset.uzbrojony = ''; b.textContent = 'Wyczyść cache'; b.classList.remove('bad'); }, 4000); return; }
+      b.disabled = true;
+      try{ const r = await api('/api/cache/wyczysc', {method: 'POST', body: {}}); S.uniewaznTracks(); S.toast(`usunięto ${r.removed} wpisów cache — utwory policzą się od nowa`, 'ok'); ustLaduj(host); }
+      catch(err){ b.disabled = false; }
+    });
     on(host, 'click', '#ustStart > button', (e, b) => { S.pref.set('startTryb', b.dataset.v); $('#ustZach', host).innerHTML = ustZachowanie(); });
     on(host, 'click', '#ustJezyk > button', (e, b) => { S.jezyk.set(b.dataset.v); $('#ustZach', host).innerHTML = ustZachowanie(); });
     on(host, 'click', '[data-a]', async (e, el) => {
@@ -676,9 +682,11 @@
     ust.dane = d; ust.obs = obs; ust.dok = dok; ust.rb = rb;
     $('#ustLista', host).innerHTML = ustLista(d, obs, dok, rb, tracks);
     const analiz = tracks ? tracks.filter(t => t.analyzed).length : 0, czeka = tracks ? tracks.length - analiz : 0;
+    let cacheStat = null; try{ cacheStat = await api('/api/cache', {cicho: true}); }catch(e){}
     $('#ustCache', host).innerHTML = `<div class="etyk">CACHE ANALIZ</div>
-      <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1">${fmtLicz(analiz)}</span><span style="font-size:13px;color:var(--dim)">${lm(analiz, U)} z policzoną analizą${czeka ? ` · ${czeka} czeka` : ''}</span></div>
-      <div class="dim2" style="font-size:11.5px;line-height:1.45">BPM, tonacja i jakość liczą się raz — kolejne otwarcie bierze wynik z pamięci podręcznej (~/.selekta/cache).</div>`;
+      <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1">${S.fmtLicz(cacheStat ? (cacheStat.harmonic ?? analiz) : analiz)}</span><span class="dim" style="font-size:13px">utworów z BPM i tonacją${cacheStat && cacheStat._total_bytes ? ` · ${S.fmtMB(cacheStat._total_bytes)} na dysku` : ''}${czeka ? ` · <span class="warn">${czeka} bez analizy</span>` : ''}</span></div>
+      <div class="dim" style="font-size:12.5px">Wyniki analiz są zapamiętane, więc druga analiza tego samego pliku trwa ułamek sekundy. Czyszczenie wymusza policzenie wszystkiego od nowa.</div>
+      <button class="btn sr cichy" data-a="cache-wyczysc" style="margin-top:auto;align-self:flex-start" title="usuwa zapamiętane analizy — pliki zostają nietknięte">Wyczyść cache</button>`;
     $('#doktorBody', host).innerHTML = doktorHTML(dok);
     if(S.biezacy() === 'ustawienia') S.tytul('USTAWIENIA · SELEKTA' + (S.stan.wersja ? ' ' + S.stan.wersja : ''));
   }

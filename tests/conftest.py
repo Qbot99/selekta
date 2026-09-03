@@ -118,6 +118,17 @@ def _isolate_user_state(monkeypatch, tmp_path_factory):
     # prawdziwe ustawienia użytkownika (i jego sekrety)
     monkeypatch.setattr(config, "STATE_DIR", str(state))
     monkeypatch.setattr(config, "CONFIG_PATH", str(state / "config.json"))
+    # Moduły wiążą ścieżki plików stanu PRZY IMPORCIE (PLIK = join(STATE_DIR, ...)),
+    # więc sama podmiana config.STATE_DIR ich nie przekierowuje. 3.09.2026 test
+    # historii dopisał sesję do prawdziwego ~/.selekta/historia.json użytkownika.
+    from selekta import decyzje, dlqueue, doktor, historia, rbimport, waveform
+    monkeypatch.setattr(historia, "PLIK", str(state / "historia.json"))
+    monkeypatch.setattr(decyzje, "PLIK", str(state / "decyzje.json"))
+    monkeypatch.setattr(dlqueue, "PLIK_KOLEJKI", str(state / "kolejka.json"))
+    monkeypatch.setattr(doktor, "PLIK_WYNIKU", str(state / "doktor.json"))
+    monkeypatch.setattr(rbimport, "PLIK", str(state / "rekordbox.json"))
+    monkeypatch.setattr(waveform, "PLIK_SIATEK", str(state / "siatki.json"))
+    monkeypatch.setattr(radar, "WYNIKI_PATH", str(state / "radar-wyniki.json"))
     for var in ("SELEKTA_SLSKD_URL", "SELEKTA_SLSKD_API_KEY", "SELEKTA_SLSKD_BINARY"):
         monkeypatch.delenv(var, raising=False)
     yield

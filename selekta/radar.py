@@ -36,6 +36,8 @@ log = logging.getLogger(__name__)
 
 STATE_DIR = os.path.expanduser("~/.selekta")
 STATE_PATH = os.path.join(STATE_DIR, "radar.json")
+WYNIKI_PATH = os.path.join(STATE_DIR, "radar-wyniki.json")   # ostatnie znaleziska dla dashboardu
+MAX_WYNIKOW = 500
 
 UA_STRING = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
 UA = {"User-Agent": UA_STRING}
@@ -90,6 +92,63 @@ def _save_state(state: dict) -> None:
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(state, fh, ensure_ascii=False, indent=2)
     os.replace(tmp, STATE_PATH)
+
+
+def _load_results() -> dict:
+    try:
+        with open(WYNIKI_PATH, encoding="utf-8") as fh:
+            d = json.load(fh)
+        return d if isinstance(d, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_results(d: dict) -> None:
+    os.makedirs(STATE_DIR, exist_ok=True)
+    tmp = WYNIKI_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(d, fh, ensure_ascii=False, indent=1)
+    os.replace(tmp, WYNIKI_PATH)
+
+
+def wyniki() -> dict:
+    """Ostatnie znaleziska bez sieci — to pokazuje dashboard po wejściu."""
+    d = _load_results()
+    return {"items": d.get("items", []), "checked_at": d.get("checked_at"),
+            "last": d.get("last") or {}}
+
+
+def sprawdz(folder: str, limit: int = 10, offset: int = 0,
+            notify_new: bool = False) -> dict:
+    """Sprawdź wycinek artystów w OBU sklepach i dopisz nowości do pamięci.
+
+    `check_all` pisze na konsolę i sprawdza wszystkich naraz (minuty) —
+    dashboard potrzebuje porcji: `limit` artystów od `offset`, wynik
+    zapamiętany w radar-wyniki.json razem z datą, żeby kolejne wejście
+    pokazywało listę bez czekania na sieć.
+    """
+    import time
+    artists = sorted(artists_from_library(folder))
+    porcja = artists[offset:offset + limit]
+    kiedy = time.strftime("%Y-%m-%dT%H:%M:%S")
+    nowe: list[dict] = []
+    for artist in porcja:
+        for it in check_bandcamp(artist) + check_beatport(artist):
+            nowe.append({**it, "artist": artist, "store": it.get("source"),
+                         "znalezione": kiedy})
+    stare = _load_results().get("items", [])
+    klucze = {x.get("id") or x.get("url") for x in nowe}
+    polaczone = nowe + [x for x in stare if (x.get("id") or x.get("url")) not in klucze]
+    d = {"checked_at": kiedy, "items": polaczone[:MAX_WYNIKOW],
+         "last": {"checked": len(porcja), "offset": offset, "new": len(nowe),
+                  "total_artists": len(artists)}}
+    _save_results(d)
+    if nowe and notify_new:
+        notify(f"{len(nowe)} nowości u {len({x['artist'] for x in nowe})} artystów",
+               title="selekta radar")
+    return {"new": nowe, "checked": len(porcja), "offset": offset,
+            "total_artists": len(artists), "checked_at": kiedy,
+            "next_offset": offset + len(porcja) if offset + len(porcja) < len(artists) else None}
 
 
 def _register(artist: str, found: list[dict]) -> list[dict]:

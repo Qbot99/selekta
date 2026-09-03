@@ -683,13 +683,13 @@ S.ekran('uchem', {
 
 /* ============================================================
    RADAR (5a)
-   /api/radar sam odpytuje Beatport (sieć, sekundy–minuty) i oddaje
-   TYLKO nowości od poprzedniego sprawdzenia — więc wyniki zbieramy
-   po stronie przeglądarki, żeby ekran nie był pusty po każdym wejściu.
+   GET /api/radar oddaje zapamiętane znaleziska (bez sieci), a
+   POST /api/radar/sprawdz pyta Beatport i Bandcamp o porcję artystów
+   i dopisuje nowości do pamięci serwera.
    ============================================================ */
 const rd = {
   okres: pref.get('radar.okres', 30),
-  pamiec: pref.get('radar.pamiec', null) || {ostatnio: null, nowe: 0, pozycje: [], sprawdzono: null, artystow: null},
+  pamiec: {ostatnio: null, nowe: 0, pozycje: [], sprawdzono: null, artystow: null},
   zyczenia: null,
 };
 const kluczUtworu = (a, t) => `${String(a || '').trim().toLowerCase()}|${String(t || '').trim().toLowerCase()}`;
@@ -726,7 +726,7 @@ function rdRysuj(host){
 
   const karty = poz.map(it => rdKarta(it, !!p.ostatnio && it.znalezione === p.ostatnio, naLiscie));
   const pusto = !wszystkie.length
-    ? `<div class="rd-pusto">Jeszcze nic tu nie ma. „Sprawdź teraz” odpyta Beatport o nowe wydania artystów z Twojej biblioteki — pierwsze sprawdzenie zapamiętuje, co już jest, kolejne pokazują tylko nowości.<br><span class="dim2">Sprawdzenie chwilę trwa: apka czyta strony sklepu, artysta po artyście.</span></div>`
+    ? `<div class="rd-pusto">Jeszcze nic tu nie ma. „Sprawdź teraz” odpyta Beatport i Bandcamp o nowe wydania artystów z Twojej biblioteki — pierwsze sprawdzenie zapamiętuje, co już jest, kolejne pokazują tylko nowości.<br><span class="dim2">Sprawdzenie chwilę trwa: apka czyta strony sklepu, artysta po artyście.</span></div>`
     : (!poz.length ? `<div class="rd-pusto">Nic z ostatnich ${rd.okres} dni — przełącz na „Wszystko”, żeby zobaczyć ${wszystkie.length} ${odmiana(wszystkie.length, ['zapamiętane wydanie', 'zapamiętane wydania', 'zapamiętanych wydań'])}.</div>` : '');
 
   const zyczHtml = rd.zyczenia === null ? '<div class="zd-pusto"><span class="spin"></span></div>'
@@ -743,15 +743,20 @@ function rdRysuj(host){
   if(S.biezacy() === 'radar') S.tytul(`radar · ${p.artystow != null ? `${p.artystow} artystów · ` : ''}${p.ostatnio ? `sprawdzono ${dzisiaj(p.ostatnio) ? 'dziś ' + godzina(p.ostatnio) : dataKrotka(p.ostatnio)}` : 'jeszcze nie sprawdzano'}`);
 }
 
+// pamięć znalezisk żyje po stronie serwera (~/.selekta/radar-wyniki.json):
+// GET /api/radar oddaje ją bez sieci, POST /api/radar/sprawdz pyta sklepy o porcję artystów
+function rdZSerwera(d){
+  const kiedy = d.checked_at ? Date.parse(d.checked_at) : null;
+  const last = d.last || {};
+  const pozycje = (d.items || []).map(it => ({...it, klucz: it.id || it.url || kluczUtworu(it.artist, it.title),
+                                                znalezione: it.znalezione ? Date.parse(it.znalezione) : (kiedy || 0)}));
+  rd.pamiec = {ostatnio: kiedy, nowe: last.new || 0, pozycje, sprawdzono: last.checked ?? null, artystow: d.total_artists ?? null};
+}
 async function rdSprawdz(host, btn, limit){
-  await zajety(btn, limit > 10 ? `pytam Beatport o ${limit} artystów…` : 'pytam Beatport…', async () => {
-    const d = await api('/api/radar?limit=' + encodeURIComponent(limit));
-    const teraz = Date.now();
-    const nowe = (d.items || []).map(it => ({...it, klucz: it.url || kluczUtworu(it.artist, it.title), znalezione: teraz}));
-    const kl = new Set(nowe.map(x => x.klucz));
-    const pozycje = [...nowe, ...(rd.pamiec.pozycje || []).filter(x => !kl.has(x.klucz))].slice(0, 300);
-    rd.pamiec = {ostatnio: teraz, nowe: nowe.length, pozycje, sprawdzono: d.checked, artystow: d.total_artists};
-    pref.set('radar.pamiec', rd.pamiec);
+  await zajety(btn, limit > 10 ? `pytam Beatport i Bandcamp o ${limit} artystów…` : 'pytam Beatport i Bandcamp…', async () => {
+    const d = await api('/api/radar/sprawdz', {method: 'POST', body: {limit, offset: 0}});
+    const nowe = d.new || [];
+    rdZSerwera(await api('/api/radar', {cicho: true}));
     toast(nowe.length ? `${nowe.length} ${odmiana(nowe.length, ['nowe wydanie', 'nowe wydania', 'nowych wydań'])} · sprawdzono ${d.checked} z ${d.total_artists} artystów`
                       : `nic nowego u ${d.checked} z ${d.total_artists} sprawdzonych artystów`, nowe.length ? 'ok' : 'info');
     rdRysuj(host);
@@ -766,7 +771,7 @@ S.ekran('radar', {
         <div><h1>Radar</h1><div class="sub" id="rdSub">…</div></div>
         <div class="akcje" style="gap:16px">
           <div class="seg" id="rdSeg"><button data-d="30">30 dni</button><button data-d="90">90 dni</button><button data-d="0">Wszystko</button></div>
-          <button class="btn" id="rdSprawdz" title="odpytuje Beatport o pierwszych 10 artystów z biblioteki (alfabetycznie) — chwilę trwa">Sprawdź teraz</button>
+          <button class="btn" id="rdSprawdz" title="odpytuje Beatport i Bandcamp o pierwszych 10 artystów z biblioteki (alfabetycznie) — chwilę trwa">Sprawdź teraz</button>
         </div>
       </div>
       <div class="rd-siatka" id="rdSiatka"></div>`;
@@ -782,6 +787,7 @@ S.ekran('radar', {
   },
   load(host){
     rdRysuj(host);
+    api('/api/radar', {cicho: true}).then(d => { rdZSerwera(d); rdRysuj(host); }).catch(() => {});
     api('/api/wishlist', {cicho: true}).then(w => { rd.zyczenia = w.items || []; }).catch(() => { rd.zyczenia = []; }).finally(() => rdRysuj(host));
   },
 });

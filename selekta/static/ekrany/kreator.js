@@ -42,7 +42,7 @@
       betterDone:'gotowe — lepsze wersje dla {n} z {m}. Kliknij „Pobierz” przy tych, które chcesz.', interrupted:' (przerwane)',
       waitSlsk:'⏸ Soulseek rozłączony — czekam na powrót ({s}s)', slskGone:'✗ Soulseek nie wrócił — przerywam. Zrobione {i} z {n}.', totalMin:'{n} min łącznie',
       exporting:'wysyłam do rekordboxa…', exportFail:'nie udało się wysłać do rekordboxa',
-      sheet:{kicker:'WYBIERZ WERSJĘ', results:['WYNIK','WYNIKI','WYNIKÓW'], inList:'w playliście', cols:['PLIK / UŻYTKOWNIK','FORMAT','ROZMIAR','CZAS','SLOT',''], best:'najlepszy wynik: bezstratny, czas się zgadza, szybkie źródło', after:'po pobraniu: weryfikacja odsłuchem + jakość', dl:'POBIERZ', dlOther:'Pobierz', searching:'szukam na Soulseeku…', searchedAs:'szukano po: {q}', none:'Nic nie znaleziono. Dodaj utwór do listy życzeń — apka sprawdzi ponownie później.', wish:'Dodaj do życzeń', wished:'✓ na liście życzeń', free:'wolny slot', busy:'zajęty', queued:'✓ pobieram {file} od {user}'},
+      sheet:{kicker:'WYBIERZ WERSJĘ', results:['WYNIK','WYNIKI','WYNIKÓW'], inList:'w playliście', cols:['PLIK / UŻYTKOWNIK','FORMAT','ROZMIAR','CZAS','PRĘDKOŚĆ',''], best:'najlepszy wynik: bezstratny, czas się zgadza, szybkie źródło', after:'po pobraniu: weryfikacja odsłuchem + jakość', dl:'POBIERZ', dlOther:'Pobierz', searching:'szukam na Soulseeku…', searchedAs:'szukano po: {q}', none:'Nic nie znaleziono. Dodaj utwór do listy życzeń — apka sprawdzi ponownie później.', wish:'Dodaj do życzeń', wished:'✓ na liście życzeń', free:'wolny slot', busy:'zajęty', queued:'✓ pobieram {file} od {user}'},
       utw:['utwór','utwory','utworów'], plk:['pliku','plików','plików'],
     },
     en: {
@@ -74,7 +74,7 @@
       betterDone:'done — better versions for {n} of {m}. Click “Fetch” next to the ones you want.', interrupted:' (stopped)',
       waitSlsk:'⏸ Soulseek disconnected — waiting for it to come back ({s}s)', slskGone:'✗ Soulseek did not come back — stopping. Done {i} of {n}.', totalMin:'{n} min total',
       exporting:'sending to rekordbox…', exportFail:'could not send to rekordbox',
-      sheet:{kicker:'PICK A VERSION', results:['RESULT','RESULTS','RESULTS'], inList:'in playlist', cols:['FILE / USER','FORMAT','SIZE','LENGTH','SLOT',''], best:'best result: lossless, length matches, fast source', after:'after download: listening check + quality', dl:'FETCH', dlOther:'Fetch', searching:'searching Soulseek…', searchedAs:'searched as: {q}', none:'Nothing found. Add the track to the wishlist — the app will check again later.', wish:'Add to wishlist', wished:'✓ on the wishlist', free:'free slot', busy:'busy', queued:'✓ fetching {file} from {user}'},
+      sheet:{kicker:'PICK A VERSION', results:['RESULT','RESULTS','RESULTS'], inList:'in playlist', cols:['FILE / USER','FORMAT','SIZE','LENGTH','SPEED',''], best:'best result: lossless, length matches, fast source', after:'after download: listening check + quality', dl:'FETCH', dlOther:'Fetch', searching:'searching Soulseek…', searchedAs:'searched as: {q}', none:'Nothing found. Add the track to the wishlist — the app will check again later.', wish:'Add to wishlist', wished:'✓ on the wishlist', free:'free slot', busy:'busy', queued:'✓ fetching {file} from {user}'},
       utw:['track','tracks','tracks'], plk:['file','files','files'],
     },
   };
@@ -405,7 +405,7 @@
           <span class="m" style="color:${fmtKolor(c)}">${esc(c.format)}${c.bitrate ? ' '+c.bitrate : ''}</span>
           <span class="m">${fmtMB(c.size) || (c.size_mb+' MB')}</span>
           <span class="m" style="color:${czasKolor(c)}">${c.length_s ? fmtTime(c.length_s) : '—'}</span>
-          <span class="m" style="color:${c.free_slot ? K.ok : K.dim}">${c.free_slot ? esc(t.free) : esc(t.busy)}</span>
+          <span class="m" style="color:${c.free_slot ? K.ok : K.dim}" title="${c.queue ? esc(String(c.queue)) + ' w kolejce' : ''}">${c.speed ? esc(c.speed) + ' · ' : ''}${c.free_slot ? esc(t.free) : esc(t.busy)}</span>
           <button class="${i===0?'b-best':'b-inny'}" data-pobierz="${i}">${i===0 ? esc(t.dl) : esc(t.dlOther)}</button>
         </div>`;
       body.innerHTML = `<div class="ark2b">${naglowek(kicker)}

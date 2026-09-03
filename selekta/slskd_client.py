@@ -142,7 +142,16 @@ _AUDIO_EXT_HIT = (".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a",
 # „br" przed „free": 320 kbps z zajętym slotem ma wygrywać ze 128 kbps
 # z wolnym — wolny slot przyspiesza pobranie, ale nie ratuje jakości
 _RANK_ORDER = ("ok", "tcov", "d15", "acov", "d3",
-               "loss", "br", "free", "nvar", "copies", "size")
+               "loss", "br", "free", "nvar", "copies", "speed", "size")
+
+
+def _fmt_speed(bps: int | None) -> str:
+    """Prędkość wysyłania użytkownika po ludzku: „2,4 MB/s", „610 kB/s"."""
+    if not bps or bps <= 0:
+        return ""
+    if bps >= 1_000_000:
+        return f"{bps / 1_000_000:.1f}".replace(".", ",") + " MB/s"
+    return f"{round(bps / 1000)} kB/s"
 
 
 def build_ladder(artist: str, title: str) -> list[str]:
@@ -196,7 +205,8 @@ def _hit_features(hit: SearchHit, nvar: int, copies: int,
             "d15": bool(delta is not None and delta <= 15), "acov": round(acov, 2),
             "d3": bool(delta is not None and delta <= 3), "nvar": nvar,
             "copies": copies, "loss": bool(hit.is_lossless),
-            "free": bool(hit.free_slot), "br": hit.bitrate or 0, "size": hit.size}
+            "free": bool(hit.free_slot), "br": hit.bitrate or 0,
+            "speed": hit.upload_speed or 0, "size": hit.size}
 
 
 def _name_key(path: str) -> str:
@@ -218,6 +228,8 @@ class SearchHit:
     length_s: int | None
     is_lossless: bool
     free_slot: bool
+    upload_speed: int | None = None    # B/s wg slskd (uploadSpeed użytkownika)
+    queue_length: int | None = None    # ilu czeka w kolejce u tego użytkownika
 
 
 class SlskdClient:
@@ -328,6 +340,8 @@ class SlskdClient:
                         length_s=f.get("length"),
                         is_lossless=name.lower().endswith((".flac", ".wav", ".aiff")),
                         free_slot=user.get("hasFreeUploadSlot", False),
+                        upload_speed=user.get("uploadSpeed"),
+                        queue_length=user.get("queueLength"),
                     )
                 )
         self._note_result(hits)
@@ -360,7 +374,7 @@ class SlskdClient:
                 and abs(h.length_s - want_duration_s) <= 3
             )
             return (round(rel, 2), bool(dur_ok), h.is_lossless,
-                    h.bitrate or 0, h.free_slot, h.size)
+                    h.bitrate or 0, h.free_slot, h.upload_speed or 0, h.size)
 
         return sorted(hits, key=key, reverse=True)
 
@@ -394,6 +408,9 @@ class SlskdClient:
             "format": ext.upper() or "?",
             "lossless": hit.is_lossless,
             "free_slot": hit.free_slot,
+            "speed_kbs": round(hit.upload_speed / 1000) if hit.upload_speed else None,
+            "speed": _fmt_speed(hit.upload_speed),
+            "queue": hit.queue_length,
             "title_match": round(len(title_hits) / len(t_tok), 2) if t_tok else 0.0,
             # artystę wolno brać z całej ścieżki — często jest tylko w folderze
             "artist_match": round(
