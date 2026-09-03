@@ -24,6 +24,8 @@ from dataclasses import asdict
 
 from . import (
     cache,
+    doktor,
+    uchem,
     covers,
     cues,
     dedupe,
@@ -393,6 +395,20 @@ def cmd_dedupe(args) -> None:
               f"(odzyskane {res['odzyskane_MB']:.0f} MB)")
 
 
+def cmd_uchem(args) -> None:
+    """Co warto sprawdzić uchem, zanim trafi do setu."""
+    w = uchem.sprawdz(args.folder)
+    print(uchem.format_report(w))
+
+
+def cmd_doctor(args) -> None:
+    """Czy integracje (Spotify, Beatport, iTunes…) i narzędzia działają."""
+    raport = doktor.zbadaj(tylko_lokalne=args.offline)
+    print(doktor.format_report(raport))
+    if not raport["krytyczne_ok"]:
+        sys.exit(1)
+
+
 def cmd_serve(args) -> None:
     from . import web
     web.serve(args.folder, port=args.port)
@@ -496,6 +512,14 @@ def main() -> None:
     dd.add_argument("--trash", default="", help="folder na przeniesione kopie")
     dd.add_argument("--apply", action="store_true")
     dd.set_defaults(fn=cmd_dedupe)
+
+    uc = sub.add_parser("uchem", help="co sprawdzić uchem: niepewne tempo/tonacja, niestabilna siatka, podejrzana jakość")
+    uc.add_argument("--folder", required=True)
+    uc.set_defaults(fn=cmd_uchem)
+
+    dr = sub.add_parser("doctor", help="sprawdź integracje (Spotify, Beatport, iTunes, YouTube) i narzędzia (ffmpeg, slskd)")
+    dr.add_argument("--offline", action="store_true", help="tylko sondy lokalne, bez sieci")
+    dr.set_defaults(fn=cmd_doctor)
 
     s = sub.add_parser("serve", help="uruchom dashboard w przeglądarce")
     s.add_argument("--folder", required=True)

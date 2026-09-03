@@ -277,6 +277,7 @@
   <div class="tab" data-t="historia">Historia</div>
   <div class="tab" data-t="decyzje">Porządki <span id="decBadge" class="pill" style="display:none;padding:1px 7px;font-size:11px;margin-left:4px"></span></div>
   <div class="tab" data-t="dl">Pobierania <span id="dlBadge" class="pill" style="display:none;padding:1px 7px;font-size:11px;margin-left:4px"></span></div>
+  <div class="tab" data-t="uchem">Sprawdź uchem <span id="uchemBadge" class="pill" style="display:none;padding:1px 7px;font-size:11px;margin-left:4px"></span></div>
   <div class="tab" data-t="setup">Ustawienia</div>
 </div>
 <main>
@@ -429,6 +430,7 @@
     </div>
     <div id="decLista"></div>
   </div>
+  <div id="uchem" class="hide"></div>
   <div id="setup" class="hide"></div>
   <div id="detail" class="ovl hide"><div class="sheet" id="detailBody"></div></div>
   <div id="picker" class="ovl hide"><div class="sheet" style="max-width:860px" id="pickerBody"></div></div>
@@ -1946,6 +1948,81 @@ async function loadOrder(){
     <span style="width:52px" class="muted">${o.bpm.toFixed(0)}</span>
     <span>${esc(o.file)}</span><span class="hnote">${o.note}</span></div>`).join('');
 }
+// ============ SPRAWDŹ UCHEM — czego apka nie jest pewna ============
+// Wynik pewny i niepewny wyglądały w tabeli tak samo; tu zbieramy wszystko,
+// co warto odsłuchać, zanim utwór trafi do setu. Tylko z cache — natychmiast.
+const UCHEM_IKONA = {3:'‼', 2:'!', 1:'·'};
+const UCHEM_KOLOR = {3:'q-bad', 2:'q-warn', 1:'muted'};
+async function odswiezUchemBadge(){
+  try{
+    const d = await (await fetch('/api/uchem')).json();
+    const b = document.getElementById('uchemBadge');
+    if(d.utwory.length){ b.textContent = d.utwory.length; b.style.display='inline-block'; }
+    else b.style.display='none';
+  }catch(e){}
+}
+async function loadUchem(){
+  const host = document.getElementById('uchem');
+  host.innerHTML = '<div class="panel"><span class="spin"></span> przeglądam wyniki analiz…</div>';
+  let d;
+  try{ const r = await fetch('/api/uchem'); if(!r.ok) throw new Error('HTTP '+r.status); d = await r.json(); }
+  catch(e){ host.innerHTML = `<div class="panel"><span class="q-bad">✗ ${esc(e.message)}</span></div>`; return; }
+  const b = document.getElementById('uchemBadge');
+  if(d.utwory.length){ b.textContent = d.utwory.length; b.style.display='inline-block'; } else b.style.display='none';
+  const naglowek = d.utwory.length
+    ? `<h3>${d.utwory.length} utworów do sprawdzenia uchem</h3>
+       <div class="muted" style="font-size:12.5px">Apka podaje tempo i tonację dla każdego utworu, ale nie zawsze jest ich pewna.
+       Tu są te, przy których warto posłuchać samemu, zanim trafią do setu — najpilniejsze na górze.
+       Sprawdzonych: ${d.sprawdzonych}${d.bez_analizy?` · bez analizy: ${d.bez_analizy} (uruchom „Analizuj”)`:''}.</div>`
+    : `<h3>Nic do sprawdzania</h3><div class="muted" style="font-size:12.5px">${d.sprawdzonych} utworów z pewnymi wynikami${d.bez_analizy?` · ${d.bez_analizy} jeszcze bez analizy`:''}.</div>`;
+  const wiersze = d.utwory.map(u => `
+    <div class="hrow" style="display:block;padding:9px 0;border-bottom:1px solid var(--line)">
+      <div style="display:flex;gap:10px;align-items:center">
+        <span class="${UCHEM_KOLOR[u.waga]}" style="width:16px;text-align:center;font-weight:700">${UCHEM_IKONA[u.waga]}</span>
+        <div style="flex:1;min-width:0">
+          <div class="t-title">${esc(u.title||u.file.split('/').pop())}</div>
+          <div class="t-artist">${esc(u.artist||'')}</div>
+        </div>
+        <span class="muted" style="font-family:monospace;font-size:12px">${u.bpm?u.bpm.toFixed(1)+' BPM':''} ${u.camelot||''}</span>
+        <button class="mini" data-f="${encodeURIComponent(u.file)}" onclick="openDetail(decodeURIComponent(this.dataset.f))">Szczegóły i siatka</button>
+      </div>
+      <ul style="margin:6px 0 0 26px;padding:0;list-style:none;font-size:12.5px">
+        ${u.powody.map(p=>`<li class="${UCHEM_KOLOR[p.waga]}">– ${esc(p.opis)}</li>`).join('')}
+      </ul>
+    </div>`).join('');
+  host.innerHTML = `<div class="panel">${naglowek}${wiersze}</div>`;
+}
+
+// ============ DOKTOR — czy integracje jeszcze działają ============
+function doktorHTML(r){
+  const wiersz = s => `<div style="display:flex;gap:10px;align-items:baseline;padding:4px 0">
+      <span style="width:18px">${s.ok?'✅':(s.krytyczna?'❌':'⚠️')}</span>
+      <span style="width:150px;font-weight:600">${esc(s.nazwa)}</span>
+      <span class="muted" style="flex:1;font-size:12.5px">${esc(s.opis)}</span>
+      <span class="muted" style="font-family:monospace;font-size:11px">${s.ms} ms</span></div>`;
+  const tresc = r && r.kiedy
+    ? `<div class="muted" style="font-size:12px;margin-bottom:6px">ostatnio sprawdzone: ${esc(r.kiedy.replace('T',' '))}</div>${r.wyniki.map(wiersz).join('')}`
+    : `<div class="muted" style="font-size:12.5px">Jeszcze nie sprawdzano. Spotify, Beatport, iTunes i YouTube nie mają dla nas API — apka czyta ich strony,
+       a gdy któraś się zmieni, funkcja cichnie zamiast krzyczeć. To sprawdzenie mówi wprost, co działa.</div>`;
+  return `<div class="panel" style="margin-bottom:12px">
+    <h3 style="display:flex;align-items:center;gap:10px">🩺 Integracje
+      <button class="mini go" id="doktorBtn" style="margin-left:auto">Sprawdź teraz</button></h3>
+    <div id="doktorBody">${tresc}</div></div>`;
+}
+async function wstawDoktora(host){
+  let r=null; try{ r = await (await fetch('/api/doktor')).json(); }catch(e){}
+  const el = document.createElement('div'); el.innerHTML = doktorHTML(r);
+  host.appendChild(el.firstElementChild);
+  document.getElementById('doktorBtn').onclick = async (ev)=>{
+    const btn = ev.target; btn.disabled = true; btn.textContent = 'sprawdzam… (do pół minuty)';
+    try{
+      const r2 = await (await fetch('/api/doktor',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+      document.getElementById('doktorBody').innerHTML = doktorHTML(r2).match(/<div id="doktorBody">([\s\S]*)<\/div><\/div>$/)[1];
+    }catch(e){ document.getElementById('doktorBody').innerHTML = `<span class="q-bad">✗ ${esc(e.message)}</span>`; }
+    btn.disabled = false; btn.textContent = 'Sprawdź teraz';
+  };
+}
+
 async function loadHealth(){
   const host = document.getElementById('health');
   host.innerHTML = '<div class="panel"><span class="spin"></span> skanuję bibliotekę (pełne sprawdzenie plików)…</div>';
@@ -2192,6 +2269,7 @@ async function loadSetup(){
   try{ const r=await fetch('/api/config'); if(!r.ok) throw new Error('HTTP '+r.status); d=await r.json(); }
   catch(e){ host.innerHTML=`<div class="panel"><span class="q-bad">✗ ${esc(e.message)}</span></div>`; return; }
   host.innerHTML=setupHTML(d);
+  wstawDoktora(host);
 
   const prog=(id,msg)=>document.getElementById(id).innerHTML=msg;
   document.getElementById('slskdStart').onclick=async()=>{
@@ -2266,7 +2344,7 @@ document.getElementById('rows').onclick=(e)=>{
 document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
   tab.classList.add('on');
-  ['lib','import','order','health','export','radar','setup','dl','decyzje','staty','historia'].forEach(id=>document.getElementById(id).classList.add('hide'));
+  ['lib','import','order','health','export','radar','setup','dl','decyzje','staty','historia','uchem'].forEach(id=>document.getElementById(id).classList.add('hide'));
   document.getElementById(tab.dataset.t).classList.remove('hide');
   if(tab.dataset.t==='staty') ladujStatystyki();
   if(tab.dataset.t==='export') rbPokazStan();
@@ -2275,6 +2353,7 @@ document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>{
   if(tab.dataset.t==='health') loadHealth();
   if(tab.dataset.t==='radar') loadRadar();
   if(tab.dataset.t==='setup') loadSetup();
+  if(tab.dataset.t==='uchem') loadUchem();
   if(tab.dataset.t==='dl') loadTransfers();
 });
 
@@ -2967,6 +3046,7 @@ kreatorSprawdzNaStarcie();
 wireFiltry();
 wireZarzadzanie();
 load();
+odswiezUchemBadge();
 </script>
 </body>
 </html>

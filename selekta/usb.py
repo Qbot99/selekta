@@ -36,6 +36,7 @@ from mutagen.wave import WAVE
 from .covers import embedded_art
 from .matcher import AUDIO_EXT
 from .tagger import FORBIDDEN, safe_name
+from .narzedzia import ffmpeg_path, ffprobe_path
 
 MAX_NAME = 120  # full filename budget (stem + extension), CDJ-friendly
 
@@ -151,7 +152,7 @@ def _convert_wav(src: str, dst: str) -> None:
         bits = WAVE(src).info.bits_per_sample or 16
     except Exception:
         bits = 16
-    cmd = ["ffmpeg", "-v", "error", "-y", "-i", src, "-vn", "-map_metadata", "-1"]
+    cmd = [ffmpeg_path(), "-v", "error", "-y", "-i", src, "-vn", "-map_metadata", "-1"]
     if ext == ".aiff":
         cmd += ["-c:a", "pcm_s16be" if bits <= 16 else "pcm_s24be"]
     else:  # .flac

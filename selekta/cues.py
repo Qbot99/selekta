@@ -37,6 +37,8 @@ import math
 
 import numpy as np
 
+from .narzedzia import ffmpeg_path, ffprobe_path
+
 # ---------------------------------------------------------------- stałe
 
 SR = 11025            # częstotliwość analizy (mono)
@@ -78,7 +80,7 @@ class Cues:
 def _duration(path: str) -> float:
     """Długość utworu w sekundach (ffprobe); 0.0 gdy nieznana."""
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+        [ffprobe_path(), "-v", "error", "-show_entries", "format=duration",
          "-of", "csv=p=0", path],
         capture_output=True, text=True,
     ).stdout.strip()
@@ -91,7 +93,7 @@ def _duration(path: str) -> float:
 def _decode(path: str) -> np.ndarray:
     """Cały utwór jako mono float32 PCM przez ffmpeg (wzorzec z quality.py)."""
     out = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", path,
+        [ffmpeg_path(), "-v", "error", "-i", path,
          "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"],
         capture_output=True,
     ).stdout

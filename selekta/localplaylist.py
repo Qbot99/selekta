@@ -52,7 +52,7 @@ def _url_to_path(value: str) -> str:
 
 
 def _traktor_paths(location: ET.Element) -> list[str]:
-    """Traktor zapisuje ścieżki jako '/:Users/:hubert/:Muzyka/:'.
+    """Traktor zapisuje ścieżki jako '/:Users/:dj/:Muzyka/:'.
 
     VOLUME bywa nazwą dysku systemowego („Macintosh HD"), a bywa nazwą
     pendrive'a. Zamiast zgadywać, który to przypadek, zwracamy obie

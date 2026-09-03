@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from . import quality, verify_match
 from .slskd_client import SearchHit, SlskdClient
 from .spotify import Track
+from .narzedzia import ffmpeg_path, ffprobe_path
 
 
 @dataclass
@@ -61,7 +62,7 @@ class VerifyResult:
 def integrity(path: str) -> Check:
     """Pełne dekodowanie: liczy błędy ramek i wykrywa ucięcie na końcu."""
     proc = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", path, "-f", "null", "-"],
+        [ffmpeg_path(), "-v", "error", "-i", path, "-f", "null", "-"],
         capture_output=True, text=True,
     )
     errs = [ln for ln in proc.stderr.splitlines() if ln.strip()]
@@ -137,7 +138,7 @@ def next_source(hits: list[SearchHit], tried_users: set[str],
 
 def _duration(path: str) -> float:
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+        [ffprobe_path(), "-v", "error", "-show_entries", "format=duration",
          "-of", "csv=p=0", path],
         capture_output=True, text=True,
     ).stdout.strip()
@@ -149,7 +150,7 @@ def _duration(path: str) -> float:
 
 def _errors_in_window(path: str, start: float, dur: float) -> int:
     proc = subprocess.run(
-        ["ffmpeg", "-v", "error", "-ss", str(start), "-t", str(dur),
+        [ffmpeg_path(), "-v", "error", "-ss", str(start), "-t", str(dur),
          "-i", path, "-f", "null", "-"],
         capture_output=True, text=True,
     )

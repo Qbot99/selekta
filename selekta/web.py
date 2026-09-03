@@ -26,6 +26,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from mutagen import File as MutagenFile
 
 from . import (
+    doktor,
+    uchem,
     cache, config, covers, cues, decyzje, dedupe, dj_export, harmonic, health,
     instalator, obserwator,
     importers, loudness, matcher, pipeline, quality, radar, rekordbox,
@@ -1174,6 +1176,36 @@ def api_setup_folder() -> JSONResponse:
     config.save({"library_folder": path})
     return JSONResponse({"ok": True, "folder": path,
                          "utworow": len(matcher.audio_files(path))})
+
+
+@app.get("/api/uchem")
+def api_uchem() -> JSONResponse:
+    """Utwory, których wyników apka nie jest pewna — do sprawdzenia uchem.
+
+    Tylko z pamięci podręcznej, więc odpowiada natychmiast; szczegóły
+    utworu dokładamy z tagów, żeby lista czytała się po ludzku.
+    """
+    w = uchem.sprawdz(_folder())
+    for u in w["utwory"]:
+        try:
+            row = _track_row(u["file"])
+            u["title"], u["artist"] = row.get("title"), row.get("artist")
+            u["ext"] = row.get("ext")
+        except Exception:  # noqa: BLE001 — brak tagów nie psuje listy
+            u["title"], u["artist"] = os.path.basename(u["file"]), ""
+    return JSONResponse(w)
+
+
+@app.get("/api/doktor")
+def api_doktor_ostatni() -> JSONResponse:
+    return JSONResponse(doktor.ostatni() or {"kiedy": None, "wyniki": []})
+
+
+@app.post("/api/doktor")
+def api_doktor_zbadaj(payload: dict | None = None) -> JSONResponse:
+    """Odpal sondy integracji (kilkanaście sekund — sieć)."""
+    return JSONResponse(doktor.zbadaj(
+        tylko_lokalne=bool((payload or {}).get("tylko_lokalne"))))
 
 
 @app.get("/api/obserwator")

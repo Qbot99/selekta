@@ -136,9 +136,7 @@ def test_transkod_z_320_oblewa_pelna_weryfikacje(tmp_path):
     jako „warn" — ostrzeżenie łatwe do przeoczenia. PRAWDZIWY transkod
     (ściana + cyfrowa cisza nad cięciem) ma OBLAĆ bramkę."""
     import subprocess
-    import sys
-    sys.path.insert(0, "/Users/hubert/claude/selekta/tests")
-    import probka
+    from tests import probka
     wav = probka.pelne_pasmo(str(tmp_path / "a.wav"), sekund=70)
     mp3 = probka.do_mp3(wav, str(tmp_path / "a.mp3"), 320)
     subprocess.run(["ffmpeg", "-y", "-loglevel", "quiet", "-i", mp3,
@@ -154,9 +152,7 @@ def test_master_z_lowpassem_przechodzi_check(tmp_path):
     """Druga strona dyskryminatora: 1/5 legalnych plików w bibliotece to
     mastery z lowpassem ~20.1-20.8 kHz — mają energię nad cięciem
     (zmierzone -45..-60 dB) i NIE mogą oblewać weryfikacji pobrań."""
-    import sys
-    sys.path.insert(0, "/Users/hubert/claude/selekta/tests")
-    import probka
+    from tests import probka
     wav = probka.obciete_pasmo(str(tmp_path / "m.wav"), 20.3, sekund=70)
     flac = probka.do_flac(wav, str(tmp_path / "master.flac"))
     wynik = pipeline.sound_quality(flac)
@@ -165,9 +161,7 @@ def test_master_z_lowpassem_przechodzi_check(tmp_path):
 
 def test_mp3_256_dalej_przechodzi_check(tmp_path):
     """Warn dla stratnych to niższa półka, nie fałszerstwo — przechodzi."""
-    import sys
-    sys.path.insert(0, "/Users/hubert/claude/selekta/tests")
-    import probka
+    from tests import probka
     wav = probka.obciete_pasmo(str(tmp_path / "t.wav"), 19.0)
     mp3 = probka.do_mp3(wav, str(tmp_path / "srednie.mp3"), 256)
     wynik = pipeline.sound_quality(mp3)

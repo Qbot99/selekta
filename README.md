@@ -1,83 +1,108 @@
-# selekta
+# Selekta
 
-Playlista → czysta, zweryfikowana biblioteka DJ-ska. Terminal **i** dashboard w przeglądarce.
+Porządek w bibliotece DJ-skiej — za darmo, na Maca.
 
 Wklejasz playlistę (Spotify, Apple Music, YouTube, Tidal, SoundCloud,
-1001Tracklists albo tekst), a selekta znajduje utwory na Soulseeku
-(przez Twój slskd), pokazuje legalne alternatywy zakupu (Beatport /
-Bandcamp), taguje, robi okładki, wykrywa BPM i tonację, układa set
-harmonicznie, **weryfikuje jakość i tożsamość** każdego pliku i pilnuje
-zdrowia całej biblioteki.
+1001Tracklists albo zwykły tekst), a Selekta znajduje utwory na Soulseeku
+przez Twój własny slskd, pokazuje gdzie je kupić legalnie (Beatport,
+Bandcamp), **sprawdza, czy pobrany plik to naprawdę ten utwór i naprawdę
+ta jakość**, taguje, dociąga okładki, wykrywa BPM i tonację, układa set
+harmonicznie i wypuszcza wszystko do rekordboxa, Serato albo na pendrive
+pod CDJ.
 
-## Dashboard
+## Pobierz i uruchom
+
+1. Wejdź w [Wydania](https://github.com/Qbot99/selekta/releases) i pobierz zip
+   dla swojego Maca: **arm64** (Apple Silicon: M1/M2/M3/M4) albo
+   **x86_64** (Intel).
+2. Rozpakuj i przenieś `Selekta.app` do Aplikacji.
+3. Przy pierwszym uruchomieniu kliknij ikonę **prawym przyciskiem → Otwórz**.
+   Apka nie jest podpisana certyfikatem Apple (to kosztuje 99 $ rocznie),
+   więc macOS zapyta raz, czy na pewno. Potem otwiera się normalnie.
+4. Otworzy się przeglądarka z dashboardem. Kreator w zakładce
+   **Ustawienia** przeprowadzi Cię przez resztę: wskazanie folderu
+   z muzyką, instalację slskd (klient Soulseeka) i logowanie.
+
+Nic więcej nie trzeba instalować — ffmpeg do analizy audio jest w środku.
+
+## Co robi
+
+| Zakładka | Do czego |
+|---|---|
+| **Biblioteka** | wszystkie utwory z okładkami, jakością, BPM i tonacją (kolory koła Camelot); odsłuch, szczegóły, ręczna korekta siatki beatów |
+| **Import** | wklej playlistę — Selekta powie, co masz, czego brakuje, i znajdzie braki na Soulseeku albo da link do sklepu |
+| **Kolejność setu** | ułożenie harmoniczne + łuk energii: gdzie wejść, gdzie jest kulminacja |
+| **Zdrowie** | uszkodzone pliki, duplikaty (zostaje najlepsza kopia), krzaczki w tagach, brak okładek |
+| **Sprawdź uchem** | utwory, przy których Selekta **nie jest pewna** tempa lub tonacji, siatka pływa albo plik wygląda na przerobiony z MP3 — do odsłuchania przed graniem |
+| **Eksport** | rekordbox XML (z siatką, cue i Twoją ręczną pracą), Serato, M3U8, pendrive pod CDJ |
+| **Radar** | nowe wydania artystów, których masz w bibliotece |
+| **Pobierania** | kolejka Soulseeka — przeżywa zamknięcie apki i wznawia się sama |
+| **Ustawienia** | kreator slskd, folder, klucz API, **doktor** integracji (czy Spotify, Beatport, iTunes, YouTube jeszcze działają) |
+
+### Weryfikacja pobrań — dlaczego to ważne
+
+Na Soulseeku łatwo dostać „FLAC", który jest przerobionym MP3 128 kbps,
+albo plik o właściwej nazwie i cudzej zawartości. Selekta sprawdza każde
+pobranie trzema bramkami: **integralność** (czy plik nie jest ucięty),
+**tożsamość** (odsłuch: odcisk dźwięku vs 30-sekundowy fragment
+z serwisu) i **jakość** (analiza widma: transkod ma nad cięciem ścianę
+i cyfrową ciszę, prawdziwy master — łagodne zbocze). Przy wyborze pliku
+do pobrania jakość stoi przed popularnością: rzadki FLAC wygrywa
+z rozpowszechnioną 128-tką.
+
+## Terminal (dla wprawionych)
+
+Ta sama aplikacja działa też z linii poleceń — przydatne do skryptów
+i dużych bibliotek.
 
 ```
-selekta serve --folder ~/Music/dj
+pip install "selekta[web] @ git+https://github.com/Qbot99/selekta"
+selekta serve --folder ~/Music/dj        # dashboard
+selekta uchem --folder ~/Music/dj        # co sprawdzić uchem przed graniem
+selekta doctor                           # czy integracje jeszcze działają
 ```
-
-Otwiera http://localhost:8756 — biblioteka z okładkami, jakością,
-BPM/tonacją (kolory koła Camelot), zakładki **Kolejność setu** i
-**Zdrowie** (uszkodzone pliki, duplikaty, braki okładek).
-
-## Komendy (18, wszystkie przetestowane na żywej bibliotece)
 
 ```
 organize   dopasuj pliki do playlisty, otaguj, okładki, nazwy
 check      pełna weryfikacja pobrań: integralność + tożsamość + jakość
-match      weryfikacja przez odsłuch (fingerprint vs preview Spotify)
-verify     raport jakości (detektor fałszywych FLAC-ów)
+match      weryfikacja przez odsłuch (fingerprint vs preview)
+verify     raport jakości (detektor fałszywych FLAC-ów, bitrate)
 analyze    BPM + tonacja + kolejność harmoniczna (--order); cache
 loudness   głośność LUFS + ReplayGain (spójny poziom setu)
 cues       intro / outro / drop / pierwsze uderzenie
 covers     audyt okładek; --fill dociąga z iTunes
-icons      pokaż okładki FLAC/WAV w Finderze (macOS)
-tagfix     napraw uszkodzone tagi (mojibake)
+icons      pokaż okładki FLAC/WAV w Finderze
+tagfix     napraw uszkodzone tagi (mojibake, także cp1250)
 dedupe     usuń duplikaty (najlepsza kopia zostaje)
-health     dashboard tekstowy: duplikaty, uszkodzenia, braki
-export     rekordbox (XML) / Serato (.crate) / M3U8
+health     stan biblioteki: duplikaty, uszkodzenia, braki
+uchem      niepewne tempo/tonacja, pływająca siatka, podejrzana jakość
+export     rekordbox (XML z siatką i cue) / Serato (.crate) / M3U8
 usb        płaski folder pod CDJ (nazwy FAT32, WAV→AIFF/FLAC, ASCII)
 radar      nowe wydania Twoich artystów (Beatport/Bandcamp)
 wishlist   lista życzeń + cykliczne szukanie na Soulseeku
 hunt       szukaj brakujących na Soulseeku + linki zakupowe
+doctor     sprawdź integracje i narzędzia (ffmpeg, slskd, Spotify…)
 serve      dashboard w przeglądarce
 ```
 
-## Funkcje → moduły
+Wymagania w tym trybie: Python 3.11+, `ffmpeg`/`ffprobe` w PATH
+(`brew install ffmpeg`). Soulseek zawsze jako *własny slskd* — Selekta
+jest menedżerem biblioteki i wyszukiwarką, nie rozpowszechnia nagrań.
 
-| Funkcja | Moduł | Stan (walidacja na Twojej bibliotece) |
-|---|---|---|
-| Weryfikacja przez odsłuch | `verify_match.py` | ✅ pozytyw 0.81–0.93, negatyw 0.05–0.22 |
-| Auto-weryfikacja po pobraniu | `pipeline.py` | ✅ złapał ucięty transfer (Heaven & Hell), którego widmo w środku nie widziało |
-| Detektor fałszywej jakości | `quality.py` | ✅ złapał 24-bit FLAC ze źródła 128 kbps |
-| Świadomość wersji miksu | `matcher.py` | ✅ czas trwania + sygnatura miksu |
-| BPM + tonacja + harmonic | `harmonic.py` | ✅ klucz 4/4, BPM 4/4 vs ground truth |
-| Głośność / ReplayGain | `loudness.py` | ✅ mastery klubowe -6..-10 LUFS, bez przesteru |
-| Intro/outro/drop | `cues.py` | ✅ 42/42 sanity, 0.30 s/plik |
-| Naprawa mojibake | `tagfix.py` | ✅ Ã…MRTÃœM→ÅMRTÜM, 0 fałszywych alarmów |
-| Deduplikacja | `dedupe.py` | ✅ zostawia FLAC nad WAV (nie „większy plik”) |
-| Zdrowie biblioteki | `health.py` | ✅ 2 uszkodzone, duplikaty, braki okładek |
-| Cache analiz | `cache.py` | ✅ 3.0 s → 0.16 s (19×) na powtórce |
-| Import z wielu źródeł | `importers.py` | ✅ Spotify/Apple/YT/1001TL/SC/tekst |
-| Eksport DJ | `dj_export.py` | ✅ rekordbox XML + Serato + M3U8 |
-| USB pod CDJ | `usb.py` | ✅ WAV→AIFF, folduje diakrytyki |
-| Radar nowości | `radar.py` | ✅ 59 artystów, Beatport OK |
-| Dashboard | `web.py` + `static/` | ✅ 3 zakładki, żywe dane |
-| Oficjalny klucz/BPM (Beatport) | `keysource.py` | ⏳ w walidacji |
+## Dla programistów
 
-## Wymagania
+```
+git clone https://github.com/Qbot99/selekta && cd selekta
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[web,macos]" pytest
+pytest -q -m "not network"          # ~5 min; testy sieciowe: pytest -m network
+packaging/build_mac.sh              # Selekta.app do dist/
+```
 
-Python 3.11+, ffmpeg/ffprobe. `pip install -e ".[web]"` (dashboard).
-Opcjonalnie: slskd (Soulseek), `.[macos]` (ikony Findera).
+Wydanie: tag `vX.Y.Z` na `main` — GitHub Actions buduje `Selekta.app` na
+Apple Silicon i Intel i dołącza zipy do wydania.
 
-## Do produktu na sprzedaż
-
-1. Dashboard → opakowanie w Tauri (sprzedawalna binarka; licencje przez
-   Gumroad/Lemon Squeezy).
-2. Soulseek zawsze jako *bring-your-own slskd* — apka jest menedżerem
-   biblioteki i wyszukiwarką zakupową; nie dystrybuuje cudzych nagrań.
-3. Spotify przez oficjalne Web API przed publikacją.
-
-## Testy regresyjne
+### Jak są pilnowane wyniki
 
 Zestaw ma dwie warstwy, które sprawdzają różne rzeczy.
 
@@ -90,43 +115,24 @@ przechodzi przez cały zestaw, a wyniki cicho się przesuwają — i człowiek
 dowiaduje się o tym, ufając złej liczbie w klubie.
 
 * `tests/test_regresja_dsp.py` — sygnały o ZNANYCH właściwościach,
-  generowane kodem (`tests/probka.py`). Metronom o zadanym tempie, szum
-  z pasmem uciętym dokładnie na 16 kHz, ton o znanej amplitudzie.
-  Odpowiadają na pytanie „czy wynik jest POPRAWNY”, bo prawdę znamy
-  z fizyki sygnału. Nie ma tu żadnych cudzych nagrań — pliki powstają
-  deterministycznie przy uruchomieniu testu.
+  generowane kodem (`tests/probka.py`): metronom o zadanym tempie, szum
+  z pasmem uciętym dokładnie na 16 kHz, kadencja w zadanej tonacji.
+  Odpowiadają na pytanie „czy wynik jest POPRAWNY", bo prawdę znamy
+  z fizyki sygnału. Tonacja sprawdzana we wszystkich 24 tonacjach,
+  tempo w przemiataniu 70–182 BPM.
 
 * `tests/test_regresja_biblioteka.py` — migawka wyników dla stałego
-  zestawu prawdziwych plików. Odpowiada na inne pytanie: „czy moja zmiana
-  ruszyła coś, czego nie zamierzałem ruszyć”. Prawdziwy utwór ma synkopy,
-  pogłos i breakdowny, których metronom nie odtworzy. Test pomija się sam,
-  gdy nie ma biblioteki albo migawki.
-
-Odświeżenie migawki po ZAMIERZONEJ zmianie algorytmu:
-
-```
-python -m tests.test_regresja_biblioteka --zapisz
-```
-
-Obie warstwy są potrzebne. Przy sprawdzeniu: celowe zaniżenie wykrywanej
-granicy pasma o 4% wywaliło całą migawkę (12/12), a sygnały wzorcowe
-przepuściły je przy zbyt luźnej tolerancji — dopiero jej zaostrzenie
-sprawiło, że łapią to obie.
-
-### Wzorzec tonacji
-
-`akord_tonalny()` i `kadencja()` w `tests/probka.py` generują sygnał
-o tonacji znanej z teorii muzyki: trójdźwięk durowy ma tercję wielką,
-molowy małą, a kadencja I-IV-V-I rozstrzyga tonację jednoznacznie.
-Sprawdzone we **wszystkich 24 tonacjach** (12 durowych i 12 molowych) —
-trafienie w jedną bywa przypadkiem, trafienie we wszystkie nie jest.
-
-Poza samym werdyktem pilnujemy też **korelacji z profilem** Krumhansla.
-Powód: stała `FIFTH_DISCOUNT` przesuwa korelację (0.0 → 0.8888,
-0.3 → 0.8468, 1.0 → 0.7219), ale nie zmienia zwycięskiej tonacji. Test
-patrzący tylko na wykrytą tonację przepuściłby taką zmianę bez śladu.
+  zestawu prawdziwych plików (własnych, wskazanych przez
+  `SELEKTA_LIBRARY_FOLDER`). Odpowiada na inne pytanie: „czy moja zmiana
+  ruszyła coś, czego nie zamierzałem ruszyć". Pomija się sam, gdy nie ma
+  biblioteki albo migawki. Odświeżenie po ZAMIERZONEJ zmianie algorytmu:
+  `python -m tests.test_regresja_biblioteka --zapisz`.
 
 **Pułapka przy ręcznym badaniu progów:** podmiana stałej na wartość o tej
 samej długości (`0.3` → `1.0`) nie zmienia rozmiaru pliku, więc Python
 potrafi wczytać zbuforowany bajtkod i pokazać stary wynik. Bez `-B` albo
 skasowania `__pycache__` wychodzi fałszywy wniosek, że stała nic nie robi.
+
+## Licencja
+
+MIT — rób z tym, co chcesz, tylko zostaw notkę o autorze.

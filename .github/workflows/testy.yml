@@ -1,0 +1,22 @@
+name: testy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    # macOS, bo apka jest macOS-owa (Finder, osascript, ~/Library) i tak ją
+    # dostają użytkownicy; ffmpeg z Homebrew jak u nich
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: brew install ffmpeg
+      - run: pip install ".[web]" pytest
+      # testy @network i te na prawdziwej bibliotece pomijają się same,
+      # gdy nie ma sieci / folderu — tu liczy się reszta
+      - run: pytest -q -m "not network"

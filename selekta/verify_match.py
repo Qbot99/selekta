@@ -19,6 +19,7 @@ import numpy as np
 import requests
 
 from .spotify import UA, Track
+from .narzedzia import ffmpeg_path, ffprobe_path
 
 SR = 11025          # analysis sample rate — plenty for onsets, fast to decode
 N_FFT = 512
@@ -36,7 +37,7 @@ class MatchResult:
 
 
 def _decode(source: str | bytes, max_s: float | None = None) -> np.ndarray:
-    cmd = ["ffmpeg", "-v", "error"]
+    cmd = [ffmpeg_path(), "-v", "error"]
     if isinstance(source, bytes):
         cmd += ["-i", "pipe:0"]
     else:

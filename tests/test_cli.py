@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 
 import pytest
 
-BIN = "/Users/hubert/claude/selekta/.venv/bin/selekta"
+BIN = [sys.executable, "-m", "selekta.cli"]   # ten sam interpreter co pytest
 ALL_COMMANDS = [
     "organize", "verify", "check", "match", "covers", "icons", "analyze",
     "health", "export", "usb", "radar", "wishlist", "hunt", "loudness",
@@ -18,7 +19,7 @@ def run(*args, env_home: str | None = None, timeout: int = 120):
     env = os.environ.copy()
     if env_home:
         env["HOME"] = env_home  # izoluje ~/.selekta w subprocesie
-    return subprocess.run([BIN, *args], capture_output=True, text=True,
+    return subprocess.run([*BIN, *args], capture_output=True, text=True,
                           env=env, timeout=timeout)
 
 
@@ -185,9 +186,7 @@ class TestNaprawyZastrzezen:
     def test_export_z_cli_ma_siatke_i_cue(self, tmp_path):
         """XML z terminala był bez TEMPO/POSITION_MARK — pełny eksport
         robiła tylko aplikacja webowa."""
-        import sys
-        sys.path.insert(0, "/Users/hubert/claude/selekta/tests")
-        import probka
+        from tests import probka
         probka.metronom(str(tmp_path / "Test - Utwor.wav"), 128.0, sekund=30)
         dom = tmp_path / "dom"; dom.mkdir()
         r = run("analyze", "--folder", str(tmp_path), env_home=str(dom))
@@ -205,9 +204,8 @@ class TestNaprawyZastrzezen:
         Bez pomiaru czasu (dwie wersje tego testu na stoperze okazały się
         niestabilne pod obciążeniem): sprawdzamy wprost semantykę naprawy —
         po --apply wpis w cache ma pasować do NOWEGO mtime pliku."""
-        import subprocess, sys
-        sys.path.insert(0, "/Users/hubert/claude/selekta/tests")
-        import probka
+        import subprocess
+        from tests import probka
         plik = str(tmp_path / "Test - Utwor.wav")
         probka.metronom(plik, 128.0, sekund=30)
         dom = tmp_path / "dom"; dom.mkdir()

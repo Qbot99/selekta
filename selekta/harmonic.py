@@ -31,6 +31,8 @@ import subprocess
 from dataclasses import dataclass
 
 import numpy as np
+
+from .narzedzia import ffmpeg_path, ffprobe_path
 from mutagen.flac import FLAC
 from mutagen.id3 import ID3, ID3NoHeaderError, TBPM, TKEY, TXXX
 from mutagen.wave import WAVE
@@ -87,7 +89,7 @@ class TrackAnalysis:
 def _decode(path: str, sr: int, ss: float, dur: float) -> np.ndarray:
     """Mono float32 PCM via ffmpeg, same pattern as quality/verify_match."""
     out = subprocess.run(
-        ["ffmpeg", "-v", "error", "-ss", str(ss), "-t", str(dur), "-i", path,
+        [ffmpeg_path(), "-v", "error", "-ss", str(ss), "-t", str(dur), "-i", path,
          "-ac", "1", "-ar", str(sr), "-f", "f32le", "-"],
         capture_output=True,
     ).stdout
@@ -96,7 +98,7 @@ def _decode(path: str, sr: int, ss: float, dur: float) -> np.ndarray:
 
 def _duration(path: str) -> float:
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+        [ffprobe_path(), "-v", "error", "-show_entries", "format=duration",
          "-of", "csv=p=0", path],
         capture_output=True, text=True,
     ).stdout.strip()

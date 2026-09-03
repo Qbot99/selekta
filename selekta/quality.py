@@ -15,6 +15,8 @@ import subprocess
 from dataclasses import dataclass
 
 import numpy as np
+
+from .narzedzia import ffmpeg_path, ffprobe_path
 from mutagen import File as MutagenFile
 
 
@@ -32,7 +34,7 @@ class QualityReport:
 
 
 def _decode(path: str, ss: float, dur: float, fmt: str, extra: list[str]) -> bytes:
-    cmd = ["ffmpeg", "-v", "error", "-ss", str(ss), "-t", str(dur), "-i", path,
+    cmd = [ffmpeg_path(), "-v", "error", "-ss", str(ss), "-t", str(dur), "-i", path,
            *extra, "-f", fmt, "-"]
     return subprocess.run(cmd, capture_output=True).stdout
 

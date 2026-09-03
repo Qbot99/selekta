@@ -1,0 +1,146 @@
+"""Sprawdź uchem — lista wyników, których aplikacja nie jest pewna.
+
+Aplikacja liczy pewność tempa i tonacji, bada stabilność siatki i ocenia
+jakość, ale do tej pory wynik pewny i niepewny wyglądały w tabeli tak samo.
+Weryfikacja z 1.09.2026 pokazała, czym to grozi: metronom 87 BPM dostał
+pewność 0,04 — decyzja o podwojeniu tempa na styku — i siedział w tabeli
+obok pewnego 128 bez żadnego znaku. Dla DJ-a siatka to rzecz, na której
+gra na żywo; ten moduł zbiera wszystko, co warto sprawdzić uchem, zanim
+utwór trafi do setu.
+
+Czyta WYŁĄCZNIE pamięć podręczną analiz — niczego nie liczy, więc jest
+natychmiastowy i nie obciąża maszyny. Utwory bez analizy raportuje osobno.
+
+Progi z pomiarów na prawdziwej bibliotece (wrzesień 2026):
+* pewność tempa realnych utworów klubowych 0,32-0,62; syntetyczne pułapki
+  podwojenia dają 0,04-0,16 — próg 0,25 leży w przerwie z zapasem;
+* pewność tonacji 0,47-1,00; próg 0,4 jest spójny ze znakiem „(?)"
+  w tabeli biblioteki.
+"""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+
+from . import cache, matcher
+
+PROG_TEMPA = 0.25
+PROG_TONACJI = 0.4
+
+# waga: 3 = nie graj bez sprawdzenia, 2 = sprawdź przy okazji, 1 = drobiazg
+WAGI = {"tempo_niepewne": 3, "transkod": 3, "tempo_zmienne": 2,
+        "bpm_nietrafione": 2, "tonacja_niepewna": 1, "jakosc_do_oceny": 1}
+
+
+@dataclass
+class Powod:
+    kod: str
+    opis: str
+    waga: int
+
+
+@dataclass
+class DoSprawdzenia:
+    file: str
+    bpm: float | None = None
+    camelot: str | None = None
+    key: str | None = None
+    powody: list[Powod] = field(default_factory=list)
+
+    @property
+    def waga(self) -> int:
+        return max((p.waga for p in self.powody), default=0)
+
+
+def _powody(h: dict, tempo: dict | None, q: dict | None) -> list[Powod]:
+    out: list[Powod] = []
+    bpm = h.get("bpm")
+    conf_bpm = h.get("confidence_bpm")
+    if bpm and conf_bpm is not None and conf_bpm < PROG_TEMPA:
+        out.append(Powod(
+            "tempo_niepewne",
+            f"tempo {bpm:.0f} BPM z pewnością {conf_bpm:.2f} — możliwe "
+            f"podwojenie lub połowienie (czy to nie {bpm / 2:.0f} albo "
+            f"{bpm * 2:.0f}?)", WAGI["tempo_niepewne"]))
+    conf_key = h.get("confidence_key")
+    if h.get("key") and conf_key is not None and conf_key < PROG_TONACJI:
+        out.append(Powod(
+            "tonacja_niepewna",
+            f"tonacja {h['key']} z pewnością {conf_key:.2f} — sąsiednia "
+            f"na kole Camelota jest równie prawdopodobna",
+            WAGI["tonacja_niepewna"]))
+    if tempo:
+        if not tempo.get("stabilne", True):
+            out.append(Powod(
+                "tempo_zmienne",
+                tempo.get("opis") or "tempo nie trzyma się przez cały utwór "
+                "— jedna siatka go nie obejmie", WAGI["tempo_zmienne"]))
+        elif tempo.get("bpm_nietrafione") and tempo.get("bpm_poprawione"):
+            out.append(Powod(
+                "bpm_nietrafione",
+                f"siatka rozjeżdża się przez BPM nietrafione o ułamek — "
+                f"proponowana poprawka {tempo['bpm_poprawione']:.1f}",
+                WAGI["bpm_nietrafione"]))
+    if q:
+        if q.get("grade") == "bad":
+            out.append(Powod("transkod", f"jakość: {q.get('verdict', '')}",
+                             WAGI["transkod"]))
+        elif q.get("grade") == "warn":
+            out.append(Powod("jakosc_do_oceny",
+                             f"jakość do oceny: {q.get('verdict', '')}",
+                             WAGI["jakosc_do_oceny"]))
+    return out
+
+
+def sprawdz(folder: str) -> dict:
+    """Przejrzyj bibliotekę i zbierz utwory warte sprawdzenia uchem.
+
+    Zwraca słownik gotowy do wysłania jako JSON: listę utworów (najpilniejsze
+    najpierw), liczbę sprawdzonych i liczbę bez analizy.
+    """
+    pliki = matcher.audio_files(folder)
+    utwory: list[DoSprawdzenia] = []
+    bez_analizy = 0
+    for p in pliki:
+        h = cache.get(p, "harmonic")
+        if h is None:
+            bez_analizy += 1
+            continue
+        powody = _powody(h, cache.get(p, "tempo"), cache.get(p, "quality"))
+        if powody:
+            powody.sort(key=lambda x: -x.waga)
+            utwory.append(DoSprawdzenia(p, h.get("bpm"), h.get("camelot"),
+                                        h.get("key"), powody))
+    utwory.sort(key=lambda u: (-u.waga, u.file.lower()))
+    return {
+        "utwory": [{
+            "file": u.file, "bpm": u.bpm, "camelot": u.camelot, "key": u.key,
+            "waga": u.waga,
+            "powody": [{"kod": p.kod, "opis": p.opis, "waga": p.waga}
+                       for p in u.powody],
+        } for u in utwory],
+        "sprawdzonych": len(pliki) - bez_analizy,
+        "bez_analizy": bez_analizy,
+        "progi": {"tempo": PROG_TEMPA, "tonacja": PROG_TONACJI},
+    }
+
+
+def format_report(wynik: dict) -> str:
+    """Wersja dla terminala."""
+    linie = []
+    u = wynik["utwory"]
+    if not u:
+        linie.append(f"nic do sprawdzania uchem — {wynik['sprawdzonych']} "
+                     f"utworów z pewnymi wynikami")
+    else:
+        linie.append(f"{len(u)} utworów do sprawdzenia uchem "
+                     f"(z {wynik['sprawdzonych']} przeanalizowanych):")
+        ikona = {3: "‼", 2: "!", 1: "·"}
+        for t in u:
+            linie.append(f"  {ikona[t['waga']]} {os.path.basename(t['file'])}")
+            for p in t["powody"]:
+                linie.append(f"      – {p['opis']}")
+    if wynik["bez_analizy"]:
+        linie.append(f"{wynik['bez_analizy']} utworów bez analizy — "
+                     f"uruchom „Analizuj”, żeby je ocenić")
+    return "\n".join(linie)

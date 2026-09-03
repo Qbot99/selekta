@@ -24,6 +24,7 @@ from mutagen import File as MutagenFile
 from . import covers
 from .matcher import mix_signature, normalize
 from .quality import QualityReport, analyze
+from .narzedzia import ffmpeg_path, ffprobe_path
 
 AUDIO_EXT = (".flac", ".mp3", ".wav", ".aiff", ".m4a")
 
@@ -261,7 +262,7 @@ def _ffmpeg_check(path: str) -> str | None:
     """Full decode; returns an error description or None when clean."""
     try:
         proc = subprocess.run(
-            ["ffmpeg", "-v", "error", "-i", path, "-f", "null", "-"],
+            [ffmpeg_path(), "-v", "error", "-i", path, "-f", "null", "-"],
             capture_output=True, text=True, timeout=300,
         )
     except (subprocess.TimeoutExpired, OSError) as e:

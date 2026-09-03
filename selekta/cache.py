@@ -105,7 +105,12 @@ def _save_store(kind: str, store: dict) -> None:
 # nieaktualne dane na zawsze, bo odcisk zależy tylko od PLIKU, nie od kodu.
 # Historia: cues 2 — kotwica beatgridu liczona z fazy prążka tempa zamiast
 # z pierwszego napotkanego onsetu (przesunięcie sięgało pół uderzenia).
-WERSJE = {"cues": 2}
+# Podbicie numeru unieważnia stare wpisy danego rodzaju — po zmianie
+# algorytmu użytkownik nie może latami oglądać wyników sprzed poprawki.
+# 2.09.2026: harmonic (nowe BPM: gęsta interpolacja + strażnik oktawy),
+# tempo (liczone z BPM), quality (dyskryminator transkodu, bitrate),
+# energia (naprawiona jasność, gęstość z bramką okresowości).
+WERSJE = {"cues": 2, "harmonic": 2, "tempo": 2, "quality": 2, "energia": 2}
 
 
 def wersja(kind: str) -> int:

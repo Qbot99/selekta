@@ -13,6 +13,7 @@ from __future__ import annotations
 import subprocess
 
 import numpy as np
+from .narzedzia import ffmpeg_path, ffprobe_path
 
 SR = 8000              # do rysowania w zupełności wystarczy
 PUNKTY = 1600          # rozdzielczość pozioma wykresu
@@ -20,7 +21,7 @@ PUNKTY = 1600          # rozdzielczość pozioma wykresu
 
 def _dekoduj(path: str, sr: int = SR) -> np.ndarray:
     """Mono float32 przez ffmpeg; pusta tablica, gdy plik nie da się odczytać."""
-    cmd = ["ffmpeg", "-v", "error", "-i", path, "-map", "0:a:0",
+    cmd = [ffmpeg_path(), "-v", "error", "-i", path, "-map", "0:a:0",
            "-ac", "1", "-ar", str(sr), "-f", "f32le", "-"]
     try:
         r = subprocess.run(cmd, capture_output=True, timeout=180)

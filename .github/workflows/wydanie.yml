@@ -1,0 +1,66 @@
+name: wydanie
+
+# Tag w stylu v0.3.0 -> zbuduj Selekta.app na Apple Silicon i Intel,
+# dołącz oba zipy do wydania na GitHubie.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-13
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: brew install ffmpeg
+      - name: wersja z tagu
+        run: echo "SELEKTA_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - run: pip install ".[web,macos]" pyinstaller
+      - run: pyinstaller --noconfirm --clean packaging/selekta.spec
+      - name: test dymny
+        run: |
+          SELEKTA_PORT=8799 dist/Selekta.app/Contents/MacOS/Selekta &
+          PID=$!
+          for _ in $(seq 1 60); do
+            if curl -fs http://127.0.0.1:8799/api/status >/dev/null; then echo OK; break; fi
+            sleep 0.5
+          done
+          curl -fs http://127.0.0.1:8799/api/status
+          kill $PID
+      - name: zip
+        run: cd dist && ditto -c -k --keepParent Selekta.app "Selekta-${SELEKTA_VERSION}-${{ matrix.arch }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Selekta-${{ matrix.arch }}
+          path: dist/Selekta-*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: zipy
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: zipy/*.zip
+          generate_release_notes: true
+          body: |
+            **Jak zainstalować (macOS):** pobierz zip dla swojego Maca
+            (`arm64` = Apple Silicon M1/M2/M3/M4, `x86_64` = Intel), rozpakuj,
+            przenieś Selekta.app do Aplikacji. Przy pierwszym uruchomieniu
+            kliknij ikonę **prawym przyciskiem → Otwórz** (apka nie jest
+            podpisana certyfikatem Apple, macOS o to zapyta tylko raz).

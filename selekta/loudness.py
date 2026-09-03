@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from mutagen.flac import FLAC
 from mutagen.id3 import ID3, ID3NoHeaderError, TXXX
 from mutagen.wave import WAVE
+from .narzedzia import ffmpeg_path, ffprobe_path
 
 # ---------------------------------------------------------------- stałe
 
@@ -82,7 +83,7 @@ def true_peak_linear(l: Loudness) -> float:
 def _run_loudnorm(path: str) -> dict[str, str]:
     """Uruchom loudnorm w trybie pomiaru i sparsuj blok JSON z stderr."""
     proc = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-nostats", "-i", path,
+        [ffmpeg_path(), "-hide_banner", "-nostats", "-i", path,
          "-af", "loudnorm=print_format=json", "-f", "null", "-"],
         capture_output=True, text=True,
     )
