@@ -1,0 +1,1238 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#070606;font-family:'Urbanist',system-ui,sans-serif;color:#f2ece6}
+a{color:#ff6a3d;text-decoration:none}a:hover{color:#ff8a66}
+*{box-sizing:border-box}
+input,textarea,button{font-family:inherit}
+textarea:focus,input:focus{outline:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+::selection{background:#ff6a3d;color:#0f0d0c}
+</style>
+</helmet>
+
+<div style="padding:48px 56px;display:flex;flex-direction:column;gap:22px;align-items:flex-start">
+  <div style="max-width:640px;display:flex;flex-direction:column;gap:6px">
+    <div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#8f857c">SELEKTA · TRYB AUTOMATYCZNY · DESKTOP (TAURI) · 1280×820</div>
+    <div style="font-size:13px;line-height:1.5;color:#8f857c">Kreator 5 kroków przeniesiony do układu z bocznym paskiem: kroki po lewej, jedno zadanie na ekran. Ciemne tło, jeden akcent (#ff6a3d), typografia geometryczna. Kliknij kroki w pasku albo przyciski „dalej”, żeby przejść przez flow. Język i krok startowy w Tweaks.</div>
+  </div>
+
+<div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#8f857c;margin-top:18px">TURA 6 · USTAWIENIA · „ZANIM ZACZNIESZ” · ONBOARDING</div>
+<div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+
+<!-- 6a: ustawienia -->
+<div id="6a" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#6a" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">6a</a>Ustawienia — połączenia i narzędzia, każde ze stanem</div>
+  <div data-screen-label="Ustawienia" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);display:grid;grid-template-columns:232px 1fr;grid-template-rows:44px 1fr;overflow:hidden">
+    <div style="grid-column:1/3;display:flex;align-items:center;padding:0 16px;gap:8px;border-bottom:1px solid #1d1917"><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="margin:0 auto;font:500 11px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">USTAWIENIA · SELEKTA 1.4.0</span><span style="width:52px"></span></div>
+    <aside style="border-right:1px solid #1d1917;display:flex;flex-direction:column;padding:24px 16px 20px;gap:22px">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 8px"><img src="assets/selekta-mark.png" alt="" style="width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(255,106,61,.45))"><span style="font-weight:800;font-size:19px;letter-spacing:.06em">selekta</span></div>
+      <sc-for list="{{ navSetup }}" as="g" hint-placeholder-count="3">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;padding:0 8px 8px">{{ g.head }}</div>
+          <sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;padding:8px 10px;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;background: {{ n.bg }};color: {{ n.color }}" style-hover="color:#f2ece6">{{ n.label }}<sc-if value="{{ n.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font:600 10.5px 'DM Mono',monospace;background:#ff6a3d;color:#0f0d0c;border-radius:10px;padding:1px 7px">{{ n.badge }}</span></sc-if></div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </aside>
+    <main style="padding:32px 36px 28px;display:flex;flex-direction:column;gap:20px;overflow:hidden">
+      <div style="display:flex;align-items:flex-end;gap:16px">
+        <div><h1 style="margin:0;font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1">Ustawienia</h1><div style="font-size:13.5px;color:#8f857c;margin-top:8px">Wszystko, co apka musi wiedzieć, żeby działać sama. Ustawiasz raz.</div></div>
+        <button style="margin-left:auto;flex-shrink:0;white-space:nowrap;background:#171412;border:1px solid #2a2522;color:#f2ece6;border-radius:9px;padding:10px 16px;font-weight:600;font-size:13px;cursor:pointer" style-hover="border-color:#ff6a3d">Pokaż wprowadzenie</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 320px;gap:16px;flex:1;min-height:0">
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;overflow:auto">
+          <sc-for list="{{ setup }}" as="s" hint-placeholder-count="6">
+            <div style="display:grid;grid-template-columns:8px 190px minmax(0,1fr) auto;gap:18px;align-items:center;padding:18px 22px;border-bottom:1px solid #1d1917">
+              <span style="width:8px;height:8px;border-radius:50%;background: {{ s.dot }}"></span>
+              <span style="font-weight:600;font-size:14.5px">{{ s.name }}</span>
+              <div style="min-width:0"><div style="font:500 12.5px 'DM Mono',monospace;color:#c9c0b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.val }}</div><div style="font-size:12.5px;color:#8f857c;margin-top:3px">{{ s.sub }}</div></div>
+              <sc-if value="{{ s.hasCta }}" hint-placeholder-val="{{ true }}"><button style="background:transparent;border:1px solid #2a2522;color:#f2ece6;border-radius:8px;padding:8px 13px;font-weight:600;font-size:12.5px;cursor:pointer;white-space:nowrap" style-hover="border-color:#ff6a3d">{{ s.cta }}</button></sc-if>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:14px">
+            <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">ZACHOWANIE</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:13.5px"><span>Start w trybie</span><span style="display:flex;gap:2px;background:#0f0d0c;border:1px solid #2a2522;border-radius:8px;padding:2px"><span style="padding:4px 10px;border-radius:6px;font-weight:600;font-size:12px;color:#8f857c">Pytaj</span><span style="padding:4px 10px;border-radius:6px;font-weight:600;font-size:12px;background:#1e1a17">Auto</span><span style="padding:4px 10px;font-weight:600;font-size:12px;color:#8f857c">Ręczny</span></span></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:13.5px"><span>Język</span><span style="display:flex;gap:2px;background:#0f0d0c;border:1px solid #2a2522;border-radius:8px;padding:2px"><span style="padding:4px 10px;border-radius:6px;font:600 11px 'DM Mono',monospace;background:#ff6a3d;color:#0f0d0c">PL</span><span style="padding:4px 10px;font:600 11px 'DM Mono',monospace;color:#8f857c">EN</span></span></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:13.5px"><span>Weryfikuj odsłuchem po pobraniu</span><span style="width:36px;height:20px;border-radius:10px;background:#ff6a3d;position:relative"><span style="position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#0f0d0c"></span></span></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:13.5px"><span>Tylko bezstratne z Soulseeka</span><span style="width:36px;height:20px;border-radius:10px;background:#ff6a3d;position:relative"><span style="position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#0f0d0c"></span></span></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:13.5px"><span>Kosz zamiast usuwania</span><span style="width:36px;height:20px;border-radius:10px;background:#ff6a3d;position:relative"><span style="position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#0f0d0c"></span></span></div>
+          </div>
+          <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:12px;flex:1">
+            <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">CACHE ANALIZ</div>
+            <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1">917</span><span style="font-size:13px;color:#8f857c">utworów · 3,0 s → 0,16 s na powtórce</span></div>
+            <button style="margin-top:auto;background:transparent;border:1px solid #2a2522;color:#8f857c;border-radius:8px;padding:9px 14px;font-weight:600;font-size:12.5px;cursor:pointer;align-self:flex-start" style-hover="color:#ff5a6a;border-color:#ff5a6a">Wyczyść cache</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 6b: zanim zaczniesz -->
+<div id="6b" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#6b" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">6b</a>„Zanim zaczniesz” — pierwsze uruchomienie, konfiguracja w jednym kliknięciu</div>
+  <div data-screen-label="Zanim zaczniesz" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);display:flex;flex-direction:column;overflow:hidden;position:relative">
+    <div style="display:flex;align-items:center;padding:0 16px;gap:8px;height:44px;border-bottom:1px solid #1d1917"><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span></div>
+    <div style="position:absolute;left:50%;top:40%;width:900px;height:900px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,rgba(255,106,61,.08),transparent 60%);pointer-events:none"></div>
+    <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:60px;padding:60px 90px;position:relative;align-items:center">
+      <div style="display:flex;flex-direction:column;gap:22px">
+        <img src="assets/selekta-mark.png" alt="" style="width:120px;height:120px;object-fit:contain;filter:drop-shadow(0 0 30px rgba(255,106,61,.4))">
+        <div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#ff6a3d">PIERWSZE URUCHOMIENIE</div>
+        <h1 style="margin:0;font-size:52px;font-weight:700;letter-spacing:-.025em;line-height:1.02">Zanim zaczniesz</h1>
+        <p style="margin:0;font-size:17px;color:#8f857c;line-height:1.5;max-width:440px">Kilka rzeczy do ustawienia — raz, potem apka pamięta. Możesz zrobić wszystko jednym kliknięciem albo krok po kroku.</p>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:8px">
+          <button style="background:#ff6a3d;color:#0f0d0c;border:0;border-radius:12px;padding:16px 26px;font-weight:800;font-size:14.5px;letter-spacing:.05em;cursor:pointer;box-shadow:0 0 30px rgba(255,106,61,.3)" style-hover="background:#ff8a66">USTAW WSZYSTKO ZA MNIE</button>
+          <button style="background:transparent;border:0;color:#8f857c;padding:16px 14px;font-weight:600;font-size:13.5px;cursor:pointer" style-hover="color:#f2ece6">Pomiń konfigurację</button>
+        </div>
+      </div>
+      <div style="background:#171412;border:1px solid #2a2522;border-radius:18px;padding:26px 28px;display:flex;flex-direction:column;gap:20px">
+        <div style="display:flex;align-items:center;gap:12px"><span style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">KONFIGURACJA</span><span style="margin-left:auto;font:500 11px 'DM Mono',monospace;color:#8f857c">2 / 5</span></div>
+        <div style="height:3px;background:#2a2522;border-radius:2px;overflow:hidden"><div style="height:100%;width:46%;background:#ff6a3d;box-shadow:0 0 12px #ff6a3d"></div></div>
+        <div style="display:flex;flex-direction:column">
+          <sc-for list="{{ kreator }}" as="k" hint-placeholder-count="5">
+            <div style="display:grid;grid-template-columns:22px 1fr;gap:16px;align-items:center;padding:14px 0;border-bottom:1px solid #1d1917">
+              <span style="width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font:600 11px 'DM Mono',monospace;background: {{ k.dotBg }};border:1px solid {{ k.dotLine }};color: {{ k.dotFg }};position:relative"><sc-if value="{{ k.spin }}" hint-placeholder-val="{{ false }}"><span style="width:12px;height:12px;border:2px solid #0f0d0c;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;display:block"></span></sc-if>{{ k.mark }}</span>
+              <div><div style="font-weight:600;font-size:15px;color: {{ k.color }}">{{ k.name }}</div><div style="font-size:12.5px;color:#8f857c;margin-top:2px">{{ k.sub }}</div></div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="font-size:12.5px;color:#5e5650;line-height:1.5">Soulseek zawsze jako Twój własny slskd — selekta zarządza biblioteką i szuka, nie rozprowadza nagrań.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 6c: onboarding -->
+<div id="6c" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#6c" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">6c</a>Onboarding — 7 kart wprowadzenia (tu karta 5: „Jakość — po to jest ta apka”)</div>
+  <div data-screen-label="Onboarding" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);display:flex;flex-direction:column;overflow:hidden;position:relative">
+    <div style="display:flex;align-items:center;padding:0 16px;gap:8px;height:44px;border-bottom:1px solid #1d1917"><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span></div>
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px">
+      <div style="width:760px;display:flex;flex-direction:column;gap:30px">
+        <div style="display:flex;gap:6px">
+          <sc-for list="{{ tutDots }}" as="d" hint-placeholder-count="7"><span style="height:3px;flex:1;border-radius:2px;background: {{ d.bg }}"></span></sc-for>
+        </div>
+        <div>
+          <div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#ff6a3d;margin-bottom:14px">5 / 7 · JAKOŚĆ</div>
+          <h1 style="margin:0;font-size:46px;font-weight:700;letter-spacing:-.025em;line-height:1.05">Jakość — po to jest ta apka</h1>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:10px">
+            <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#ff5a6a">FAŁSZYWY FLAC · 24-BIT</div>
+            <div style="display:flex;align-items:flex-end;gap:2px;height:64px"><span style="flex:1;height:96%;background:#f2ece6;border-radius:2px"></span><span style="flex:1;height:90%;background:#f2ece6;border-radius:2px"></span><span style="flex:1;height:82%;background:#f2ece6;border-radius:2px"></span><span style="flex:1;height:76%;background:#f2ece6;border-radius:2px"></span><span style="flex:1;height:60%;background:#f2ece6;border-radius:2px"></span><span style="flex:1;height:6%;background:#ff5a6a;border-radius:2px"></span><span style="flex:1;height:4%;background:#ff5a6a;border-radius:2px"></span><span style="flex:1;height:4%;background:#ff5a6a;border-radius:2px"></span><span style="flex:1;height:3%;background:#ff5a6a;border-radius:2px"></span><span style="flex:1;height:3%;background:#ff5a6a;border-radius:2px"></span></div>
+            <div style="font:500 11px 'DM Mono',monospace;color:#8f857c">pasmo ucięte na 16 kHz → źródło 128 kbps</div>
+          </div>
+          <div style="background:#171412;border:1px solid #5cd6a0;border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:10px">
+            <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#5cd6a0">PRAWDZIWY LOSSLESS</div>
+            <div style="display:flex;align-items:flex-end;gap:2px;height:64px"><span style="flex:1;height:96%;background:#f2ece6;border-radius:2px"></span><span style="flex:1;height:90%;background:#f2ece6;border-radius:2px"></span><span style="flex:1;height:84%;background:#f2ece6;border-radius:2px"></span><span style="flex:1;height:78%;background:#f2ece6;border-radius:2px"></span><span style="flex:1;height:68%;background:#f2ece6;border-radius:2px"></span><span style="flex:1;height:58%;background:#5cd6a0;border-radius:2px"></span><span style="flex:1;height:46%;background:#5cd6a0;border-radius:2px"></span><span style="flex:1;height:34%;background:#5cd6a0;border-radius:2px"></span><span style="flex:1;height:22%;background:#5cd6a0;border-radius:2px"></span><span style="flex:1;height:12%;background:#5cd6a0;border-radius:2px"></span></div>
+            <div style="font:500 11px 'DM Mono',monospace;color:#8f857c">pasmo do 21,3 kHz · naturalny spadek</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column">
+          <sc-for list="{{ tut }}" as="t" hint-placeholder-count="3">
+            <div style="display:flex;gap:16px;padding:14px 0;border-bottom:1px solid #1d1917;align-items:flex-start"><span style="font:600 12px 'DM Mono',monospace;color:#ff6a3d;min-width:18px;padding-top:2px">{{ t.n }}</span><div style="font-size:15px;line-height:1.5"><b>{{ t.a }}</b> <span style="color:#8f857c">{{ t.b }}</span></div></div>
+          </sc-for>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button style="background:transparent;border:1px solid #2a2522;color:#8f857c;border-radius:9px;padding:11px 16px;font-weight:600;font-size:13px;cursor:pointer" style-hover="color:#f2ece6">‹ Wstecz</button>
+          <button style="background:#ff6a3d;color:#0f0d0c;border:0;border-radius:9px;padding:11px 20px;font-weight:800;font-size:13px;cursor:pointer" style-hover="background:#ff8a66">Dalej ›</button>
+          <button style="margin-left:auto;background:transparent;border:0;color:#5e5650;padding:11px 10px;font-weight:600;font-size:13px;cursor:pointer" style-hover="color:#f2ece6">Pomiń</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#8f857c;margin-top:30px">TURA 5 · RADAR · STATYSTYKI · HISTORIA</div>
+<div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+
+<!-- 5a: radar -->
+<div id="5a" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#5a" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">5a</a>Radar — nowe wydania artystów z Twojej biblioteki</div>
+  <div data-screen-label="Radar" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);display:grid;grid-template-columns:232px 1fr;grid-template-rows:44px 1fr;overflow:hidden">
+    <div style="grid-column:1/3;display:flex;align-items:center;padding:0 16px;gap:8px;border-bottom:1px solid #1d1917"><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="margin:0 auto;font:500 11px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">RADAR · 59 ARTYSTÓW · SPRAWDZONO DZIŚ 09:12</span><span style="width:52px"></span></div>
+    <aside style="border-right:1px solid #1d1917;display:flex;flex-direction:column;padding:24px 16px 20px;gap:22px">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 8px"><img src="assets/selekta-mark.png" alt="" style="width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(255,106,61,.45))"><span style="font-weight:800;font-size:19px;letter-spacing:.06em">selekta</span></div>
+      <sc-for list="{{ navRadar }}" as="g" hint-placeholder-count="3">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;padding:0 8px 8px">{{ g.head }}</div>
+          <sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;padding:8px 10px;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;background: {{ n.bg }};color: {{ n.color }}" style-hover="color:#f2ece6">{{ n.label }}<sc-if value="{{ n.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font:600 10.5px 'DM Mono',monospace;background:#ff6a3d;color:#0f0d0c;border-radius:10px;padding:1px 7px">{{ n.badge }}</span></sc-if></div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </aside>
+    <main style="padding:32px 36px 28px;display:flex;flex-direction:column;gap:20px;overflow:hidden">
+      <div style="display:flex;align-items:flex-end;gap:16px">
+        <div><h1 style="margin:0;font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1">Radar</h1><div style="font-size:13.5px;color:#8f857c;margin-top:8px">Beatport i Bandcamp · <b style="color:#f2ece6">2 nowe</b> od ostatniego sprawdzenia</div></div>
+        <div style="margin-left:auto;flex-shrink:0;white-space:nowrap;display:flex;gap:2px;background:#171412;border:1px solid #2a2522;border-radius:9px;padding:3px"><span style="padding:6px 12px;border-radius:7px;font-weight:600;font-size:12.5px;background:#1e1a17;color:#f2ece6">30 dni</span><span style="padding:6px 12px;font-weight:600;font-size:12.5px;color:#8f857c">90 dni</span><span style="padding:6px 12px;font-weight:600;font-size:12.5px;color:#8f857c">Wszystko</span></div>
+        <button style="flex-shrink:0;white-space:nowrap;background:#171412;border:1px solid #2a2522;color:#f2ece6;border-radius:9px;padding:10px 16px;font-weight:600;font-size:13px;cursor:pointer" style-hover="border-color:#ff6a3d">Sprawdź teraz</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;overflow:auto;flex:1;min-height:0;align-content:start">
+        <sc-for list="{{ radar }}" as="r" hint-placeholder-count="6">
+          <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px" style-hover="border-color:#3a3330">
+            <div style="aspect-ratio:1;border-radius:10px;background:repeating-linear-gradient(135deg,#221d1a 0 6px,#1a1613 6px 12px);position:relative"><span style="position:absolute;top:10px;left:10px;font:500 10px 'DM Mono',monospace;color:#5e5650">okładka wydania</span><span style="position:absolute;top:10px;right:10px;width:8px;height:8px;border-radius:50%;background: {{ r.dot }};box-shadow:0 0 8px {{ r.dot }}"></span></div>
+            <div><div style="font-weight:700;font-size:15px">{{ r.title }}</div><div style="font-size:13px;color:#8f857c;margin-top:2px">{{ r.artist }} · {{ r.label }}</div></div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:auto"><span style="font:500 11px 'DM Mono',monospace;color:#5e5650">{{ r.date }}</span><button style="margin-left:auto;background:transparent;border:1px solid #2a2522;color:#f2ece6;border-radius:7px;padding:6px 11px;font-weight:600;font-size:12px;cursor:pointer" style-hover="border-color:#ff6a3d">{{ r.store }} ↗</button><button style="background:transparent;border:1px solid #2a2522;color:#8f857c;border-radius:7px;padding:6px 11px;font-weight:600;font-size:12px;cursor:pointer" style-hover="color:#f2ece6">+ Lista życzeń</button></div>
+          </div>
+        </sc-for>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 5b: statystyki -->
+<div id="5b" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#5b" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">5b</a>Statystyki — rozkład BPM i tonacji, luki w bibliotece</div>
+  <div data-screen-label="Statystyki" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);display:grid;grid-template-columns:232px 1fr;grid-template-rows:44px 1fr;overflow:hidden">
+    <div style="grid-column:1/3;display:flex;align-items:center;padding:0 16px;gap:8px;border-bottom:1px solid #1d1917"><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="margin:0 auto;font:500 11px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">STATYSTYKI · CAŁA BIBLIOTEKA · 917 PRZEANALIZOWANYCH</span><span style="width:52px"></span></div>
+    <aside style="border-right:1px solid #1d1917;display:flex;flex-direction:column;padding:24px 16px 20px;gap:22px">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 8px"><img src="assets/selekta-mark.png" alt="" style="width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(255,106,61,.45))"><span style="font-weight:800;font-size:19px;letter-spacing:.06em">selekta</span></div>
+      <sc-for list="{{ navStaty }}" as="g" hint-placeholder-count="3">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;padding:0 8px 8px">{{ g.head }}</div>
+          <sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;padding:8px 10px;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;background: {{ n.bg }};color: {{ n.color }}" style-hover="color:#f2ece6">{{ n.label }}<sc-if value="{{ n.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font:600 10.5px 'DM Mono',monospace;background:#ff6a3d;color:#0f0d0c;border-radius:10px;padding:1px 7px">{{ n.badge }}</span></sc-if></div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </aside>
+    <main style="padding:32px 36px 28px;display:flex;flex-direction:column;gap:20px;overflow:hidden">
+      <div style="display:flex;align-items:flex-end;gap:16px">
+        <div><h1 style="margin:0;font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1">Statystyki</h1><div style="font-size:13.5px;color:#8f857c;margin-top:8px">Rozkład, luki i łuk energii — dla całej biblioteki albo konkretnego setu.</div></div>
+        <div style="margin-left:auto;display:flex;gap:2px;background:#171412;border:1px solid #2a2522;border-radius:9px;padding:3px"><span style="padding:6px 12px;border-radius:7px;font-weight:600;font-size:12.5px;background:#1e1a17;color:#f2ece6">Cała biblioteka</span><span style="padding:6px 12px;font-weight:600;font-size:12.5px;color:#8f857c">Zaznaczone · 0</span><span style="padding:6px 12px;font-weight:600;font-size:12.5px;color:#8f857c">Playlista ▾</span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:16px 18px"><div style="font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1">128<span style="font-size:13px;color:#8f857c;margin-left:4px">BPM</span></div><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c;margin-top:8px">MEDIANA TEMPA</div></div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:16px 18px"><div style="font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1">84,2<span style="font-size:13px;color:#8f857c;margin-left:4px">GB</span></div><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c;margin-top:8px">92 % BEZSTRATNE</div></div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:16px 18px"><div style="font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1">−7,1<span style="font-size:13px;color:#8f857c;margin-left:4px">LUFS</span></div><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c;margin-top:8px">ŚREDNIA GŁOŚNOŚĆ</div></div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:16px 18px"><div style="font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1">6:24</div><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c;margin-top:8px">ŚREDNI CZAS UTWORU</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;flex:1;min-height:0">
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:10px"><span style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">ROZKŁAD BPM</span><span style="margin-left:auto;font:500 11px 'DM Mono',monospace;color:#ff6a3d">126–130 · 65 %</span></div>
+          <div style="display:flex;align-items:flex-end;gap:8px;flex:1;min-height:160px">
+            <sc-for list="{{ bpmHist }}" as="h" hint-placeholder-count="12">
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end"><span style="font:500 10px 'DM Mono',monospace;color:#8f857c">{{ h.n }}</span><span style="width:100%;border-radius:3px 3px 0 0;height: {{ h.h }};background: {{ h.bg }}"></span><span style="font:500 10px 'DM Mono',monospace;color:#5e5650">{{ h.b }}</span></div>
+            </sc-for>
+          </div>
+          <div style="border-left:2px solid #f0b64a;padding:6px 0 6px 12px;font-size:12.5px;color:#8f857c;line-height:1.45"><b style="color:#f0b64a">Luka:</b> tylko 8 utworów poniżej 122 BPM — mało materiału na rozgrzewkę.</div>
+        </div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:10px"><span style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">TONACJE · KOŁO CAMELOT</span><span style="margin-left:auto;font:500 11px 'DM Mono',monospace;color:#8f857c">góra: B (dur) · dół: A (moll)</span></div>
+          <div style="display:grid;grid-template-columns:repeat(12,1fr);gap:6px;flex:1;min-height:160px">
+            <sc-for list="{{ keyDist }}" as="k" hint-placeholder-count="12">
+              <div style="display:flex;flex-direction:column;gap:4px;height:100%">
+                <div style="flex:1;display:flex;align-items:flex-end"><span style="width:100%;border-radius:3px 3px 0 0;height: {{ k.hb }};background: {{ k.bgB }};opacity:.85"></span></div>
+                <span style="font:600 10px 'DM Mono',monospace;text-align:center;color:#8f857c">{{ k.n }}</span>
+                <div style="flex:1;display:flex;align-items:flex-start"><span style="width:100%;border-radius:0 0 3px 3px;height: {{ k.ha }};background: {{ k.bgA }}"></span></div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="border-left:2px solid #f0b64a;padding:6px 0 6px 12px;font-size:12.5px;color:#8f857c;line-height:1.45"><b style="color:#f0b64a">Luka:</b> 1A–3A prawie puste — przejście z 12A do 4A wymaga skoku o dwa pola.</div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 5c: historia -->
+<div id="5c" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#5c" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">5c</a>Historia — zagrane sety z rekordboxa, najczęściej grane</div>
+  <div data-screen-label="Historia" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);display:grid;grid-template-columns:232px 1fr;grid-template-rows:44px 1fr;overflow:hidden">
+    <div style="grid-column:1/3;display:flex;align-items:center;padding:0 16px;gap:8px;border-bottom:1px solid #1d1917"><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="margin:0 auto;font:500 11px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">HISTORIA · 5 SESJI · XML Z 2 WRZ</span><span style="width:52px"></span></div>
+    <aside style="border-right:1px solid #1d1917;display:flex;flex-direction:column;padding:24px 16px 20px;gap:22px">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 8px"><img src="assets/selekta-mark.png" alt="" style="width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(255,106,61,.45))"><span style="font-weight:800;font-size:19px;letter-spacing:.06em">selekta</span></div>
+      <sc-for list="{{ navHist }}" as="g" hint-placeholder-count="3">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;padding:0 8px 8px">{{ g.head }}</div>
+          <sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;padding:8px 10px;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;background: {{ n.bg }};color: {{ n.color }}" style-hover="color:#f2ece6">{{ n.label }}<sc-if value="{{ n.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font:600 10.5px 'DM Mono',monospace;background:#ff6a3d;color:#0f0d0c;border-radius:10px;padding:1px 7px">{{ n.badge }}</span></sc-if></div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </aside>
+    <main style="padding:32px 36px 28px;display:flex;flex-direction:column;gap:20px;overflow:hidden">
+      <div style="display:flex;align-items:flex-end;gap:16px">
+        <div><h1 style="margin:0;font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1">Historia</h1><div style="font-size:13.5px;color:#8f857c;margin-top:8px">Rekordbox zapisuje każdą sesję jako playlistę nazwaną datą — tu widzisz, co i jak grałeś.</div></div>
+        <button style="margin-left:auto;background:#171412;border:1px solid #2a2522;color:#f2ece6;border-radius:9px;padding:10px 16px;font-weight:600;font-size:13px;cursor:pointer" style-hover="border-color:#ff6a3d">Wczytaj historię z rekordboxa</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 300px;gap:16px;flex:1;min-height:0">
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;overflow:auto">
+          <div style="display:grid;grid-template-columns:64px minmax(0,1fr) 40px 84px 44px 96px 20px;gap:10px;padding:12px 20px;border-bottom:1px solid #2a2522;font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#5e5650"><span>DATA</span><span>SESJA</span><span>UTW.</span><span>CZAS</span><span>BPM</span><span>TONACJE</span><span></span></div>
+          <sc-for list="{{ hist }}" as="h" hint-placeholder-count="5">
+            <div style="display:grid;grid-template-columns:64px minmax(0,1fr) 40px 84px 44px 96px 20px;gap:10px;align-items:center;padding:14px 20px;border-bottom:1px solid #1d1917;cursor:pointer" style-hover="background:#1a1613">
+              <span style="font:500 12px 'DM Mono',monospace;color:#8f857c">{{ h.date }}</span>
+              <span style="font-weight:600;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ h.name }}</span>
+              <span style="font:500 12.5px 'DM Mono',monospace">{{ h.n }}</span>
+              <span style="font:500 12.5px 'DM Mono',monospace;color:#8f857c">{{ h.dur }}</span>
+              <span style="font:500 12.5px 'DM Mono',monospace">{{ h.bpm }}</span>
+              <span style="font:500 12px 'DM Mono',monospace;color:#8f857c">{{ h.keys }}</span>
+              <span style="color:#5e5650;text-align:right">→</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:14px">
+            <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">NAJCZĘŚCIEJ GRANE</div>
+            <sc-for list="{{ histTop }}" as="x" hint-placeholder-count="5">
+              <div style="display:flex;flex-direction:column;gap:6px"><div style="display:flex;align-items:baseline;gap:8px;font-size:13.5px"><span style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ x.title }}</span><span style="color:#8f857c;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ x.artist }}</span><span style="margin-left:auto;font:500 11.5px 'DM Mono',monospace;color:#ff6a3d">{{ x.n }}×</span></div><div style="height:3px;background:#2a2522;border-radius:2px"><div style="height:100%;background:#ff6a3d;border-radius:2px;width: {{ x.w }}"></div></div></div>
+            </sc-for>
+          </div>
+          <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:10px;flex:1">
+            <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">WNIOSKI</div>
+            <div style="font-size:13px;color:#8f857c;line-height:1.5">Grasz 5 sesji · 68 utworów · 7 h 35 min. <b style="color:#f2ece6">31 %</b> biblioteki nigdy nie zagrane — 386 utworów czeka.</div>
+            <button style="margin-top:auto;background:transparent;border:1px solid #2a2522;color:#f2ece6;border-radius:8px;padding:9px 14px;font-weight:600;font-size:12.5px;cursor:pointer;align-self:flex-start" style-hover="border-color:#ff6a3d">Pokaż nigdy niegrane</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+</div>
+
+<div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#8f857c;margin-top:30px">TURA 4 · IMPORT (RĘCZNY) · EKSPORT / USB · POBIERANIA</div>
+<div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+
+<!-- 4a: import -->
+<div id="4a" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#4a" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">4a</a>Import — playlista dopasowana do biblioteki w trzech pasach</div>
+  <div data-screen-label="Import" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);display:grid;grid-template-columns:232px 1fr;grid-template-rows:44px 1fr;overflow:hidden">
+    <div style="grid-column:1/3;display:flex;align-items:center;padding:0 16px;gap:8px;border-bottom:1px solid #1d1917"><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="margin:0 auto;font:500 11px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">IMPORT · SPOTIFY · „PIĄTEK SMOLNA” · 12 UTWORÓW</span><span style="width:52px"></span></div>
+    <aside style="border-right:1px solid #1d1917;display:flex;flex-direction:column;padding:24px 16px 20px;gap:22px">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 8px"><img src="assets/selekta-mark.png" alt="" style="width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(255,106,61,.45))"><span style="font-weight:800;font-size:19px;letter-spacing:.06em">selekta</span></div>
+      <sc-for list="{{ navImport }}" as="g" hint-placeholder-count="3">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;padding:0 8px 8px">{{ g.head }}</div>
+          <sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;padding:8px 10px;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;background: {{ n.bg }};color: {{ n.color }}" style-hover="color:#f2ece6">{{ n.label }}<sc-if value="{{ n.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font:600 10.5px 'DM Mono',monospace;background:#ff6a3d;color:#0f0d0c;border-radius:10px;padding:1px 7px">{{ n.badge }}</span></sc-if></div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </aside>
+    <main style="padding:32px 36px 28px;display:flex;flex-direction:column;gap:20px;overflow:hidden">
+      <div style="display:flex;align-items:flex-end;gap:16px">
+        <div><h1 style="margin:0;font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1">Import</h1><div style="font-size:13.5px;color:#8f857c;margin-top:8px">Wklej playlistę — dopasujemy ją do biblioteki po czasie trwania i fingerprincie.</div></div>
+      </div>
+      <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:6px;display:flex;align-items:center;gap:10px">
+        <span style="flex:1;padding:12px 16px;font-size:15px;color:#c9c0b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">https://open.spotify.com/playlist/37i9dQZF1DX6J5NfMJS675</span>
+        <span style="font:500 11px 'DM Mono',monospace;color:#5cd6a0;display:flex;align-items:center;gap:7px"><span style="width:6px;height:6px;border-radius:50%;background:#5cd6a0"></span>SPOTIFY · 12</span>
+        <button style="background:#ff6a3d;color:#0f0d0c;border:0;border-radius:10px;padding:12px 20px;font-weight:800;font-size:13px;letter-spacing:.04em;cursor:pointer" style-hover="background:#ff8a66">ROZPOZNAJ I DOPASUJ</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:14px 18px;display:flex;align-items:baseline;gap:10px"><span style="font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1;color:#5cd6a0">7</span><span style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c">DOPASOWANE ≥ 0,85</span></div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:14px 18px;display:flex;align-items:baseline;gap:10px"><span style="font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1;color:#f0b64a">2</span><span style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c">DO ROZSTRZYGNIĘCIA</span></div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:14px 18px;display:flex;align-items:baseline;gap:10px"><span style="font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1;color:#ff5a6a">3</span><span style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c">NIE ZNALEZIONO</span></div>
+      </div>
+      <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;overflow:auto;flex:1;min-height:0">
+        <sc-for list="{{ impRows }}" as="r" hint-placeholder-count="7">
+          <div style="display:grid;grid-template-columns:8px minmax(0,1fr) minmax(0,1.3fr) auto;gap:16px;align-items:center;padding:12px 20px;border-bottom:1px solid #1d1917" style-hover="background:#1a1613">
+            <span style="width:8px;height:8px;border-radius:50%;background: {{ r.color }}"></span>
+            <div style="min-width:0"><div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</div><div style="font-size:12.5px;color:#8f857c">{{ r.artist }}</div></div>
+            <div style="min-width:0">
+              <sc-if value="{{ r.hasFile }}" hint-placeholder-val="{{ true }}"><div style="font:500 12px 'DM Mono',monospace;color:#c9c0b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.file }}</div></sc-if>
+              <div style="font:500 11px 'DM Mono',monospace;margin-top:3px;color: {{ r.color }}">{{ r.note }}</div>
+            </div>
+            <div style="display:flex;gap:6px">
+              <sc-if value="{{ r.isResolve }}" hint-placeholder-val="{{ false }}"><button style="background:#ff6a3d;color:#0f0d0c;border:0;border-radius:7px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer">Weź tę</button><button style="background:transparent;color:#8f857c;border:1px solid #2a2522;border-radius:7px;padding:6px 12px;font-weight:600;font-size:12px;cursor:pointer" style-hover="color:#f2ece6">Odsłuchaj</button><button style="background:transparent;color:#8f857c;border:1px solid #2a2522;border-radius:7px;padding:6px 12px;font-weight:600;font-size:12px;cursor:pointer" style-hover="color:#f2ece6">Szukaj innej</button></sc-if>
+              <sc-if value="{{ r.isMissing }}" hint-placeholder-val="{{ false }}"><button style="background:#ff6a3d;color:#0f0d0c;border:0;border-radius:7px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer">Szukaj na Soulseeku</button><button style="background:transparent;color:#8f857c;border:1px solid #2a2522;border-radius:7px;padding:6px 12px;font-weight:600;font-size:12px;cursor:pointer" style-hover="color:#f2ece6">Kup ↗</button></sc-if>
+              <sc-if value="{{ r.isAuto }}" hint-placeholder-val="{{ true }}"><span style="font:500 11px 'DM Mono',monospace;color:#5e5650;padding:6px 0">w playliście ✓</span></sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px"><span style="font-size:12.5px;color:#8f857c">9 z 12 gotowych do playlisty · brakujące dojdą po pobraniu</span><button style="margin-left:auto;background:#171412;border:1px solid #2a2522;color:#f2ece6;border-radius:9px;padding:10px 16px;font-weight:600;font-size:13px;cursor:pointer" style-hover="border-color:#ff6a3d">Ściągnij brakujące (3)</button><button style="background:#ff6a3d;color:#0f0d0c;border:0;border-radius:9px;padding:10px 16px;font-weight:800;font-size:13px;cursor:pointer" style-hover="background:#ff8a66">Utwórz playlistę „Piątek Smolna”</button></div>
+    </main>
+  </div>
+</div>
+
+<!-- 4b: eksport / usb -->
+<div id="4b" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#4b" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">4b</a>Eksport — rekordbox / Serato / M3U8, wymiana XML, USB pod CDJ</div>
+  <div data-screen-label="Eksport" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);display:grid;grid-template-columns:232px 1fr;grid-template-rows:44px 1fr;overflow:hidden">
+    <div style="grid-column:1/3;display:flex;align-items:center;padding:0 16px;gap:8px;border-bottom:1px solid #1d1917"><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="margin:0 auto;font:500 11px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">EKSPORT · REKORDBOX 7.0 WYKRYTY</span><span style="width:52px"></span></div>
+    <aside style="border-right:1px solid #1d1917;display:flex;flex-direction:column;padding:24px 16px 20px;gap:22px">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 8px"><img src="assets/selekta-mark.png" alt="" style="width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(255,106,61,.45))"><span style="font-weight:800;font-size:19px;letter-spacing:.06em">selekta</span></div>
+      <sc-for list="{{ navExport }}" as="g" hint-placeholder-count="3">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;padding:0 8px 8px">{{ g.head }}</div>
+          <sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;padding:8px 10px;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;background: {{ n.bg }};color: {{ n.color }}" style-hover="color:#f2ece6">{{ n.label }}<sc-if value="{{ n.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font:600 10.5px 'DM Mono',monospace;background:#ff6a3d;color:#0f0d0c;border-radius:10px;padding:1px 7px">{{ n.badge }}</span></sc-if></div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </aside>
+    <main style="padding:32px 36px 28px;display:flex;flex-direction:column;gap:20px;overflow:hidden">
+      <div><h1 style="margin:0;font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1">Eksport</h1><div style="font-size:13.5px;color:#8f857c;margin-top:8px">Set w kolejności harmonicznej trafia tam, gdzie grasz.</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;flex:1;min-height:0">
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:22px 24px;display:flex;flex-direction:column;gap:16px">
+            <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">CEL</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+              <div style="border:1px solid #ff6a3d;background:rgba(255,106,61,.06);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:6px;cursor:pointer"><span style="font-weight:700;font-size:15px">rekordbox</span><span style="font-size:12px;color:#8f857c">XML · hot cue, kolory i oceny zachowane</span></div>
+              <div style="border:1px solid #2a2522;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:6px;cursor:pointer" style-hover="border-color:#3a3330"><span style="font-weight:700;font-size:15px">Serato</span><span style="font-size:12px;color:#8f857c">.crate w folderze _Serato_</span></div>
+              <div style="border:1px solid #2a2522;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:6px;cursor:pointer" style-hover="border-color:#3a3330"><span style="font-weight:700;font-size:15px">M3U8</span><span style="font-size:12px;color:#8f857c">Traktor, VLC, wszystko inne</span></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid #2a2522;font-size:13.5px"><span>Zakres</span><span style="display:flex;gap:2px;background:#0f0d0c;border:1px solid #2a2522;border-radius:8px;padding:2px"><span style="padding:5px 11px;border-radius:6px;font-weight:600;font-size:12px;background:#1e1a17">Set „Piątek Smolna” · 12</span><span style="padding:5px 11px;font-weight:600;font-size:12px;color:#8f857c">Cała biblioteka</span></span></div>
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid #2a2522;font-size:13.5px"><span>Kolejność</span><span style="font:500 12px 'DM Mono',monospace;color:#c9c0b8">harmoniczna (Camelot, energia ↑)</span></div>
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid #2a2522;font-size:13.5px"><span>Cue z analizy</span><span style="font:500 12px 'DM Mono',monospace;color:#c9c0b8">intro · drop · outro → hot cue A B C</span></div>
+            </div>
+            <button style="background:#ff6a3d;color:#0f0d0c;border:0;border-radius:10px;padding:14px 22px;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;align-self:flex-start" style-hover="background:#ff8a66">▶ WYŚLIJ DO REKORDBOXA</button>
+          </div>
+          <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:22px 24px;display:flex;flex-direction:column;gap:12px;flex:1">
+            <div style="display:flex;align-items:center;gap:12px"><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">WYMIANA Z REKORDBOXEM</div><span style="margin-left:auto;font:500 11px 'DM Mono',monospace;color:#5cd6a0">XML z 2 wrz · 1 190 utworów</span></div>
+            <div style="font-size:13px;color:#8f857c;line-height:1.5">Twoje hot cue, kolory, oceny i komentarze są zapamiętane — przy eksporcie oddamy je nietknięte zamiast zastąpić własnym wyliczeniem.</div>
+            <div style="display:flex;gap:8px"><button style="background:transparent;border:1px solid #2a2522;color:#f2ece6;border-radius:8px;padding:9px 14px;font-weight:600;font-size:12.5px;cursor:pointer" style-hover="border-color:#ff6a3d">Wczytaj nowy XML</button><button style="background:transparent;border:1px solid #2a2522;color:#8f857c;border-radius:8px;padding:9px 14px;font-weight:600;font-size:12.5px;cursor:pointer" style-hover="color:#f2ece6">Odśwież stan</button></div>
+          </div>
+        </div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:22px 24px;display:flex;flex-direction:column;gap:18px">
+          <div style="display:flex;align-items:center;gap:12px"><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">USB POD CDJ</div><span style="margin-left:auto;display:flex;align-items:center;gap:7px;font:500 11px 'DM Mono',monospace;color:#5cd6a0"><span style="width:6px;height:6px;border-radius:50%;background:#5cd6a0"></span>/Volumes/DJ_USB · 61,2 GB WOLNE</span></div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="font-size:12.5px;color:#8f857c">Konwersja WAV</div>
+            <div style="display:flex;gap:2px;background:#0f0d0c;border:1px solid #2a2522;border-radius:8px;padding:2px;width:max-content"><span style="padding:6px 12px;border-radius:6px;font-weight:600;font-size:12.5px;background:#1e1a17">WAV → AIFF</span><span style="padding:6px 12px;font-weight:600;font-size:12.5px;color:#8f857c">WAV → FLAC</span><span style="padding:6px 12px;font-weight:600;font-size:12.5px;color:#8f857c">bez konwersji</span></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:0;border-top:1px solid #2a2522">
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #1d1917;font-size:13.5px"><span style="width:8px;height:8px;border-radius:50%;background:#5cd6a0"></span>płaski folder, bez podkatalogów</div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #1d1917;font-size:13.5px"><span style="width:8px;height:8px;border-radius:50%;background:#5cd6a0"></span>nazwy FAT32-safe, diakrytyki zwinięte <span style="margin-left:auto;font:500 11.5px 'DM Mono',monospace;color:#8f857c">ÅMRTÜM → AMRTUM</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #1d1917;font-size:13.5px"><span style="width:8px;height:8px;border-radius:50%;background:#f0b64a"></span>2 pliki WAV zostaną przekonwertowane <span style="margin-left:auto;font:500 11.5px 'DM Mono',monospace;color:#8f857c">~40 s</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 0;font-size:13.5px"><span style="width:8px;height:8px;border-radius:50%;background:#5cd6a0"></span>okładki osadzone, tagi po naprawie</div>
+          </div>
+          <div style="margin-top:auto;display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1">12</span><span style="font-size:13px;color:#8f857c">utworów · 742 MB</span></div>
+            <button style="background:transparent;border:1px solid #ff6a3d;color:#ff6a3d;border-radius:10px;padding:13px 22px;font-weight:800;font-size:13.5px;letter-spacing:.04em;cursor:pointer;align-self:flex-start" style-hover="background:#ff6a3d;color:#0f0d0c">PRZYGOTUJ USB</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 4c: pobierania -->
+<div id="4c" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#4c" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">4c</a>Pobierania — kolejka Soulseek z weryfikacją po pobraniu</div>
+  <div data-screen-label="Pobierania" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);display:grid;grid-template-columns:232px 1fr;grid-template-rows:44px 1fr;overflow:hidden">
+    <div style="grid-column:1/3;display:flex;align-items:center;padding:0 16px;gap:8px;border-bottom:1px solid #1d1917"><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="margin:0 auto;font:500 11px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">POBIERANIA · SLSKD · 2 AKTYWNE</span><span style="width:52px"></span></div>
+    <aside style="border-right:1px solid #1d1917;display:flex;flex-direction:column;padding:24px 16px 20px;gap:22px">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 8px"><img src="assets/selekta-mark.png" alt="" style="width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(255,106,61,.45))"><span style="font-weight:800;font-size:19px;letter-spacing:.06em">selekta</span></div>
+      <sc-for list="{{ navDl }}" as="g" hint-placeholder-count="3">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;padding:0 8px 8px">{{ g.head }}</div>
+          <sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;padding:8px 10px;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;background: {{ n.bg }};color: {{ n.color }}" style-hover="color:#f2ece6">{{ n.label }}<sc-if value="{{ n.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font:600 10.5px 'DM Mono',monospace;background:#ff6a3d;color:#0f0d0c;border-radius:10px;padding:1px 7px">{{ n.badge }}</span></sc-if></div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </aside>
+    <main style="padding:32px 36px 28px;display:flex;flex-direction:column;gap:20px;overflow:hidden">
+      <div style="display:flex;align-items:flex-end;gap:16px">
+        <div><h1 style="margin:0;font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1">Pobierania</h1><div style="font-size:13.5px;color:#8f857c;margin-top:8px">Każdy plik po pobraniu przechodzi weryfikację: integralność, tożsamość odsłuchem, prawdziwa jakość.</div></div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:10px;background:#171412;border:1px solid #2a2522;border-radius:10px;padding:10px 14px;font:500 11.5px 'DM Mono',monospace;color:#8f857c"><span style="width:7px;height:7px;border-radius:50%;background:#5cd6a0;box-shadow:0 0 8px #5cd6a0"></span>slskd · 2,4 MB/s ↓ · 3 wolne sloty</div>
+        <button style="background:transparent;border:1px solid #2a2522;color:#8f857c;border-radius:9px;padding:10px 14px;font-weight:600;font-size:13px;cursor:pointer" style-hover="color:#f2ece6">Wstrzymaj kolejkę</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:14px 18px;display:flex;align-items:baseline;gap:10px"><span style="font-size:28px;font-weight:700;line-height:1;color:#ff6a3d">1</span><span style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c">POBIERAM</span></div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:14px 18px;display:flex;align-items:baseline;gap:10px"><span style="font-size:28px;font-weight:700;line-height:1;color:#f0b64a">2</span><span style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c">W KOLEJCE / SZUKAM</span></div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:14px 18px;display:flex;align-items:baseline;gap:10px"><span style="font-size:28px;font-weight:700;line-height:1;color:#5cd6a0">2</span><span style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c">ZWERYFIKOWANE</span></div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:14px 18px;display:flex;align-items:baseline;gap:10px"><span style="font-size:28px;font-weight:700;line-height:1;color:#ff5a6a">1</span><span style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c">DO POWTÓRKI</span></div>
+      </div>
+      <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;overflow:auto;flex:1;min-height:0">
+        <sc-for list="{{ dls }}" as="d" hint-placeholder-count="6">
+          <div style="display:grid;grid-template-columns:96px minmax(0,1fr) 120px auto;gap:18px;align-items:center;padding:14px 20px;border-bottom:1px solid #1d1917" style-hover="background:#1a1613">
+            <span style="display:flex;align-items:center;gap:8px;font:600 10px 'DM Mono',monospace;letter-spacing:.1em;color: {{ d.color }}"><span style="width:7px;height:7px;border-radius:50%;background: {{ d.color }};animation: {{ d.anim }}"></span>{{ d.st }}</span>
+            <div style="min-width:0">
+              <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ d.title }}<span style="font-weight:400;font-size:12.5px;color:#8f857c;margin-left:8px">{{ d.artist }}</span></div>
+              <div style="font:500 11.5px 'DM Mono',monospace;color:#8f857c;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ d.file }} · {{ d.user }}</div>
+              <div style="font-size:12px;margin-top:4px;color: {{ d.color }}">{{ d.note }}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end"><span style="font:500 11px 'DM Mono',monospace;color:#8f857c">{{ d.pctTxt }}</span><div style="width:120px;height:3px;background:#2a2522;border-radius:2px;overflow:hidden"><div style="height:100%;border-radius:2px;width: {{ d.pct }};background: {{ d.barBg }}"></div></div></div>
+            <div style="display:flex;gap:6px;min-width:150px;justify-content:flex-end">
+              <sc-if value="{{ d.live }}" hint-placeholder-val="{{ false }}"><button style="background:transparent;color:#8f857c;border:1px solid #2a2522;border-radius:7px;padding:6px 12px;font-weight:600;font-size:12px;cursor:pointer" style-hover="color:#ff5a6a;border-color:#ff5a6a">Anuluj</button></sc-if>
+              <sc-if value="{{ d.isFailed }}" hint-placeholder-val="{{ false }}"><button style="background:#ff6a3d;color:#0f0d0c;border:0;border-radius:7px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer">Pobierz ponownie</button></sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </main>
+  </div>
+</div>
+</div>
+
+<div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#8f857c;margin-top:30px">TURA 3 · KOLEJNOŚĆ SETU · PORZĄDKI · SZCZEGÓŁY UTWORU</div>
+<div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+
+<!-- 3a: kolejność setu -->
+<div id="3a" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#3a" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">3a</a>Kolejność setu — łuk energii, koło Camelot, lista harmoniczna</div>
+  <div data-screen-label="Kolejność setu" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);display:grid;grid-template-columns:232px 1fr;grid-template-rows:44px 1fr;overflow:hidden">
+    <div style="grid-column:1/3;display:flex;align-items:center;padding:0 16px;gap:8px;border-bottom:1px solid #1d1917">
+      <span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span>
+      <span style="margin:0 auto;font:500 11px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">PIĄTEK · SMOLNA · 12 UTWORÓW · 1 H 18 MIN</span><span style="width:52px"></span>
+    </div>
+    <aside style="border-right:1px solid #1d1917;display:flex;flex-direction:column;padding:24px 16px 20px;gap:22px">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 8px"><img src="assets/selekta-mark.png" alt="" style="width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(255,106,61,.45))"><span style="font-weight:800;font-size:19px;letter-spacing:.06em">selekta</span></div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;padding:0 8px 8px">SET</div>
+        <div style="padding:8px 10px;border-radius:8px;font-weight:600;font-size:14px;color:#8f857c">Import</div>
+        <div style="padding:8px 10px;border-radius:8px;font-weight:600;font-size:14px;color:#f2ece6;background:#1e1a17">Kolejność setu</div>
+        <div style="padding:8px 10px;border-radius:8px;font-weight:600;font-size:14px;color:#8f857c">Eksport</div>
+        <div style="padding:8px 10px;border-radius:8px;font-weight:600;font-size:14px;color:#8f857c;display:flex">Pobierania<span style="margin-left:auto;font:600 10.5px 'DM Mono',monospace;background:#ff6a3d;color:#0f0d0c;border-radius:10px;padding:1px 7px">2</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;padding:0 8px 8px">BIBLIOTEKA</div>
+        <div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Biblioteka</div><div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Zdrowie</div><div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c;display:flex">Porządki<span style="margin-left:auto;font:600 10.5px 'DM Mono',monospace;background:#ff6a3d;color:#0f0d0c;border-radius:10px;padding:1px 7px">5</span></div><div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Radar</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;padding:0 8px 8px">WIĘCEJ</div>
+        <div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Statystyki</div><div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Historia</div><div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Ustawienia</div>
+      </div>
+    </aside>
+    <main style="padding:32px 36px 28px;display:grid;grid-template-columns:1fr 320px;grid-template-rows:auto 1fr;gap:20px 24px;overflow:hidden">
+      <div style="grid-column:1/3;display:flex;align-items:flex-end;gap:16px">
+        <div><h1 style="margin:0;font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1">Kolejność setu</h1><div style="font-size:13.5px;color:#8f857c;margin-top:8px">Koło Camelot, energia rosnąco · kulminacja na pozycji <b style="color:#f2ece6">10</b> · mediana 127 BPM</div></div>
+        <div style="margin-left:auto;display:flex;gap:2px;background:#171412;border:1px solid #2a2522;border-radius:9px;padding:3px">
+          <span style="padding:6px 12px;border-radius:7px;font-weight:600;font-size:12.5px;background:#1e1a17;color:#f2ece6">Cały set</span><span style="padding:6px 12px;border-radius:7px;font-weight:600;font-size:12.5px;color:#8f857c">Warm-up</span><span style="padding:6px 12px;border-radius:7px;font-weight:600;font-size:12.5px;color:#8f857c">Peak</span>
+        </div>
+        <button style="background:#ff6a3d;color:#0f0d0c;border:0;border-radius:9px;padding:10px 16px;font-weight:800;font-size:13px;cursor:pointer" style-hover="background:#ff8a66">▶ Wyślij do rekordboxa</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px;min-height:0">
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:18px 20px 14px">
+          <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;font:500 10.5px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">ŁUK ENERGII
+            <span style="display:flex;align-items:center;gap:6px;color:#7a9cff;margin-left:auto"><span style="width:8px;height:8px;border-radius:2px;background:#7a9cff"></span>ROZGRZEWKA</span>
+            <span style="display:flex;align-items:center;gap:6px;color:#5cd6a0"><span style="width:8px;height:8px;border-radius:2px;background:#5cd6a0"></span>ŚRODEK</span>
+            <span style="display:flex;align-items:center;gap:6px;color:#f0b64a"><span style="width:8px;height:8px;border-radius:2px;background:#f0b64a"></span>KULMINACJA</span></div>
+          <div style="display:flex;align-items:flex-end;gap:6px;height:110px">
+            <sc-for list="{{ arc }}" as="a" hint-placeholder-count="12">
+              <span style="flex:1;border-radius:3px 3px 0 0;height: {{ a.h }};background: {{ a.bg }};opacity: {{ a.op }};box-shadow: {{ a.glow }}"></span>
+            </sc-for>
+          </div>
+        </div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;overflow:auto;flex:1;min-height:0">
+          <sc-for list="{{ setList }}" as="s" hint-placeholder-count="12">
+            <div style="display:grid;grid-template-columns:28px minmax(0,1fr) 36px 40px auto;gap:12px;align-items:center;padding:10px 18px;border-bottom:1px solid #1d1917;border-left:2px solid {{ s.peakLine }}" style-hover="background:#1a1613">
+              <span style="font:500 12px 'DM Mono',monospace;color:#5e5650">{{ s.n }}</span>
+              <div style="min-width:0">
+                <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.title }}<span style="font-weight:400;font-size:12.5px;color:#8f857c;margin-left:8px">{{ s.artist }}</span></div>
+                <div style="font:500 11px 'DM Mono',monospace;color: {{ s.noteColor }};margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.note }}</div>
+              </div>
+              <span style="font:500 12.5px 'DM Mono',monospace;color:#8f857c">{{ s.bpm }}</span>
+              <span style="font:600 11px 'DM Mono',monospace;padding:2px 0;border-radius:4px;text-align:center;color:#0f0d0c;background: {{ s.camBg }}">{{ s.cam }}</span>
+              <span style="font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid {{ s.fazaColor }};color: {{ s.fazaColor }};white-space:nowrap">{{ s.faza }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:18px 20px">
+          <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650;margin-bottom:14px">KOŁO CAMELOT · UŻYTE TONACJE</div>
+          <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px">
+            <sc-for list="{{ camWheel }}" as="c" hint-placeholder-count="12">
+              <div style="display:flex;flex-direction:column;gap:3px">
+                <span style="font:600 10.5px 'DM Mono',monospace;text-align:center;padding:7px 0;border-radius:6px 6px 2px 2px;background: {{ c.bgB }};color: {{ c.fg }}">{{ c.b }}</span>
+                <span style="font:600 10.5px 'DM Mono',monospace;text-align:center;padding:7px 0;border-radius:2px 2px 6px 6px;background: {{ c.bgA }};color: {{ c.fg }}">{{ c.a }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font-size:12.5px;color:#8f857c;margin-top:14px;line-height:1.5">Set porusza się 7 → 10 zgodnie z ruchem wskazówek, bez skoków o więcej niż jedno pole.</div>
+        </div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:18px 20px;display:flex;flex-direction:column;gap:12px">
+          <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">UWAGI</div>
+          <div style="display:flex;gap:12px;align-items:flex-start;font-size:13px;line-height:1.45"><span style="width:8px;height:8px;border-radius:50%;background:#f0b64a;margin-top:6px;flex-shrink:0"></span><span><b>Heaven &amp; Hell</b> jest o 2 BPM wolniejszy od sąsiadów — pitch +1,5 % albo zamień z Rave Gaze.</span></div>
+          <div style="display:flex;gap:12px;align-items:flex-start;font-size:13px;line-height:1.45"><span style="width:8px;height:8px;border-radius:50%;background:#f0b64a;margin-top:6px;flex-shrink:0"></span><span><b>Kaos</b> po szczycie spada o −0,26 energii — dobre zejście, ale outro ma tylko 18 s.</span></div>
+          <div style="display:flex;gap:12px;align-items:flex-start;font-size:13px;line-height:1.45"><span style="width:8px;height:8px;border-radius:50%;background:#5cd6a0;margin-top:6px;flex-shrink:0"></span><span>Głośność spójna: −6,2 … −8,9 LUFS, bez przesteru.</span></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 3b: porządki -->
+<div id="3b" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#3b" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">3b</a>Porządki — kolejka decyzji (duplikaty, uszkodzenia, ulepszenia, okładki)</div>
+  <div data-screen-label="Porządki" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);display:grid;grid-template-columns:232px 1fr;grid-template-rows:44px 1fr;overflow:hidden">
+    <div style="grid-column:1/3;display:flex;align-items:center;padding:0 16px;gap:8px;border-bottom:1px solid #1d1917">
+      <span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span>
+      <span style="margin:0 auto;font:500 11px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">~/MUSIC/DJ · OSTATNI SKAN 4 MIN TEMU</span><span style="width:52px"></span>
+    </div>
+    <aside style="border-right:1px solid #1d1917;display:flex;flex-direction:column;padding:24px 16px 20px;gap:22px">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 8px"><img src="assets/selekta-mark.png" alt="" style="width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(255,106,61,.45))"><span style="font-weight:800;font-size:19px;letter-spacing:.06em">selekta</span></div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;padding:0 8px 8px">SET</div>
+        <div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Import</div><div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Kolejność setu</div><div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Eksport</div><div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c;display:flex">Pobierania<span style="margin-left:auto;font:600 10.5px 'DM Mono',monospace;background:#ff6a3d;color:#0f0d0c;border-radius:10px;padding:1px 7px">2</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;padding:0 8px 8px">BIBLIOTEKA</div>
+        <div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Biblioteka</div><div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Zdrowie</div><div style="padding:8px 10px;border-radius:8px;font-weight:600;font-size:14px;color:#f2ece6;background:#1e1a17;display:flex">Porządki<span style="margin-left:auto;font:600 10.5px 'DM Mono',monospace;background:#ff6a3d;color:#0f0d0c;border-radius:10px;padding:1px 7px">5</span></div><div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Radar</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;padding:0 8px 8px">WIĘCEJ</div>
+        <div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Statystyki</div><div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Historia</div><div style="padding:8px 10px;font-weight:600;font-size:14px;color:#8f857c">Ustawienia</div>
+      </div>
+    </aside>
+    <main style="padding:32px 36px 28px;display:flex;flex-direction:column;gap:20px;overflow:hidden">
+      <div style="display:flex;align-items:flex-end;gap:16px">
+        <div><h1 style="margin:0;font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1">Porządki</h1><div style="font-size:13.5px;color:#8f857c;margin-top:8px">5 decyzji czeka · nic nie zniknie bez Twojej zgody — zatwierdzone trafiają do kosza i da się je cofnąć</div></div>
+        <button style="margin-left:auto;background:#171412;border:1px solid #2a2522;color:#f2ece6;border-radius:9px;padding:10px 16px;font-weight:600;font-size:13px;cursor:pointer" style-hover="border-color:#ff6a3d">Sprawdź pobrania (odcisk akustyczny)</button>
+        <button style="background:#171412;border:1px solid #2a2522;color:#f2ece6;border-radius:9px;padding:10px 16px;font-weight:600;font-size:13px;cursor:pointer" style-hover="border-color:#ff6a3d">Skanuj ponownie</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:16px 18px"><div style="font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1">1 248</div><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c;margin-top:8px">PLIKÓW</div></div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:16px 18px"><div style="font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1;color:#f0b64a">2</div><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c;margin-top:8px">DUPLIKATY · 120 MB</div></div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:16px 18px"><div style="font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1;color:#ff5a6a">1</div><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c;margin-top:8px">USZKODZONY</div></div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:12px;padding:16px 18px"><div style="font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1;color:#5cd6a0">1</div><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c;margin-top:8px">ULEPSZENIE MP3 → FLAC</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;overflow:auto;flex:1;min-height:0">
+        <sc-for list="{{ decisions }}" as="d" hint-placeholder-count="5">
+          <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:18px 20px;display:grid;grid-template-columns:100px 1fr auto;gap:20px;align-items:center" style-hover="border-color:#3a3330">
+            <span style="font:600 10px 'DM Mono',monospace;letter-spacing:.1em;padding:4px 8px;border-radius:5px;text-align:center;background: {{ d.color }};color:#0f0d0c">{{ d.tag }}</span>
+            <div style="min-width:0">
+              <div style="font-weight:600;font-size:15px">{{ d.title }}</div>
+              <div style="font-size:13px;color:#8f857c;margin-top:3px;line-height:1.45">{{ d.desc }}</div>
+              <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+                <span style="font:500 11.5px 'DM Mono',monospace;background:#1e1a17;border:1px solid #2a2522;border-radius:6px;padding:3px 9px;color:#c9c0b8">{{ d.a }}</span>
+                <sc-if value="{{ d.hasB }}" hint-placeholder-val="{{ false }}"><span style="font:500 11.5px 'DM Mono',monospace;background:#1e1a17;border:1px solid #2a2522;border-radius:6px;padding:3px 9px;color:#8f857c">{{ d.b }}</span></sc-if>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button style="background:transparent;border:1px solid #2a2522;color:#8f857c;border-radius:8px;padding:8px 12px;font-weight:600;font-size:12.5px;cursor:pointer" style-hover="color:#f2ece6">Odsłuchaj</button>
+              <button style="background:transparent;border:1px solid #2a2522;color:#8f857c;border-radius:8px;padding:8px 12px;font-weight:600;font-size:12.5px;cursor:pointer" style-hover="color:#f2ece6">Pomiń</button>
+              <button style="border:0;border-radius:8px;padding:8px 14px;font-weight:800;font-size:12.5px;cursor:pointer;color:#0f0d0c;background: {{ d.ctaBg }}">{{ d.cta }}</button>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 3c: szczegóły utworu -->
+<div id="3c" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#3c" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">3c</a>Szczegóły utworu — arkusz po kliknięciu wiersza w Bibliotece</div>
+  <div data-screen-label="Szczegóły utworu" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);overflow:hidden;position:relative">
+    <div style="display:flex;align-items:center;padding:0 16px;gap:8px;height:44px;border-bottom:1px solid #1d1917;opacity:.4"><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span></div>
+    <div style="position:absolute;inset:44px 0 0 0;background:rgba(7,6,6,.72);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:40px">
+      <div style="width:900px;background:#171412;border:1px solid #2a2522;border-radius:18px;padding:28px 30px;display:flex;flex-direction:column;gap:24px;box-shadow:0 30px 80px rgba(0,0,0,.6)">
+        <div style="display:flex;align-items:flex-start;gap:22px">
+          <span style="width:96px;height:96px;border-radius:12px;background:repeating-linear-gradient(135deg,#221d1a 0 5px,#1a1613 5px 10px);flex-shrink:0"></span>
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:10px"><span style="font:600 10.5px 'DM Mono',monospace;padding:3px 8px;border-radius:5px;background:#123a2b;color:#5cd6a0">FLAC</span><span style="font:500 11.5px 'DM Mono',monospace;color:#8f857c">44.1 kHz · 16-bit · 58,2 MB · 7:02</span></div>
+            <div style="font-size:32px;font-weight:700;letter-spacing:-.02em;line-height:1.05">Heaven &amp; Hell</div>
+            <div style="font-size:16px;color:#8f857c">Pitch Black · Pitch Black - Heaven & Hell.flac</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <span style="width:40px;height:40px;border-radius:50%;background:#ff6a3d;color:#0f0d0c;display:grid;place-items:center;font-size:12px;cursor:pointer">▶</span>
+            <button style="background:transparent;border:1px solid #2a2522;color:#8f857c;border-radius:8px;width:40px;height:40px;cursor:pointer;font-size:14px" style-hover="color:#f2ece6">✕</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:flex-end;gap:1px;height:72px;padding:0 2px">
+            <sc-for list="{{ wave }}" as="w" hint-placeholder-count="120">
+              <span style="flex:1;border-radius:1px;height: {{ w.h }};background: {{ w.bg }}"></span>
+            </sc-for>
+          </div>
+          <div style="display:flex;justify-content:space-between;font:500 10.5px 'DM Mono',monospace;letter-spacing:.08em;color:#5e5650"><span>INTRO 0:32</span><span style="color:#ff6a3d">DROP 1:58</span><span>OUTRO 6:12</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+          <div style="background:#0f0d0c;border:1px solid #2a2522;border-radius:12px;padding:16px 18px"><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#5e5650">TEMPO</div><div style="font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1;margin-top:10px">126<span style="font-size:13px;color:#8f857c;margin-left:4px">BPM</span></div><div style="font-size:12px;color:#8f857c;margin-top:6px">stabilne · siatka od 0:00.48</div></div>
+          <div style="background:#0f0d0c;border:1px solid #2a2522;border-radius:12px;padding:16px 18px"><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#5e5650">TONACJA</div><div style="display:flex;align-items:center;gap:10px;margin-top:10px"><span style="font:700 14px 'DM Mono',monospace;padding:5px 10px;border-radius:6px;background:#b58ae0;color:#0f0d0c">9A</span><span style="font-size:20px;font-weight:600">E minor</span></div><div style="font-size:12px;color:#8f857c;margin-top:8px">pewność 0,87 · Beatport: 9A ✓</div></div>
+          <div style="background:#0f0d0c;border:1px solid #2a2522;border-radius:12px;padding:16px 18px"><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#5e5650">GŁOŚNOŚĆ</div><div style="font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1;margin-top:10px">−6,4<span style="font-size:13px;color:#8f857c;margin-left:4px">LUFS</span></div><div style="font-size:12px;color:#8f857c;margin-top:6px">peak −0,1 dBTP · RG −11,6 dB</div></div>
+          <div style="background:#0f0d0c;border:1px solid #5cd6a0;border-radius:12px;padding:16px 18px"><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#5e5650">JAKOŚĆ</div><div style="font-size:20px;font-weight:700;color:#5cd6a0;margin-top:12px">✓ prawdziwy lossless</div><div style="font-size:12px;color:#8f857c;margin-top:6px">pasmo do 21,3 kHz · integralność OK · tożsamość 0,91</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+          <sc-for list="{{ cuesList }}" as="c" hint-placeholder-count="4">
+            <div style="display:flex;flex-direction:column;gap:4px;padding:0 4px"><span style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#ff6a3d">{{ c.k }}</span><span style="font:500 15px 'DM Mono',monospace">{{ c.v }}</span><span style="font-size:12px;color:#8f857c">{{ c.d }}</span></div>
+          </sc-for>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;border-top:1px solid #2a2522;padding-top:18px">
+          <button style="background:transparent;border:1px solid #2a2522;color:#f2ece6;border-radius:8px;padding:9px 14px;font-weight:600;font-size:12.5px;cursor:pointer" style-hover="border-color:#ff6a3d">Pokaż w Finderze</button>
+          <button style="background:transparent;border:1px solid #2a2522;color:#f2ece6;border-radius:8px;padding:9px 14px;font-weight:600;font-size:12.5px;cursor:pointer" style-hover="border-color:#ff6a3d">Przelicz analizę</button>
+          <button style="background:transparent;border:1px solid #2a2522;color:#f2ece6;border-radius:8px;padding:9px 14px;font-weight:600;font-size:12.5px;cursor:pointer" style-hover="border-color:#ff6a3d">Szukaj lepszej wersji</button>
+          <button style="margin-left:auto;background:transparent;border:0;color:#5e5650;padding:9px 10px;font-weight:600;font-size:12.5px;cursor:pointer" style-hover="color:#ff5a6a">Usuń do kosza</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#8f857c;margin-top:30px">TURA 2 · WYBÓR TRYBU · WYBÓR WYNIKU Z SOULSEEKA · BIBLIOTEKA (TRYB RĘCZNY)</div>
+<div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+
+<!-- 2a: wybór trybu -->
+<div id="2a" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#2a" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">2a</a>Wybór trybu — pierwszy ekran po starcie</div>
+  <div data-screen-label="Wybór trybu" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);display:flex;flex-direction:column;overflow:hidden;position:relative">
+    <div style="display:flex;align-items:center;padding:0 16px;gap:8px;height:44px;border-bottom:1px solid #1d1917">
+      <span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span>
+    </div>
+    <div style="position:absolute;left:50%;top:60%;width:900px;height:900px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,rgba(255,106,61,.10),transparent 60%);pointer-events:none"></div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:40px;padding:40px;position:relative">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center">
+        <img src="assets/selekta-logo.png" alt="Selekta DJ" style="width:300px;height:auto;margin-bottom:-6px;filter:drop-shadow(0 0 30px rgba(255,106,61,.3))">
+        <h1 style="margin:0;font-size:44px;font-weight:700;letter-spacing:-.025em;line-height:1">Jak chcesz dziś pracować?</h1>
+        <div style="font-size:16px;color:#8f857c">przygotowanie setu</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;width:860px">
+        <div style="background:#171412;border:1px solid #ff6a3d;border-radius:20px;padding:34px 32px;display:flex;flex-direction:column;gap:14px;cursor:pointer;box-shadow:0 0 60px rgba(255,106,61,.18)" style-hover="transform:translateY(-2px)">
+          <span style="width:44px;height:44px;border-radius:12px;background:#ff6a3d;color:#0f0d0c;display:grid;place-items:center;font-size:16px">▶</span>
+          <div style="font:600 11px 'DM Mono',monospace;letter-spacing:.14em;color:#ff6a3d;margin-top:10px">AUTOMATYCZNY</div>
+          <div style="font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1.15">Wklejasz playlistę, klikasz dalej, na końcu grasz.</div>
+          <div style="font-size:14px;color:#8f857c;line-height:1.5">Wszystko robi się samo — pobieranie, analiza, poprawki, eksport do rekordboxa.</div>
+          <div style="margin-top:auto;padding-top:14px;font-weight:700;font-size:13px;letter-spacing:.04em;color:#ff6a3d">ZACZNIJ →</div>
+        </div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:20px;padding:34px 32px;display:flex;flex-direction:column;gap:14px;cursor:pointer" style-hover="border-color:#8f857c">
+          <span style="width:44px;height:44px;border-radius:12px;background:#1e1a17;border:1px solid #2a2522;color:#f2ece6;display:grid;place-items:center;font-size:16px">⚙</span>
+          <div style="font:600 11px 'DM Mono',monospace;letter-spacing:.14em;color:#8f857c;margin-top:10px">RĘCZNY</div>
+          <div style="font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1.15">Pełna kontrola nad biblioteką.</div>
+          <div style="font-size:14px;color:#8f857c;line-height:1.5">Biblioteka, analiza, zdrowie, kolejność setu, eksport i ustawienia — każde osobno.</div>
+          <div style="margin-top:auto;padding-top:14px;font-weight:700;font-size:13px;letter-spacing:.04em;color:#8f857c">OTWÓRZ →</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:28px;font-size:12.5px;color:#8f857c">
+        <span style="display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:50%;background:#5cd6a0;box-shadow:0 0 8px #5cd6a0"></span>Soulseek połączony</span>
+        <span style="font:500 11px 'DM Mono',monospace">~/Music/dj · 1 248 plików · 84,2 GB</span>
+        <span style="display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:50%;background:#5cd6a0"></span>rekordbox 7.0</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 2b: wybór wyniku z Soulseeka -->
+<div id="2b" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#2b" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">2b</a>„Wybierz…” w kroku 2 — arkusz z wynikami z Soulseeka</div>
+  <div data-screen-label="Wybór wyniku Soulseek" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);overflow:hidden;position:relative">
+    <div style="display:flex;align-items:center;padding:0 16px;gap:8px;height:44px;border-bottom:1px solid #1d1917;opacity:.4">
+      <span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span>
+    </div>
+    <div style="position:absolute;inset:44px 0 0 0;background:rgba(7,6,6,.72);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:40px">
+      <div style="width:860px;background:#171412;border:1px solid #2a2522;border-radius:18px;padding:28px 30px;display:flex;flex-direction:column;gap:22px;box-shadow:0 30px 80px rgba(0,0,0,.6)">
+        <div style="display:flex;align-items:flex-start;gap:20px">
+          <span style="width:64px;height:64px;border-radius:10px;background:repeating-linear-gradient(135deg,#221d1a 0 4px,#1a1613 4px 8px);flex-shrink:0"></span>
+          <div style="flex:1">
+            <div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#ff6a3d;margin-bottom:8px">WYBIERZ WERSJĘ · 4 WYNIKI</div>
+            <div style="font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1.1">Rippling</div>
+            <div style="font-size:15px;color:#8f857c;margin-top:4px">Skee Mask · w playliście <span style="font:500 12px 'DM Mono',monospace;color:#f2ece6">8:02</span></div>
+          </div>
+          <button style="background:transparent;border:1px solid #2a2522;color:#8f857c;border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:14px" style-hover="color:#f2ece6;border-color:#3a3330">✕</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1.6fr 1fr .7fr .6fr .8fr auto;gap:14px;padding:0 16px;font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#5e5650">
+          <span>PLIK / UŻYTKOWNIK</span><span>FORMAT</span><span>ROZMIAR</span><span>CZAS</span><span>PRĘDKOŚĆ</span><span></span>
+        </div>
+        <div style="display:flex;flex-direction:column;border:1px solid #2a2522;border-radius:12px;overflow:hidden">
+          <sc-for list="{{ hits }}" as="x" hint-placeholder-count="4">
+            <div style="display:grid;grid-template-columns:1.6fr 1fr .7fr .6fr .8fr auto;gap:14px;align-items:center;padding:14px 16px;border-bottom:1px solid #1d1917;background: {{ x.bg }};border-left:2px solid {{ x.line }}">
+              <div style="min-width:0"><div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ x.file }}</div><div style="font-size:12px;color:#8f857c;margin-top:2px">{{ x.user }}</div></div>
+              <span style="font:500 12px 'DM Mono',monospace;color: {{ x.fmtColor }}">{{ x.f }}</span>
+              <span style="font:500 12px 'DM Mono',monospace;color:#8f857c">{{ x.size }}</span>
+              <span style="font:500 12px 'DM Mono',monospace;color: {{ x.durColor }}">{{ x.dur }}</span>
+              <span style="font:500 12px 'DM Mono',monospace;color:#8f857c">{{ x.speed }}</span>
+              <sc-if value="{{ x.best }}" hint-placeholder-val="{{ true }}">
+                <button style="background:#ff6a3d;color:#0f0d0c;border:0;border-radius:8px;padding:8px 14px;font-weight:800;font-size:12px;letter-spacing:.04em;cursor:pointer">POBIERZ</button>
+              </sc-if>
+              <sc-if value="{{ x.notBest }}" hint-placeholder-val="{{ false }}">
+                <button style="background:transparent;color:#8f857c;border:1px solid #2a2522;border-radius:8px;padding:8px 14px;font-weight:600;font-size:12px;cursor:pointer" style-hover="color:#f2ece6;border-color:#3a3330">Pobierz</button>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;font-size:12.5px;color:#8f857c">
+          <span style="display:flex;align-items:center;gap:7px"><span style="width:6px;height:6px;border-radius:50%;background:#ff6a3d"></span>najlepszy wynik: bezstratny, czas się zgadza, szybkie źródło</span>
+          <span style="margin-left:auto;font:500 11px 'DM Mono',monospace">po pobraniu: weryfikacja odsłuchem + jakość</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 2c: tryb ręczny — Biblioteka -->
+<div id="2c" style="display:flex;flex-direction:column;gap:10px">
+  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;color:#8f857c"><a href="#2c" style="font:600 10.5px 'DM Mono',monospace;padding:3px 7px;background:#1e1a17;color:#f2ece6;border-radius:5px">2c</a>Tryb ręczny — Biblioteka, 11 zakładek zgrupowanych w bocznym pasku</div>
+  <div data-screen-label="Tryb ręczny – Biblioteka" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7);display:grid;grid-template-columns:232px 1fr;grid-template-rows:44px 1fr 64px;overflow:hidden">
+    <div style="grid-column:1/3;display:flex;align-items:center;padding:0 16px;gap:8px;border-bottom:1px solid #1d1917">
+      <span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span><span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span>
+      <span style="margin:0 auto;font:500 11px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">~/MUSIC/DJ · 1 248 PLIKÓW · 84,2 GB</span><span style="width:52px"></span>
+    </div>
+    <aside style="border-right:1px solid #1d1917;display:flex;flex-direction:column;padding:24px 16px 20px;gap:22px">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 8px"><img src="assets/selekta-mark.png" alt="" style="width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(255,106,61,.45))"><span style="font-weight:800;font-size:19px;letter-spacing:.06em">selekta</span></div>
+      <sc-for list="{{ nav }}" as="g" hint-placeholder-count="3">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;padding:0 8px 8px">{{ g.head }}</div>
+          <sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;padding:8px 10px;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;background: {{ n.bg }};color: {{ n.color }}" style-hover="color:#f2ece6">{{ n.label }}
+              <sc-if value="{{ n.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font:600 10.5px 'DM Mono',monospace;background:#ff6a3d;color:#0f0d0c;border-radius:10px;padding:1px 7px">{{ n.badge }}</span></sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </sc-for>
+      <div style="margin-top:auto;display:flex;align-items:center;gap:9px;font-size:12.5px;color:#8f857c;padding:0 8px"><span style="width:7px;height:7px;border-radius:50%;background:#5cd6a0;box-shadow:0 0 8px #5cd6a0"></span>Soulseek połączony</div>
+    </aside>
+    <main style="padding:32px 36px 0;display:flex;flex-direction:column;gap:20px;overflow:hidden">
+      <div style="display:flex;align-items:flex-end;gap:16px">
+        <div><h1 style="margin:0;font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1">Biblioteka</h1><div style="font-size:13.5px;color:#8f857c;margin-top:8px">1 248 utworów · 917 przeanalizowanych · 5 do obejrzenia</div></div>
+        <button style="margin-left:auto;background:#171412;border:1px solid #2a2522;color:#f2ece6;border-radius:9px;padding:10px 16px;font-weight:600;font-size:13px;cursor:pointer" style-hover="border-color:#ff6a3d">+ Dodaj utwory</button>
+        <button style="background:#ff6a3d;color:#0f0d0c;border:0;border-radius:9px;padding:10px 16px;font-weight:800;font-size:13px;cursor:pointer" style-hover="background:#ff8a66">Analizuj resztę (331)</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div style="flex:1;display:flex;align-items:center;gap:10px;background:#171412;border:1px solid #2a2522;border-radius:9px;padding:9px 14px;color:#5e5650;font-size:13.5px"><span style="font:500 12px 'DM Mono',monospace">⌕</span>szukaj: artysta, tytuł, nazwa pliku…</div>
+        <span style="background:#171412;border:1px solid #2a2522;border-radius:9px;padding:9px 12px;font-size:13px;color:#8f857c">format: każdy</span>
+        <span style="background:#171412;border:1px solid #ff6a3d;border-radius:9px;padding:9px 12px;font-size:13px;color:#f2ece6">jakość: do obejrzenia</span>
+        <span style="background:#171412;border:1px solid #2a2522;border-radius:9px;padding:9px 12px;font-size:13px;color:#8f857c">klucz: każdy</span>
+        <span style="background:#171412;border:1px solid #2a2522;border-radius:9px;padding:9px 12px;font:500 12px 'DM Mono',monospace;color:#8f857c">BPM 120–132</span>
+      </div>
+      <div style="background:#171412;border:1px solid #2a2522;border-radius:14px 14px 0 0;border-bottom:0;overflow:hidden;flex:1;display:flex;flex-direction:column">
+        <div style="display:grid;grid-template-columns:20px 40px 1fr 70px 130px 60px 60px 60px 40px;gap:14px;align-items:center;padding:12px 20px;border-bottom:1px solid #2a2522;font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#5e5650">
+          <span style="width:14px;height:14px;border:1px solid #3a3330;border-radius:4px"></span><span></span><span>UTWÓR ↓</span><span>FORMAT</span><span>JAKOŚĆ</span><span>BPM</span><span>KLUCZ</span><span>CZAS</span><span></span>
+        </div>
+        <sc-for list="{{ libRows }}" as="r" hint-placeholder-count="10">
+          <div style="display:grid;grid-template-columns:20px 40px 1fr 70px 130px 60px 60px 60px 40px;gap:14px;align-items:center;padding:9px 20px;border-bottom:1px solid #1d1917;background: {{ r.selected }}" style-hover="background:#1a1613">
+            <span style="width:14px;height:14px;border:1px solid #3a3330;border-radius:4px"></span>
+            <span style="width:40px;height:40px;border-radius:7px;background: {{ r.coverBg }}"></span>
+            <div style="min-width:0"><div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</div><div style="font-size:12.5px;color:#8f857c">{{ r.artist }}</div></div>
+            <span style="font:600 10.5px 'DM Mono',monospace;padding:3px 8px;border-radius:5px;width:max-content;background: {{ r.fmtBg }};color: {{ r.fmtFg }}">{{ r.ext }}</span>
+            <span style="font-size:12.5px;color: {{ r.qColor }}">{{ r.q }}</span>
+            <span style="font:500 13px 'DM Mono',monospace">{{ r.bpm }}</span>
+            <span style="font:600 11px 'DM Mono',monospace;padding:2px 0;border-radius:4px;text-align:center;width:38px;color:#0f0d0c;background: {{ r.camBg }}">{{ r.cam }}</span>
+            <span style="font:500 12.5px 'DM Mono',monospace;color:#8f857c">{{ r.dur }}</span>
+            <span style="width:28px;height:28px;border-radius:50%;border:1px solid #2a2522;display:grid;place-items:center;font-size:10px;color:#8f857c;cursor:pointer" style-hover="border-color:#ff6a3d;color:#ff6a3d">▶</span>
+          </div>
+        </sc-for>
+      </div>
+    </main>
+    <div style="grid-column:1/3;border-top:1px solid #2a2522;background:#171412;display:flex;align-items:center;gap:18px;padding:0 28px">
+      <span style="width:34px;height:34px;border-radius:50%;background:#ff6a3d;color:#0f0d0c;display:grid;place-items:center;font-size:11px;cursor:pointer">❚❚</span>
+      <div style="width:220px"><div style="font-weight:600;font-size:13.5px">Heaven &amp; Hell</div><div style="font-size:12px;color:#8f857c">Pitch Black · 126 BPM · 9A</div></div>
+      <div style="flex:1;display:flex;align-items:center;gap:12px"><span style="font:500 11.5px 'DM Mono',monospace;color:#8f857c">2:14</span><div style="flex:1;height:26px;display:flex;align-items:center;gap:2px"><span style="height:100%;flex:1;background:repeating-linear-gradient(90deg,#ff6a3d 0 2px,transparent 2px 4px);opacity:.9;border-radius:2px;flex:32"></span><span style="height:100%;background:repeating-linear-gradient(90deg,#3a3330 0 2px,transparent 2px 4px);border-radius:2px;flex:68"></span></div><span style="font:500 11.5px 'DM Mono',monospace;color:#8f857c">7:02</span></div>
+      <span style="font:500 11px 'DM Mono',monospace;color:#5e5650">−6,4 LUFS · intro 0:32 · drop 1:58</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#8f857c;margin-top:30px">TURA 1 · KREATOR (INTERAKTYWNY)</div>
+<div data-screen-label="Selekta – tryb automatyczny" style="width:1280px;height:820px;background:#0f0d0c;border-radius:14px;border:1px solid #2a2522;box-shadow:0 40px 120px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.03) inset;display:grid;grid-template-columns:264px 1fr;grid-template-rows:44px 1fr;overflow:hidden;position:relative">
+
+  <!-- titlebar -->
+  <div style="grid-column:1/3;display:flex;align-items:center;padding:0 16px;gap:8px;border-bottom:1px solid #1d1917">
+    <span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span>
+    <span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span>
+    <span style="width:12px;height:12px;border-radius:50%;background:#3a3330"></span>
+    <span style="margin-left:auto;margin-right:auto;font:500 11px 'DM Mono',monospace;letter-spacing:.12em;color:#5e5650">{{ t.windowTitle }}</span>
+    <span style="width:52px"></span>
+  </div>
+
+  <!-- sidebar -->
+  <aside style="border-right:1px solid #1d1917;display:flex;flex-direction:column;padding:28px 24px 24px;gap:0">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:44px">
+      <img src="assets/selekta-mark.png" alt="" style="width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(255,106,61,.45))"><span style="font-weight:800;font-size:19px;letter-spacing:.06em">selekta</span>
+    </div>
+
+    <div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.14em;color:#5e5650;margin-bottom:14px">{{ t.stepsHead }}</div>
+
+    <div style="display:grid;grid-template-columns:18px 1fr;column-gap:16px;flex:1">
+      <sc-for list="{{ steps }}" as="s" hint-placeholder-count="5">
+        <div style="display:contents">
+          <div style="display:flex;flex-direction:column;align-items:center">
+            <span style="width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font:600 10px 'DM Mono',monospace;background: {{ s.dotBg }};color: {{ s.dotFg }};border:1px solid {{ s.dotLine }};flex-shrink:0">{{ s.mark }}</span>
+            <sc-if value="{{ s.hasRail }}" hint-placeholder-val="{{ true }}">
+              <span style="width:1px;flex:1;margin:4px 0;background: {{ s.railBg }};min-height:36px"></span>
+            </sc-if>
+          </div>
+          <div onClick="{{ s.go }}" style="cursor:pointer;padding-bottom:22px;opacity: {{ s.opacity }}">
+            <div style="font-weight:600;font-size:14.5px;line-height:18px;color: {{ s.color }}">{{ s.label }}</div>
+            <div style="font-size:12px;color:#8f857c;margin-top:2px;line-height:1.35">{{ s.sub }}</div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:center;gap:9px;font-size:12.5px;color:#8f857c">
+        <span style="width:7px;height:7px;border-radius:50%;background:#5cd6a0;box-shadow:0 0 8px #5cd6a0"></span>{{ t.slsk }}
+      </div>
+      <div style="display:flex;gap:2px;background:#171412;border:1px solid #2a2522;border-radius:8px;padding:3px;width:max-content">
+        <button onClick="{{ setPl }}" style="border:0;cursor:pointer;padding:4px 10px;border-radius:6px;font:600 11px 'DM Mono',monospace;background: {{ plBg }};color: {{ plFg }}">PL</button>
+        <button onClick="{{ setEn }}" style="border:0;cursor:pointer;padding:4px 10px;border-radius:6px;font:600 11px 'DM Mono',monospace;background: {{ enBg }};color: {{ enFg }}">EN</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- main -->
+  <main style="padding:52px 72px 40px;overflow:auto;display:flex;flex-direction:column">
+
+    <!-- STEP 1 -->
+    <sc-if value="{{ is1 }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;flex-direction:column;gap:28px;max-width:760px">
+        <div>
+          <div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#ff6a3d;margin-bottom:12px">{{ t.s1kicker }}</div>
+          <h1 style="margin:0;font-size:44px;font-weight:700;letter-spacing:-.02em;line-height:1.05">{{ t.s1title }}</h1>
+          <p style="margin:12px 0 0;font-size:16px;color:#8f857c;line-height:1.5">{{ t.s1sub }}</p>
+        </div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;padding:6px;display:flex;flex-direction:column;gap:6px" style-focus="border-color:#ff6a3d">
+          <textarea rows="3" placeholder="https://open.spotify.com/playlist/…" style="width:100%;background:transparent;border:0;color:#f2ece6;font-size:17px;padding:16px 18px;resize:none;line-height:1.45"></textarea>
+          <div style="display:flex;align-items:center;gap:12px;padding:6px 8px 8px 18px">
+            <span style="font-size:12.5px;color:#5e5650">{{ t.s1hint }}</span>
+            <button onClick="{{ next }}" style="margin-left:auto;background:#ff6a3d;color:#0f0d0c;border:0;border-radius:10px;padding:13px 22px;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;display:flex;align-items:center;gap:8px" style-hover="background:#ff8a66">{{ t.s1cta }} <span style="font-size:16px">→</span></button>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;color:#5e5650;font-size:12.5px">
+          <span style="flex:1;height:1px;background:#2a2522"></span>{{ t.s1or }}<span style="flex:1;height:1px;background:#2a2522"></span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div style="border:1px dashed #3a3330;border-radius:14px;padding:24px 22px;cursor:pointer;display:flex;flex-direction:column;gap:6px" style-hover="border-color:#ff6a3d;background:#141110">
+            <div style="font-weight:600;font-size:15px">{{ t.s1drop }}</div>
+            <div style="font-size:12.5px;color:#8f857c;line-height:1.45">M3U · rekordbox XML · Traktor NML · Serato CSV</div>
+          </div>
+          <div style="border:1px solid #2a2522;border-radius:14px;padding:24px 22px;cursor:pointer;display:flex;flex-direction:column;gap:6px;background:#141110" style-hover="border-color:#ff6a3d">
+            <div style="font-weight:600;font-size:15px">{{ t.s1folder }}</div>
+            <div style="font-size:12.5px;color:#8f857c;line-height:1.45">{{ t.s1folderSub }}</div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- STEP 2 -->
+    <sc-if value="{{ is2 }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;gap:28px;height:100%">
+        <div style="display:flex;align-items:flex-end;gap:24px">
+          <div style="flex:1">
+            <div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#ff6a3d;margin-bottom:12px">{{ t.s2kicker }}</div>
+            <h1 style="margin:0;font-size:44px;font-weight:700;letter-spacing:-.02em;line-height:1.05">{{ t.s2title }}</h1>
+            <p style="margin:12px 0 0;font-size:16px;color:#8f857c;line-height:1.5">{{ t.s2sub }}</p>
+          </div>
+          <div style="display:flex;gap:28px;padding-bottom:6px">
+            <div><div style="font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1;color:#5cd6a0">7</div><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c;margin-top:6px">{{ t.have }}</div></div>
+            <div><div style="font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1;color:#ff6a3d">5</div><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c;margin-top:6px">{{ t.toGet }}</div></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;flex:1;min-height:0">
+          <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;display:flex;flex-direction:column;overflow:hidden">
+            <div style="padding:16px 20px;border-bottom:1px solid #2a2522;display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px"><span style="width:8px;height:8px;border-radius:50%;background:#5cd6a0"></span>{{ t.haveTitle }}</div>
+            <div style="overflow:auto;display:flex;flex-direction:column">
+              <sc-for list="{{ have }}" as="h" hint-placeholder-count="5">
+                <div style="display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid #1d1917">
+                  <span style="width:38px;height:38px;border-radius:7px;background:repeating-linear-gradient(135deg,#221d1a 0 4px,#1a1613 4px 8px);flex-shrink:0"></span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ h.title }}</div>
+                    <div style="font-size:12.5px;color:#8f857c">{{ h.artist }}</div>
+                  </div>
+                  <span style="font:500 11px 'DM Mono',monospace;color: {{ h.noteColor }}">{{ h.note }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;display:flex;flex-direction:column;overflow:hidden">
+            <div style="padding:16px 20px;border-bottom:1px solid #2a2522;display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px"><span style="width:8px;height:8px;border-radius:50%;background:#ff6a3d"></span>{{ t.poolTitle }}<button onClick="{{ downloadAll }}" style="margin-left:auto;background:transparent;border:1px solid #ff6a3d;color:#ff6a3d;border-radius:8px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer" style-hover="background:#ff6a3d;color:#0f0d0c">{{ t.dlAll }}</button></div>
+            <div style="overflow:auto;display:flex;flex-direction:column">
+              <sc-for list="{{ pool }}" as="p" hint-placeholder-count="5">
+                <div style="display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid #1d1917">
+                  <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background: {{ p.stColor }};animation: {{ p.anim }}"></span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.title }}</div>
+                    <div style="font-size:12.5px;color:#8f857c">{{ p.artist }}</div>
+                    <sc-if value="{{ p.showBar }}" hint-placeholder-val="{{ false }}">
+                      <div style="height:2px;background:#2a2522;border-radius:1px;margin-top:8px;overflow:hidden"><div style="height:100%;background:#ff6a3d;width: {{ p.pctW }}"></div></div>
+                    </sc-if>
+                  </div>
+                  <sc-if value="{{ p.waiting }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;gap:6px">
+                      <button style="background:#ff6a3d;color:#0f0d0c;border:0;border-radius:7px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer">{{ t.dl }}</button>
+                      <button style="background:transparent;color:#8f857c;border:1px solid #2a2522;border-radius:7px;padding:6px 12px;font-weight:600;font-size:12px;cursor:pointer" style-hover="color:#f2ece6;border-color:#3a3330">{{ t.pick }}</button>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ p.notWaiting }}" hint-placeholder-val="{{ false }}">
+                    <span style="font:500 11px 'DM Mono',monospace;color: {{ p.stColor }};white-space:nowrap">{{ p.stText }}</span>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px">
+          <span style="font-size:13px;color:#8f857c">{{ t.s2foot }}</span>
+          <button onClick="{{ next }}" style="margin-left:auto;background:#ff6a3d;color:#0f0d0c;border:0;border-radius:10px;padding:13px 22px;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer" style-hover="background:#ff8a66">{{ t.next }} →</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- STEP 3 -->
+    <sc-if value="{{ is3 }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;gap:28px;max-width:760px;margin:auto 0">
+        <div>
+          <div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#ff6a3d;margin-bottom:12px">{{ t.s3kicker }}</div>
+          <h1 style="margin:0;font-size:44px;font-weight:700;letter-spacing:-.02em;line-height:1.05">{{ t.s3title }}</h1>
+          <p style="margin:12px 0 0;font-size:16px;color:#8f857c;line-height:1.5">{{ t.s3sub }}</p>
+        </div>
+        <input value="{{ setName }}" onChange="{{ onName }}" style="width:100%;background:transparent;border:0;border-bottom:2px solid #ff6a3d;color:#f2ece6;font-size:40px;font-weight:600;letter-spacing:-.02em;padding:8px 0 14px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <sc-for list="{{ nameChips }}" as="c" hint-placeholder-count="3">
+            <button onClick="{{ c.use }}" style="background:#171412;border:1px solid #2a2522;color:#8f857c;border-radius:20px;padding:7px 14px;font-size:12.5px;cursor:pointer" style-hover="border-color:#ff6a3d;color:#f2ece6">{{ c.label }}</button>
+          </sc-for>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;margin-top:8px">
+          <span style="font-size:13px;color:#8f857c">{{ t.s3foot }}</span>
+          <button onClick="{{ next }}" style="margin-left:auto;background:#ff6a3d;color:#0f0d0c;border:0;border-radius:10px;padding:13px 22px;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer" style-hover="background:#ff8a66">{{ t.next }} →</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- STEP 4 -->
+    <sc-if value="{{ is4 }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;gap:36px;max-width:760px;margin:auto 0">
+        <div>
+          <div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#ff6a3d;margin-bottom:12px">{{ t.s4kicker }}</div>
+          <h1 style="margin:0;font-size:44px;font-weight:700;letter-spacing:-.02em;line-height:1.05">{{ t.s4title }}</h1>
+          <p style="margin:12px 0 0;font-size:16px;color:#8f857c;line-height:1.5">{{ t.s4sub }}</p>
+        </div>
+        <div>
+          <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:14px">
+            <span style="font-size:56px;font-weight:700;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums">{{ pct }}<span style="font-size:24px;color:#8f857c">%</span></span>
+            <span style="font:500 12px 'DM Mono',monospace;color:#8f857c;margin-left:auto">{{ pctLabel }}</span>
+          </div>
+          <div style="height:3px;background:#2a2522;border-radius:2px;overflow:hidden"><div style="height:100%;background:#ff6a3d;box-shadow:0 0 12px #ff6a3d;width: {{ pctW }};transition:width .3s"></div></div>
+          <div style="margin-top:14px;font-size:14px;color:#8f857c;display:flex;gap:10px;align-items:center">
+            <span style="width:12px;height:12px;border:2px solid #2a2522;border-top-color:#ff6a3d;border-radius:50%;animation:spin .8s linear infinite;display:inline-block"></span>{{ currentFile }}
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+          <sc-for list="{{ stages }}" as="g" hint-placeholder-count="4">
+            <div style="background:#171412;border:1px solid {{ g.line }};border-radius:12px;padding:16px 16px 14px;display:flex;flex-direction:column;gap:10px">
+              <span style="width:8px;height:8px;border-radius:50%;background: {{ g.dot }}"></span>
+              <div style="font-weight:600;font-size:14px;color: {{ g.color }}">{{ g.label }}</div>
+              <div style="font:500 11px 'DM Mono',monospace;color:#8f857c">{{ g.state }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- STEP 5 -->
+    <sc-if value="{{ is5 }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;gap:24px;height:100%">
+        <div style="display:flex;align-items:flex-end;gap:24px">
+          <div style="flex:1">
+            <div style="font:500 11px 'DM Mono',monospace;letter-spacing:.14em;color:#ff6a3d;margin-bottom:12px">{{ t.s5kicker }}</div>
+            <h1 style="margin:0;font-size:44px;font-weight:700;letter-spacing:-.02em;line-height:1.05">{{ t.s5title }}</h1>
+            <p style="margin:12px 0 0;font-size:16px;color:#8f857c;line-height:1.5">{{ t.s5sub }}</p>
+          </div>
+          <div style="display:flex;gap:28px;padding-bottom:6px">
+            <div><div style="font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1">12</div><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c;margin-top:6px">{{ t.tracks }}</div></div>
+            <div><div style="font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1;color:#f0b64a">3</div><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c;margin-top:6px">{{ t.toReview }}</div></div>
+            <div><div style="font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1">126<span style="font-size:14px;color:#8f857c;margin-left:3px">BPM</span></div><div style="font:500 10.5px 'DM Mono',monospace;letter-spacing:.1em;color:#8f857c;margin-top:6px">{{ t.median }}</div></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button style="background:#171412;border:1px solid #2a2522;color:#f2ece6;border-radius:9px;padding:9px 14px;font-weight:600;font-size:13px;cursor:pointer" style-hover="border-color:#ff6a3d">{{ t.fixAll }}</button>
+          <button style="background:#171412;border:1px solid #2a2522;color:#f2ece6;border-radius:9px;padding:9px 14px;font-weight:600;font-size:13px;cursor:pointer" style-hover="border-color:#ff6a3d">{{ t.betterAll }}</button>
+          <span style="font-size:12.5px;color:#5e5650;margin-left:6px">{{ t.betterNote }}</span>
+        </div>
+        <div style="background:#171412;border:1px solid #2a2522;border-radius:14px;overflow:auto;flex:1;min-height:0">
+          <sc-for list="{{ review }}" as="r" hint-placeholder-count="6">
+            <div style="display:grid;grid-template-columns:22px 40px 1fr auto auto;gap:16px;align-items:center;padding:13px 20px;border-bottom:1px solid #1d1917;opacity: {{ r.opacity }}">
+              <span style="font-weight:800;font-size:16px;text-align:center;color: {{ r.markColor }}">{{ r.mark }}</span>
+              <span style="width:40px;height:40px;border-radius:7px;background:repeating-linear-gradient(135deg,#221d1a 0 4px,#1a1613 4px 8px)"></span>
+              <div style="min-width:0">
+                <div style="font-weight:600;font-size:14.5px">{{ r.title }}</div>
+                <div style="font-size:12.5px;color:#8f857c;display:flex;gap:10px;align-items:center;margin-top:2px">{{ r.artist }}<span style="font:500 11px 'DM Mono',monospace">{{ r.bpm }}</span><span style="font:600 10.5px 'DM Mono',monospace;padding:1px 7px;border-radius:4px;background: {{ r.camBg }};color:#0f0d0c">{{ r.camelot }}</span></div>
+                <sc-if value="{{ r.hasProblems }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                    <sc-for list="{{ r.problems }}" as="pr" hint-placeholder-count="1">
+                      <span style="display:flex;align-items:center;gap:7px;font-size:12px;color: {{ pr.color }}"><span style="font:600 10px 'DM Mono',monospace;letter-spacing:.08em;padding:2px 6px;border-radius:4px;background: {{ pr.color }};color:#0f0d0c">{{ pr.tag }}</span>{{ pr.text }}</span>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+              <div style="display:flex;gap:6px">
+                <sc-if value="{{ r.fixable }}" hint-placeholder-val="{{ false }}">
+                  <button style="background:#ff6a3d;color:#0f0d0c;border:0;border-radius:7px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer">{{ t.fix }}</button>
+                </sc-if>
+                <sc-if value="{{ r.weak }}" hint-placeholder-val="{{ false }}">
+                  <button style="background:transparent;color:#f2ece6;border:1px solid #2a2522;border-radius:7px;padding:6px 12px;font-weight:600;font-size:12px;cursor:pointer" style-hover="border-color:#ff6a3d">{{ t.better }}</button>
+                </sc-if>
+              </div>
+              <button style="background:transparent;color:#5e5650;border:0;padding:6px 8px;font-weight:600;font-size:12px;cursor:pointer" style-hover="color:#ff5a6a">{{ t.remove }}</button>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px">
+          <span style="font-size:12.5px;color:#5e5650">{{ t.s5note }}</span>
+          <button onClick="{{ play }}" style="margin-left:auto;background:#ff6a3d;color:#0f0d0c;border:0;border-radius:12px;padding:16px 28px;font-weight:800;font-size:15px;letter-spacing:.06em;cursor:pointer;box-shadow:0 0 30px rgba(255,106,61,.35);display:flex;align-items:center;gap:10px" style-hover="background:#ff8a66"><span style="font-size:12px">▶</span>{{ t.play }} · 12</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- DONE overlay -->
+    <sc-if value="{{ isDone }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;inset:44px 0 0 264px;background:rgba(15,13,12,.92);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px)">
+        <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:18px;max-width:520px">
+          <img src="assets/selekta-mark.png" alt="" style="width:120px;height:120px;object-fit:contain;filter:drop-shadow(0 0 40px rgba(255,106,61,.5))">
+          <h2 style="margin:0;font-size:36px;font-weight:700;letter-spacing:-.02em">{{ t.doneTitle }}</h2>
+          <p style="margin:0;font-size:15px;color:#8f857c;line-height:1.5">{{ doneSub }}</p>
+          <button onClick="{{ restart }}" style="margin-top:8px;background:transparent;border:1px solid #2a2522;color:#8f857c;border-radius:9px;padding:9px 16px;font-weight:600;font-size:13px;cursor:pointer" style-hover="border-color:#ff6a3d;color:#f2ece6">{{ t.again }}</button>
+        </div>
+      </div>
+    </sc-if>
+  </main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;lang&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;pl&quot;,&quot;en&quot;],&quot;default&quot;:&quot;pl&quot;,&quot;tsType&quot;:&quot;'pl'|'en'&quot;,&quot;section&quot;:&quot;Kreator&quot;},&quot;step&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:1,&quot;min&quot;:1,&quot;max&quot;:5,&quot;step&quot;:1,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Kreator&quot;}}">
+const I18N = {
+  pl: {
+    windowTitle:'SELEKTA — PRZYGOTOWANIE SETU', stepsHead:'KROKI', slsk:'Soulseek połączony',
+    steps:[['Wklej playlistę','Spotify, Apple, YouTube, plik'],['Masz / do ściągnięcia','porównanie z biblioteką'],['Nazwa setu','tak zobaczysz go w rekordboksie'],['Sprawdzam','BPM, tonacja, jakość, okładki'],['Sprawdź przed graniem','poprawki i eksport']],
+    s1kicker:'KROK 1 / 5', s1title:'Wklej playlistę', s1sub:'Spotify, Apple Music, YouTube, Tidal, SoundCloud, 1001Tracklists — albo zwykła lista tekstem.', s1hint:'Enter = szukaj u mnie', s1cta:'SZUKAJ U MNIE', s1or:'albo weź playlistę z komputera', s1drop:'Przeciągnij tu plik playlisty', s1folder:'Wybierz folder z muzyką…', s1folderSub:'Posprzątamy go w miejscu — pliki zostają tam, gdzie są.',
+    s2kicker:'KROK 2 / 5', s2title:'Co już masz, a czego brakuje', s2sub:'Każdy pobrany utwór od razu wskakuje do „masz u siebie”.', have:'MASZ', toGet:'BRAKUJE', haveTitle:'Masz u siebie', poolTitle:'Do ściągnięcia', dlAll:'Pobierz wszystko', dl:'Pobierz', pick:'Wybierz…', s2foot:'Możesz iść dalej — pobierania dokończą się w tle.', next:'DALEJ',
+    s3kicker:'KROK 3 / 5', s3title:'Jak nazwiemy set?', s3sub:'Pod tą nazwą znajdziesz playlistę w rekordboksie.', s3foot:'Nazwę zmienisz później w rekordboksie.',
+    s4kicker:'KROK 4 / 5', s4title:'Sprawdzam playlistę', s4sub:'Zbieram pliki, liczę BPM i tonację, sprawdzam jakość, okładki i tagi.', stages:['Zbieram pliki','BPM i tonacja','Jakość i integralność','Okładki i tagi'], stStates:['gotowe','w toku','czeka','czeka'], analyzing:'analizuję',
+    s5kicker:'KROK 5 / 5', s5title:'Sprawdź przed graniem', s5sub:'Ostatni moment na poprawki — potem playlista idzie do rekordboxa.', tracks:'UTWORÓW', toReview:'DO OBEJRZENIA', median:'MEDIANA', fixAll:'Napraw wszystko (2)', betterAll:'Szukaj lepszych wersji (1)', betterNote:'ok. minuty na utwór', fix:'Napraw', better:'Szukaj lepszej', remove:'Usuń z setu', s5note:'Zamknij rekordbox przed kliknięciem — inaczej nadpisze ustawienia przy wyjściu.', play:'ZACZNIJ GRAĆ',
+    doneTitle:'Set czeka w rekordboksie', doneSub:'„{name}” (12 utworów) — odpal rekordbox i graj.', again:'Nowy set',
+    prob:{tagi:'NAZWA',okladka:'OKŁADKA',jakosc:'JAKOŚĆ',integralnosc:'PRZESKOKI',tempo:'TEMPO',duplikat:'DUBEL'},
+    st:{searching:'szukam…',queued:'w kolejce',downloading:'pobieram',failed:'brak wyniku'},
+    notes:{other:'inna wersja',similar:'podobne',ok:'✓'},
+  },
+  en: {
+    windowTitle:'SELEKTA — SET PREP', stepsHead:'STEPS', slsk:'Soulseek connected',
+    steps:[['Paste a playlist','Spotify, Apple, YouTube, file'],['Have / to fetch','matched against your library'],['Name the set','how it shows up in rekordbox'],['Checking','BPM, key, quality, covers'],['Review before playing','fixes and export']],
+    s1kicker:'STEP 1 / 5', s1title:'Paste a playlist', s1sub:'Spotify, Apple Music, YouTube, Tidal, SoundCloud, 1001Tracklists — or a plain text tracklist.', s1hint:'Enter = search my library', s1cta:'SEARCH MY LIBRARY', s1or:'or take a playlist from this computer', s1drop:'Drop a playlist file here', s1folder:'Pick a music folder…', s1folderSub:'We tidy it in place — files stay where they are.',
+    s2kicker:'STEP 2 / 5', s2title:'What you have, what is missing', s2sub:'Every finished download jumps straight into “you have it”.', have:'HAVE', toGet:'MISSING', haveTitle:'You have it', poolTitle:'To fetch', dlAll:'Fetch all', dl:'Fetch', pick:'Choose…', s2foot:'You can move on — downloads finish in the background.', next:'NEXT',
+    s3kicker:'STEP 3 / 5', s3title:'What do we call the set?', s3sub:'This is the playlist name you will see in rekordbox.', s3foot:'You can rename it later in rekordbox.',
+    s4kicker:'STEP 4 / 5', s4title:'Checking the playlist', s4sub:'Collecting files, computing BPM and key, checking quality, covers and tags.', stages:['Collecting files','BPM and key','Quality and integrity','Covers and tags'], stStates:['done','running','waiting','waiting'], analyzing:'analyzing',
+    s5kicker:'STEP 5 / 5', s5title:'Review before playing', s5sub:'Last chance for fixes — then the playlist goes to rekordbox.', tracks:'TRACKS', toReview:'TO REVIEW', median:'MEDIAN', fixAll:'Fix all (2)', betterAll:'Find better versions (1)', betterNote:'about a minute per track', fix:'Fix', better:'Find better', remove:'Drop from set', s5note:'Close rekordbox before clicking — otherwise it overwrites settings on exit.', play:'START PLAYING',
+    doneTitle:'Your set is waiting in rekordbox', doneSub:'“{name}” (12 tracks) — open rekordbox and play.', again:'New set',
+    prob:{tagi:'NAME',okladka:'COVER',jakosc:'QUALITY',integralnosc:'DROPOUTS',tempo:'TEMPO',duplikat:'DUPE'},
+    st:{searching:'searching…',queued:'queued',downloading:'downloading',failed:'no result'},
+    notes:{other:'other version',similar:'similar',ok:'✓'},
+  },
+};
+const CAM = {'1A':'#7de0c6','2A':'#8ee0a3','3A':'#b8e08a','4A':'#e0d97a','5A':'#f0b64a','6A':'#ff9b6b','7A':'#ff7f8a','8A':'#e08ad0','9A':'#b58ae0','10A':'#8a9ce0','11A':'#7ac0e0','12A':'#7ad9e0','1B':'#5cd6a0','2B':'#6fd67e','3B':'#a3d66a','4B':'#d6cc5c','5B':'#e0a13a','6B':'#ff8656','7B':'#ff6a7a','8B':'#d675c6','9B':'#a575d6','10B':'#7587d6','11B':'#63b0d6','12B':'#63ccd6'};
+const HAVE = [['Heaven & Hell','Pitch Black','ok'],['Nachtstrom','Ariel Zetina','ok'],['Waiting Room','Rebecca Delle Piane','other'],['Kraft','ÅMRTÜM','ok'],['Metro 2','Kaiser','similar'],['Slaves','Regis','ok'],['Spectre','Klint','ok']];
+const POOL = [['Deviant','Parfait','downloading',62],['Rave Gaze','Alarico','queued'],['Rippling','Skee Mask','wait'],['Low Pressure','Blawan','searching'],['Kaos','Anetha','failed']];
+const REVIEW = [
+  ['Deviant','Parfait',128,'8A',[['jakosc','MP3 128 kbps w FLAC-u — źródło stratne','Lossy source (128 kbps) inside FLAC']]],
+  ['Heaven & Hell','Pitch Black',126,'9A',[['integralnosc','ucięty transfer na 3:12','Truncated transfer at 3:12']]],
+  ['Kraft','ÅMRTÜM',127,'8B',[['tagi','Ã…MRTÃœM → ÅMRTÜM','Ã…MRTÃœM → ÅMRTÜM'],['okladka','brak okładki — iTunes ma','No cover — iTunes has one']]],
+  ['Nachtstrom','Ariel Zetina',125,'8A',[]],['Waiting Room','Rebecca Delle Piane',124,'7A',[]],['Metro 2','Kaiser',129,'9B',[]],['Slaves','Regis',130,'10A',[]],['Spectre','Klint',126,'9A',[]],['Rave Gaze','Alarico',127,'8A',[]],['Rippling','Skee Mask',122,'7B',[]],['Low Pressure','Blawan',128,'9A',[]],['Kaos','Anetha',131,'10B',[]],
+];
+const HEAVY = t => t==='jakosc'||t==='integralnosc';
+const C = {ok:'#5cd6a0', warn:'#f0b64a', bad:'#ff5a6a', acc:'#ff6a3d', dim:'#8f857c', line:'#2a2522'};
+
+class Component extends DCLogic {
+  state = { step: null, lang: null, name: 'Piątek · Smolna', pct: 41, done: false };
+  componentDidMount(){ this.tick = setInterval(()=>{ if(this.step()===4) this.setState(s=>({pct: s.pct>=100 ? 41 : s.pct+1})); }, 240); }
+  componentWillUnmount(){ clearInterval(this.tick); }
+  step(){ return this.state.step ?? (this.props.step ?? 1); }
+  lang(){ return this.state.lang ?? (this.props.lang ?? 'pl'); }
+  renderVals(){
+    const step = this.step(), lang = this.lang(), t = I18N[lang];
+    const go = n => () => this.setState({step:n, done:false});
+    const steps = t.steps.map(([label,sub],i)=>{ const n=i+1, cur=n===step, done=n<step;
+      return { label, sub, go:go(n), hasRail:n<5, mark: done?'✓':String(n),
+        dotBg: cur?C.acc:(done?'transparent':'transparent'), dotFg: cur?'#0f0d0c':(done?C.acc:C.dim), dotLine: cur?C.acc:(done?C.acc:C.line),
+        railBg: done?C.acc:C.line, color: cur?'#f2ece6':(done?'#c9c0b8':C.dim), opacity: cur||done?1:.7 }; });
+    const have = HAVE.map(([title,artist,k])=>({title,artist,note:t.notes[k],noteColor:k==='ok'?C.ok:C.warn}));
+    const stCol = {wait:C.dim,searching:'#7a9cff',queued:C.warn,downloading:C.acc,done:C.ok,failed:C.bad};
+    const pool = POOL.map(([title,artist,st,pct])=>({title,artist,stColor:stCol[st],stText:t.st[st]||'',waiting:st==='wait'||st==='failed',notWaiting:!(st==='wait'||st==='failed'),showBar:st==='downloading',pctW:(pct||0)+'%',anim:(st==='searching'||st==='downloading')?'pulse 1.2s ease-in-out infinite':'none'}));
+    const pct = this.state.pct, files=12, idx=Math.min(files, Math.floor(pct/100*files)+1);
+    const stages = t.stages.map((label,i)=>{ const st=i===0?'done':(i===1?'run':'wait');
+      return { label, state:t.stStates[i], dot: st==='done'?C.ok:(st==='run'?C.acc:C.line), line: st==='run'?C.acc:C.line, color: st==='wait'?C.dim:'#f2ece6' }; });
+    const review = REVIEW.map(([title,artist,bpm,cam,probs])=>{ const heavy=probs.some(p=>HEAVY(p[0]));
+      return { title, artist, bpm: bpm+' BPM', camelot: cam, camBg: CAM[cam]||C.dim, hasProblems:probs.length>0, mark: heavy?'✕':(probs.length?'!':'✓'), markColor: heavy?C.bad:(probs.length?C.warn:C.ok),
+        problems: probs.map(([typ,pl,en])=>({tag:t.prob[typ],text:lang==='pl'?pl:en,color:HEAVY(typ)?C.bad:C.warn})),
+        fixable: probs.some(p=>p[0]==='tagi'||p[0]==='okladka'), weak: probs.some(p=>p[0]==='jakosc'), opacity: probs.length?1:.78 }; });
+    const chips = lang==='pl' ? ['Piątek · Smolna','Warm-up 124–128','Techno · wrzesień'] : ['Friday · Smolna','Warm-up 124–128','Techno · September'];
+    const lbtn = on => on ? [C.acc,'#0f0d0c'] : ['transparent',C.dim];
+    const LIB = [['Deviant','Parfait','flac','bad',128,'8A','6:41',true],['Heaven & Hell','Pitch Black','flac','ok',126,'9A','7:02',true],['Kraft','ÅMRTÜM','wav','ok',127,'8B','5:58',false],['Nachtstrom','Ariel Zetina','flac','ok',125,'8A','6:12',true],['Waiting Room','Rebecca Delle Piane','aiff','warn',124,'7A','6:30',true],['Metro 2','Kaiser','flac',null,null,null,'5:44',true],['Slaves','Regis','mp3','ok',130,'10A','6:05',false],['Spectre','Klint','flac','ok',126,'9A','7:18',true],['Rave Gaze','Alarico','flac',null,null,null,'6:20',true],['Rippling','Skee Mask','flac','ok',122,'7B','8:02',true]];
+    const fmt = {flac:['#123a2b',C.ok],wav:['#3a2f12',C.warn],aiff:['#3a2f12',C.warn],mp3:['#2a2521','#b0a69c']};
+    const qual = {ok:['✓ dobra',C.ok],warn:['? wątpliwa',C.warn],bad:['✕ zła',C.bad]};
+    const libRows = LIB.map(([title,artist,ext,q,bpm,cam,dur,cover],i)=>({title,artist,ext:ext.toUpperCase(),fmtBg:fmt[ext][0],fmtFg:fmt[ext][1],
+      q:q?qual[q][0]:'— nieanalizowane',qColor:q?qual[q][1]:C.dim,bpm:bpm?String(bpm):'—',cam:cam||'',hasCam:!!cam,camBg:cam?CAM[cam]:'transparent',dur,
+      coverBg: cover?'repeating-linear-gradient(135deg,#221d1a 0 4px,#1a1613 4px 8px)':'#1e1a17', selected:i===1?'rgba(255,106,61,.07)':'transparent'}));
+    const HITS = [['dj_kosmos','Skee Mask - Rippling.flac','FLAC 44.1k/16','58.2 MB','8:02','2.4 MB/s',true],['blackout_brl','01 Rippling (Original Mix).flac','FLAC 44.1k/24','86.9 MB','8:02','610 kB/s',false],['tekkno_haus','Skee Mask - Rippling.mp3','MP3 320','19.1 MB','8:02','1.1 MB/s',false],['vinylonly','skee mask rippling edit.wav','WAV 44.1k/16','52.0 MB','4:48','380 kB/s',false]];
+    const hits = HITS.map(([user,file,f,size,dur,speed,best])=>({user,file,f,size,dur,speed,best,notBest:!best,durColor:dur==='8:02'?C.ok:C.warn,bg:best?'rgba(255,106,61,.06)':'transparent',line:best?C.acc:'#1d1917',fmtColor:f.startsWith('FLAC')?C.ok:(f.startsWith('MP3')?'#b0a6cc':C.warn)}));
+    const NAV = [['Set',['Import','Kolejność setu','Eksport','Pobierania']],['Biblioteka',['Biblioteka','Zdrowie','Porządki','Radar']],['Więcej',['Statystyki','Historia','Ustawienia']]];
+    const nav = NAV.map(([head,items])=>({head,items:items.map(label=>({label,on:label==='Biblioteka',bg:label==='Biblioteka'?'#1e1a17':'transparent',color:label==='Biblioteka'?'#f2ece6':C.dim,badge:label==='Pobierania'?'2':(label==='Porządki'?'5':''),hasBadge:label==='Pobierania'||label==='Porządki'}))}));
+    const FAZA = {r:['rozgrzewka','#7a9cff'], s:['środek','#5cd6a0'], k:['kulminacja','#f0b64a']};
+    const SET = [['Rippling','Skee Mask',122,'7B',.32,'r'],['Waiting Room','Rebecca Delle Piane',124,'7A',.41,'r'],['Nachtstrom','Ariel Zetina',125,'8A',.48,'r'],['Rave Gaze','Alarico',127,'8A',.57,'s'],['Kraft','ÅMRTÜM',127,'8B',.63,'s'],['Deviant','Parfait',128,'8A',.70,'s'],['Heaven & Hell','Pitch Black',126,'9A',.66,'s'],['Low Pressure','Blawan',128,'9A',.78,'k'],['Spectre','Klint',126,'9A',.84,'k'],['Metro 2','Kaiser',129,'9B',1,'k'],['Slaves','Regis',130,'10A',.92,'k'],['Kaos','Anetha',131,'10B',.74,'k']];
+    const peak = 9;
+    const setList = SET.map(([title,artist,bpm,cam,e,f],i)=>({n:String(i+1).padStart(2,'0'),title,artist,bpm:String(bpm),cam,camBg:CAM[cam],faza:FAZA[f][0],fazaColor:FAZA[f][1],
+      note: i===0?'start':(i===3?'+1 energia':(i===6?'−1 BPM · ten sam klucz':(i===9?'szczyt setu':(i===11?'zejście':'')))), noteColor: i===9?C.acc:C.dim, peakLine:i===peak?C.acc:'transparent'}));
+    const arc = SET.map(([,,,,e,f],i)=>({h:Math.round(e*100)+'%',bg:i===peak?C.acc:FAZA[f][1],op:i===peak?1:.75,glow:i===peak?'0 0 14px #ff6a3d':'none'}));
+    const camWheel = ['1','2','3','4','5','6','7','8','9','10','11','12'].map(n=>{ const used = SET.filter(s=>s[3].replace(/[AB]/,'')===n).length;
+      return {n, a:n+'A', b:n+'B', bgA: used?CAM[n+'A']:'#1e1a17', bgB: used?CAM[n+'B']:'#1e1a17', fg: used?'#0f0d0c':'#3a3330', count: used?String(used):''}; });
+    const DEC = [
+      ['DUBEL','Slaves — Regis','2 kopie · zostaje FLAC 44.1k/16 (58 MB), do kosza WAV (62 MB)','Regis - Slaves.flac','Regis - Slaves.wav','Zatwierdź',C.warn],
+      ['USZKODZONY','Kaos — Anetha','przerwane pobieranie · plik urywa się na 2:41 z 6:10','Anetha - Kaos.flac','','Pobierz ponownie',C.bad],
+      ['ULEPSZENIE','Spectre — Klint','masz MP3 320 · na Soulseeku jest FLAC 44.1k/16 od 3 użytkowników','Klint - Spectre.mp3','→ FLAC','Podmień',C.ok],
+      ['DUBEL','Deviant — Parfait','2 kopie · różne wersje miksu (Original 6:41 vs Radio Edit 3:20) — obie zostają?','Parfait - Deviant.flac','Parfait - Deviant (Radio Edit).flac','Zostaw obie',C.warn],
+      ['OKŁADKA','Kraft — ÅMRTÜM','brak okładki · iTunes: „Kraft — Single” 3000×3000','ÅMRTÜM - Kraft.wav','','Dociągnij',C.dim],
+    ];
+    const decisions = DEC.map(([tag,title,desc,a,b,cta,color])=>({tag,title,desc,a,b,hasB:!!b,cta,color,ctaBg:color===C.bad?C.bad:C.acc}));
+    const wave = Array.from({length:120},(_,i)=>{ const x=i/120; const env = x<.09?x/.09*.35:(x<.28?.45+Math.sin(i*1.3)*.08:(x<.31?.15:(x<.86?.72+Math.sin(i*.9)*.16:.4-(x-.86)/.14*.3))); return {h:Math.max(6,Math.round(env*100))+'%', bg: x<.31?'#ff6a3d':(x<.78?'#f2ece6':'#5e5650')}; });
+    const cuesList = [['INTRO','0:00 – 0:32','32 takty, bez basu'],['PIERWSZE UDERZENIE','0:00.48','siatka od tego punktu'],['DROP','1:58','wejście basu · +6 dB'],['OUTRO','6:12 – 7:02','50 s na miks']].map(([k,v,d])=>({k,v,d}));
+    const mkNav = active => NAV.map(([head,items])=>({head,items:items.map(label=>({label,bg:label===active?'#1e1a17':'transparent',color:label===active?'#f2ece6':C.dim,badge:label==='Pobierania'?'2':(label==='Porządki'?'5':''),hasBadge:label==='Pobierania'||label==='Porządki'}))}));
+    const navImport = mkNav('Import'), navExport = mkNav('Eksport'), navDl = mkNav('Pobierania');
+    const IMP = [
+      ['auto','Rippling','Skee Mask','Skee Mask - Rippling.flac','0,97'],['auto','Nachtstrom','Ariel Zetina','Ariel Zetina - Nachtstrom.flac','0,94'],['auto','Slaves','Regis','Regis - Slaves.flac','0,91'],
+      ['resolve','Waiting Room','Rebecca Delle Piane','Rebecca Delle Piane - Waiting Room (Extended).aiff','0,72 · inna wersja: 8:14 vs 6:30'],['resolve','Metro 2','Kaiser','Kaiser - Metro II.flac','0,64 · tytuł różni się'],
+      ['missing','Low Pressure','Blawan','','Beatport · Bandcamp'],['missing','Kaos','Anetha','','Beatport'],
+    ];
+    const impBand = {auto:['DOPASOWANE',C.ok],resolve:['DO ROZSTRZYGNIĘCIA',C.warn],missing:['NIE ZNALEZIONO',C.bad]};
+    const impRows = IMP.map(([k,title,artist,file,note])=>({k,title,artist,file,hasFile:!!file,note,color:impBand[k][1],isResolve:k==='resolve',isMissing:k==='missing',isAuto:k==='auto'}));
+    const DLS = [['Deviant','Parfait','Parfait - Deviant.flac','dj_kosmos',62,'2,4 MB/s · 58,2 MB','active'],['Rave Gaze','Alarico','Alarico - Rave Gaze.flac','blackout_brl',0,'w kolejce u użytkownika · 3 przed Tobą','queued'],['Low Pressure','Blawan','','—',0,'szukam · 14 s · 0 wyników bezstratnych','searching'],['Rippling','Skee Mask','Skee Mask - Rippling.flac','dj_kosmos',100,'zweryfikowany odsłuchem 0,89 · FLAC prawdziwy','done'],['Kaos','Anetha','Anetha - Kaos.flac','vinylonly',100,'ucięty transfer 2:41 / 6:10 → pobiorę ponownie','failed'],['Spectre','Klint','Klint - Spectre.flac','tekkno_haus',100,'zweryfikowany odsłuchem 0,93','done']];
+    const dlSt = {active:['POBIERAM',C.acc],queued:['W KOLEJCE',C.warn],searching:['SZUKAM','#7a9cff'],done:['GOTOWE',C.ok],failed:['BŁĄD',C.bad]};
+    const dls = DLS.map(([title,artist,file,user,pct,note,st])=>({title,artist,file:file||'—',user,pct:pct+'%',pctTxt:st==='active'?pct+'%':'',note,st:dlSt[st][0],color:dlSt[st][1],barBg:st==='failed'?C.bad:(st==='done'?C.ok:C.acc),live:st==='active'||st==='queued'||st==='searching',isFailed:st==='failed',anim:(st==='active'||st==='searching')?'pulse 1.2s ease-in-out infinite':'none'}));
+    const navRadar = mkNav('Radar'), navStaty = mkNav('Statystyki'), navHist = mkNav('Historia');
+    const RAD = [['Blawan','Ternesc 12','Ternesc','2 wrz','Beatport',true],['Skee Mask','ISS010','Ilian Tape','29 sie','Bandcamp',true],['Anetha','Mothearth Remixes','Mama Told Ya','27 sie','Beatport',false],['Regis','Hidden In This Is The Light','Downwards','21 sie','Bandcamp',false],['Klint','Spectre / Wraith','Token','18 sie','Beatport',false],['Alarico','Rave Gaze EP','Planet X','12 sie','Bandcamp',false]];
+    const radar = RAD.map(([artist,title,label,date,store,fresh])=>({artist,title,label,date,store,fresh,dot:fresh?C.acc:'#3a3330'}));
+    const bpmHist = [[118,2],[120,6],[122,14],[124,31],[126,58],[128,74],[130,49],[132,27],[134,11],[136,4],[138,2],[140,1]].map(([b,n])=>({b:String(b),h:Math.round(n/74*100)+'%',n:String(n),bg:b>=126&&b<=130?C.acc:'#3a3330'}));
+    const keyDist = ['1','2','3','4','5','6','7','8','9','10','11','12'].map((n,i)=>{ const a=[3,5,9,14,22,31,48,63,71,44,18,7][i], b=[2,4,6,9,15,20,29,41,38,22,9,4][i]; return {n,a:String(a),b:String(b),ha:Math.round(a/71*100)+'%',hb:Math.round(b/71*100)+'%',bgA:CAM[n+'A'],bgB:CAM[n+'B']}; });
+    const HIST = [['2 wrz','Smolna · piątek',14,'1 h 32 min',127,'8A → 10B'],['23 sie','Jasna 1 · sobota',18,'2 h 05 min',129,'7A → 11A'],['9 sie','Prozak 2.0',12,'1 h 20 min',125,'9A → 9B'],['26 lip','Radio Kapitał · live',9,'58 min',124,'5A → 8A'],['12 lip','Smolna · piątek',15,'1 h 40 min',128,'8B → 10A']];
+    const hist = HIST.map(([date,name,n,dur,bpm,keys])=>({date,name,n:String(n),dur,bpm:String(bpm),keys}));
+    const HISTOP = [['Heaven & Hell','Pitch Black',5],['Slaves','Regis',4],['Rippling','Skee Mask',4],['Kraft','ÅMRTÜM',3],['Spectre','Klint',3]];
+    const histTop = HISTOP.map(([title,artist,n])=>({title,artist,n:String(n),w:Math.round(n/5*100)+'%'}));
+    const navSetup = mkNav('Ustawienia');
+    const SETUP = [['Folder biblioteki','~/Music/dj','1 248 plików · obserwowany na żywo',true,'Zmień…'],['Soulseek (slskd)','http://localhost:5030','połączony · konto dj_kosmos · 3 sloty',true,'Konfiguruj…'],['rekordbox','7.0 · XML z 2 wrz','hot cue, kolory i oceny zachowane przy eksporcie',true,'Wczytaj XML…'],['Spotify','Web API · połączone','wygasa za 41 dni',true,'Odnów'],['Beatport / Bandcamp','linki zakupowe + radar','59 artystów obserwowanych',true,'Zarządzaj…'],['ffmpeg / ffprobe','6.1 · /opt/homebrew/bin','konwersja WAV → AIFF/FLAC, analiza widma',true,'—']];
+    const setup = SETUP.map(([name,val,sub,ok,cta])=>({name,val,sub,dot:ok?C.ok:C.warn,cta,hasCta:cta!=='—'}));
+    const KREATOR = [['Folder z muzyką','~/Music/dj · 1 248 plików','done'],['ffmpeg','znaleziony w /opt/homebrew/bin','done'],['Soulseek (slskd)','instaluję i loguję… 64 %','run'],['rekordbox','wykryję po pierwszym eksporcie','wait'],['Spotify','opcjonalnie — do playlist prywatnych','wait']];
+    const kreator = KREATOR.map(([name,sub,st])=>({name,sub,mark:st==='done'?'✓':(st==='run'?'':'·'),dotBg:st==='done'?C.ok:(st==='run'?C.acc:'transparent'),dotLine:st==='done'?C.ok:(st==='run'?C.acc:C.line),dotFg:'#0f0d0c',color:st==='wait'?C.dim:'#f2ece6',spin:st==='run',anim:st==='run'?'spin .8s linear infinite':'none'}));
+    const tutDots = [0,1,2,3,4,5,6].map(i=>({bg:i<=4?C.acc:C.line}));
+    const TUT = [['Plik z YouTube’a przerobiony na „FLAC” dalej brzmi jak 128 kbps.','Selekta patrzy na widmo i mówi, co naprawdę siedzi w pliku.'],['Po pobraniu porównuje odsłuchem z podglądem ze Spotify.','Łapie ucięte transfery, których widmo w środku nie widzi.'],['Wersja miksu ma znaczenie.','Radio Edit 3:20 to nie Original 6:41 — czas trwania i sygnatura miksu rozstrzygają.']];
+    const tut = TUT.map(([a,b],i)=>({n:String(i+1),a,b}));
+    return {
+      navSetup, setup, kreator, tutDots, tut,
+      navRadar, navStaty, navHist, radar, bpmHist, keyDist, hist, histTop,
+      navImport, navExport, navDl, impRows, dls,
+      setList, arc, camWheel, decisions, wave, cuesList,
+      libRows, hits, nav,
+      t, steps, have, pool, stages, review,
+      is1:step===1, is2:step===2, is3:step===3, is4:step===4, is5:step===5, isDone:this.state.done,
+      next: go(Math.min(5,step+1)), play: ()=>this.setState({done:true}), restart: ()=>this.setState({step:1,done:false,pct:41}),
+      downloadAll: ()=>{}, setName: this.state.name, onName: e=>this.setState({name:e.target.value}),
+      nameChips: chips.map(label=>({label,use:()=>this.setState({name:label})})),
+      pct, pctW: pct+'%', pctLabel: `${idx} / ${files}`, currentFile: `${t.analyzing} ${idx}/${files}: ${REVIEW[idx-1][1]} - ${REVIEW[idx-1][0]}.flac`,
+      doneSub: t.doneSub.replace('{name}', this.state.name),
+      setPl: ()=>this.setState({lang:'pl'}), setEn: ()=>this.setState({lang:'en'}),
+      plBg: lbtn(lang==='pl')[0], plFg: lbtn(lang==='pl')[1], enBg: lbtn(lang==='en')[0], enFg: lbtn(lang==='en')[1],
+    };
+  }
+}
+</script>
+</body>
+</html>

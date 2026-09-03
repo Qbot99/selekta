@@ -36,4 +36,4 @@ build-backend = "setuptools.build_meta"
 packages = ["selekta"]
 
 [tool.setuptools.package-data]
-selekta = ["static/*.html"]
+selekta = ["static/*.html", "static/assets/*", "static/ekrany/*"]

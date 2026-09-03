@@ -22,6 +22,7 @@ import time
 from dataclasses import asdict
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from mutagen import File as MutagenFile
 
@@ -168,9 +169,40 @@ def _track_row(path: str) -> dict:
     return row
 
 
+# zasoby nowego dashboardu (projekt graficzny 3.09.2026): logo, znak,
+# skrypty ekranów — tylko katalog static, nic spoza niego
+app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
+
+
+def _wersja_statykow() -> str:
+    """Stempel do ?v= przy skryptach: wersja pakietu + czas ostatniej zmiany.
+
+    Bez tego przeglądarka po aktualizacji apki potrafi trzymać stare
+    ekrany z pamięci podręcznej i pokazywać błędy, których w kodzie już nie ma.
+    """
+    try:
+        from importlib.metadata import version
+        w = version("selekta")
+    except Exception:  # noqa: BLE001 — uruchomienie ze źródeł bez instalacji
+        w = "dev"
+    katalog = os.path.join(HERE, "static", "ekrany")
+    try:
+        mt = max(os.path.getmtime(os.path.join(katalog, f)) for f in os.listdir(katalog))
+    except (OSError, ValueError):
+        mt = 0
+    return f"{w}-{int(mt)}"
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     with open(os.path.join(HERE, "static", "index.html"), encoding="utf-8") as fh:
+        return fh.read().replace("__WERSJA__", _wersja_statykow())
+
+
+@app.get("/stary", response_class=HTMLResponse)
+def stary_dashboard() -> str:
+    """Poprzedni dashboard — siatka bezpieczeństwa na czas przesiadki."""
+    with open(os.path.join(HERE, "static", "stary.html"), encoding="utf-8") as fh:
         return fh.read()
 
 

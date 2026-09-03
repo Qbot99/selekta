@@ -89,6 +89,16 @@ Wymagania w tym trybie: Python 3.11+, `ffmpeg`/`ffprobe` w PATH
 (`brew install ffmpeg`). Soulseek zawsze jako *własny slskd* — Selekta
 jest menedżerem biblioteki i wyszukiwarką, nie rozpowszechnia nagrań.
 
+## Dashboard — jak jest zbudowany
+
+Interfejs to projekt graficzny z 3.09.2026 (`docs/design/`): ciemny,
+jeden akcent `#ff6a3d`, Urbanist + DM Mono, boczna nawigacja w trzech
+grupach (Set · Biblioteka · Więcej), dolny player. Kod bez bundlera:
+`selekta/static/index.html` to powłoka (układ, tokeny CSS, `S` — router,
+zapytania, arkusze, player), a `selekta/static/ekrany/*.js` to ekrany,
+każdy rejestruje się przez `S.ekran(id, {render, load})`. Poprzedni
+dashboard został pod `/stary` na czas przesiadki.
+
 ## Dla programistów
 
 ```

@@ -38,7 +38,8 @@ def test_tracks_lists_all_audio(client, lib_copy):
 def test_index_serves_html(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "selekta" in r.text and "Analizuj" in r.text
+    # ekrany buduje JS (static/ekrany), w HTML jest tylko powłoka
+    assert "selekta" in r.text and "/static/ekrany/_powloka.js" in r.text
 
 
 def test_cover_present_and_missing(client):
