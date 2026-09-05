@@ -112,3 +112,35 @@ def test_status_zwraca_wersje(client):
     d = client.get("/api/status").json()
     assert d["level"] in ("red", "amber", "green")
     assert isinstance(d.get("wersja"), str) and d["wersja"]
+
+
+def test_style_ekranow_nie_koliduja_klasami_stanu():
+    """Regresja 5.09.2026: w kreatorze reguła `.kr .done` (nakładka końcowa,
+    position:absolute na całą treść) łapała także kroki paska `.krok.done`
+    i kafle etapów `.etap.done` — ta sama waga selektora, a stała później
+    w arkuszu. Ukończony krok przejmował pozycję nakładki, rozlewał się na
+    formularz i przechwytywał kliknięcia: nie dało się przejść dalej
+    z kroku „Nazwa setu".
+
+    Klasy stanu (done/on/run/ok/bad) są krótkie i wracają w wielu miejscach,
+    więc reguła kontenera nie może celować w samą taką klasę — musi ją
+    zawęzić własną nazwą elementu (`.krok.done`, `.etap.done`, `.gotowe`).
+    """
+    import re
+    STANY = ("done", "on", "run", "ok", "bad", "warn", "active")
+    katalog = os.path.join(STATIC, "ekrany")
+    winne = []
+    for nazwa in sorted(os.listdir(katalog)):
+        if not nazwa.endswith(".js"):
+            continue
+        js = open(os.path.join(katalog, nazwa), encoding="utf-8").read()
+        for selektor in re.findall(r"^\s*([.#][^{}\n]{1,120}?)\s*\{", js, flags=re.M):
+            for czesc in selektor.split(","):
+                czesc = czesc.strip()
+                # ostatni człon selektora: czy to goła klasa stanu?
+                ostatni = czesc.split()[-1] if czesc.split() else ""
+                if ostatni.lstrip(".") in STANY and ostatni.startswith(".") and ostatni.count(".") == 1:
+                    winne.append(f"{nazwa}: {czesc}")
+    assert not winne, (
+        "reguły celujące w gołą klasę stanu — złapią każdy element z tą klasą:\n  "
+        + "\n  ".join(winne))

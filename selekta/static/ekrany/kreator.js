@@ -249,14 +249,19 @@
 .kr .s5 .stopa .nota{font-size:12.5px;color:var(--dim2);min-width:0}
 .kr .s5 .stopa .glow{margin-left:auto;display:flex;align-items:center;gap:10px}
 .kr .s5 .stopa .glow>span:first-child{font-size:12px}
-/* nakładka DONE */
-.kr .done{position:absolute;inset:44px 0 0 264px;background:rgba(15,13,12,.92);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:5;animation:wjazd .2s ease-out}
-.kr .done .box{text-align:center;display:flex;flex-direction:column;align-items:center;gap:18px;max-width:520px;padding:0 24px}
-.kr .done img{width:120px;height:120px;object-fit:contain;filter:drop-shadow(0 0 40px rgba(255,106,61,.5))}
-.kr .done h2{margin:0;font-size:36px;font-weight:700;letter-spacing:-.02em}
-.kr .done p{margin:0;font-size:15px;color:var(--dim);line-height:1.5}
-.kr .done button{margin-top:8px;background:transparent;border:1px solid var(--line);color:var(--dim);border-radius:9px;padding:9px 16px;font-weight:600;font-size:13px;cursor:pointer}
-.kr .done button:hover{border-color:var(--acc);color:var(--txt)}
+/* Nakładka końcowa — klasa .gotowe, NIE .done.
+   Kroki paska i kafle etapów mają klasy krok.done / etap.done. Reguła
+   .kr .done łapała je również (ta sama waga, a stała później w arkuszu),
+   więc ukończony krok dostawał position:absolute tej nakładki, rozlewał się
+   na całą treść i przechwytywał kliknięcia — nie dało się przejść dalej
+   z kroku 3. Nie wracaj do ogólnej nazwy. */
+.kr .gotowe{position:absolute;inset:44px 0 0 264px;background:rgba(15,13,12,.92);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:5;animation:wjazd .2s ease-out}
+.kr .gotowe .box{text-align:center;display:flex;flex-direction:column;align-items:center;gap:18px;max-width:520px;padding:0 24px}
+.kr .gotowe img{width:120px;height:120px;object-fit:contain;filter:drop-shadow(0 0 40px rgba(255,106,61,.5))}
+.kr .gotowe h2{margin:0;font-size:36px;font-weight:700;letter-spacing:-.02em}
+.kr .gotowe p{margin:0;font-size:15px;color:var(--dim);line-height:1.5}
+.kr .gotowe button{margin-top:8px;background:transparent;border:1px solid var(--line);color:var(--dim);border-radius:9px;padding:9px 16px;font-weight:600;font-size:13px;cursor:pointer}
+.kr .gotowe button:hover{border-color:var(--acc);color:var(--txt)}
 /* ---- 2a: wybór trybu ---- */
 .tryb{height:100vh;display:flex;flex-direction:column;overflow:hidden;position:relative;background:var(--bg)}
 .tryb .poswiata{position:absolute;left:50%;top:60%;width:900px;height:900px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,rgba(255,106,61,.10),transparent 60%);pointer-events:none}
@@ -1246,12 +1251,12 @@
   /* ---------- nakładka DONE ---------- */
   function rysujDone(){
     const h = HOST(); if(!h) return;
-    const stara = h.querySelector('.done'); if(stara) stara.remove();
+    const stara = h.querySelector('.gotowe'); if(stara) stara.remove();
     if(!WIZ.done) return;
     const t = T(), j = WIZ.eksport || {};
     const n = j.count != null ? j.count : (WIZ.review ? WIZ.review.count : 0);
     const sub = t.doneSub.replace('{name}', j.playlist || WIZ.nazwa).replace(/\(12 [^)]*\)/, `(${utworow(n)})`);
-    const el = document.createElement('div'); el.className = 'done';
+    const el = document.createElement('div'); el.className = 'gotowe';
     el.innerHTML = `<div class="box">
       <img src="/static/assets/selekta-mark.png" alt="">
       <h2>${esc(t.doneTitle)}</h2>
