@@ -219,8 +219,14 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
         # Battito=1 oznacza „to jest pierwsza miara taktu".
         first_beat = _czas_lub_none(track.get("first_beat_s"))
         if bpm and first_beat is not None:
+            try:
+                battito = int(track.get("battito") or 1)
+            except (TypeError, ValueError):
+                battito = 1
+            if not 1 <= battito <= 4:
+                battito = 1
             ET.SubElement(el, "TEMPO", Inizio=f"{first_beat:.3f}",
-                          Bpm=f"{bpm:.2f}", Metro="4/4", Battito="1")
+                          Bpm=f"{bpm:.2f}", Metro="4/4", Battito=str(battito))
 
         # Punkty cue. RĘCZNA PRACA WYGRYWA: jeśli utwór wrócił z rekordboxa
         # z własnymi hot cue'ami, oddajemy dokładnie je. Własne wyliczenie
@@ -351,7 +357,7 @@ def wzbogac_o_siatke(tracks: list[dict]) -> list[dict]:
     """
     from dataclasses import asdict
 
-    from . import cache, cues, harmonic, rbimport, waveform
+    from . import cache, cues, harmonic, rbimport, siatka, waveform
 
     for t in tracks:
         path = t.get("path")
@@ -376,8 +382,23 @@ def wzbogac_o_siatke(tracks: list[dict]) -> list[dict]:
         t["first_beat_s"] = (reczna.get("first_beat_s")
                              or rb.get("first_beat_s")
                              or c.get("first_beat_s"))
+        # Jedynka taktu idzie w parze z kotwicą, z którą ją policzono.
+        if reczna.get("first_beat_s") is not None:
+            t["battito"] = reczna.get("battito") or 1
+        elif rb.get("first_beat_s") is not None:
+            t["battito"] = rb.get("battito") or 1
+        else:
+            t["battito"] = c.get("battito") or 1
+        # BPM siatki: to, co dostroiło się do stopy w całym utworze, nie tag
+        # z pliku. Tag „137.81" przy realnych 138.00 rozjeżdża siatkę o pół
+        # bitu do końca utworu, a nikt nie wie, skąd ten tag się wziął.
         if reczna.get("bpm"):
             t["bpm"] = reczna["bpm"]
+        elif rb.get("first_beat_s") is not None and rb.get("bpm"):
+            t["bpm"] = rb["bpm"]
+        elif (c.get("bpm_siatki")
+              and (c.get("pewnosc_siatki") or 0) >= siatka.PROG_PEWNOSCI):
+            t["bpm"] = c["bpm_siatki"]
         # Ręczna praca z rekordboxa przechodzi dalej nietknięta.
         if rb:
             t["znaczniki"] = rb.get("znaczniki") or []

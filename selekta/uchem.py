@@ -29,7 +29,10 @@ PROG_TONACJI = 0.4
 
 # waga: 3 = nie graj bez sprawdzenia, 2 = sprawdź przy okazji, 1 = drobiazg
 WAGI = {"tempo_niepewne": 3, "transkod": 3, "tempo_zmienne": 2,
-        "bpm_nietrafione": 2, "tonacja_niepewna": 1, "jakosc_do_oceny": 1}
+        "bpm_nietrafione": 2, "siatka_niepewna": 2, "takt_niepewny": 1,
+        "tonacja_niepewna": 1, "jakosc_do_oceny": 1}
+PROG_SIATKI = 0.25       # spójność kicków z siatką (siatka.PROG_PEWNOSCI)
+PROG_TAKTU = 0.3         # przewaga jedynki taktu nad drugą kandydatką
 
 
 @dataclass
@@ -52,7 +55,8 @@ class DoSprawdzenia:
         return max((p.waga for p in self.powody), default=0)
 
 
-def _powody(h: dict, tempo: dict | None, q: dict | None) -> list[Powod]:
+def _powody(h: dict, tempo: dict | None, q: dict | None,
+            c: dict | None = None) -> list[Powod]:
     out: list[Powod] = []
     bpm = h.get("bpm")
     conf_bpm = h.get("confidence_bpm")
@@ -81,6 +85,23 @@ def _powody(h: dict, tempo: dict | None, q: dict | None) -> list[Powod]:
                 f"siatka rozjeżdża się przez BPM nietrafione o ułamek — "
                 f"proponowana poprawka {tempo['bpm_poprawione']:.1f}",
                 WAGI["bpm_nietrafione"]))
+    if c and c.get("pewnosc_siatki") is not None:
+        # siatka liczona na stopie (siatka.py): niska spójność znaczy, że
+        # stopa jest niewyraźna albo tempo pływa — siatka może leżeć obok
+        if c["pewnosc_siatki"] < PROG_SIATKI:
+            out.append(Powod(
+                "siatka_niepewna",
+                f"siatka beatów z pewnością {c['pewnosc_siatki']:.2f} — stopa "
+                f"niewyraźna, kotwica może leżeć obok uderzenia",
+                WAGI["siatka_niepewna"]))
+        elif (c.get("pewnosc_taktu") is not None
+              and c["pewnosc_taktu"] < PROG_TAKTU):
+            out.append(Powod(
+                "takt_niepewny",
+                f"jedynka taktu z pewnością {c['pewnosc_taktu']:.2f} — "
+                f"rekordbox może liczyć takty od bitu {c.get('battito', 1)}, "
+                f"sprawdź, czy frazy zaczynają się na jedynce",
+                WAGI["takt_niepewny"]))
     if q:
         if q.get("grade") == "bad":
             out.append(Powod("transkod", f"jakość: {q.get('verdict', '')}",
@@ -106,7 +127,8 @@ def sprawdz(folder: str) -> dict:
         if h is None:
             bez_analizy += 1
             continue
-        powody = _powody(h, cache.get(p, "tempo"), cache.get(p, "quality"))
+        powody = _powody(h, cache.get(p, "tempo"), cache.get(p, "quality"),
+                         cache.get(p, "cues"))
         if powody:
             powody.sort(key=lambda x: -x.waga)
             utwory.append(DoSprawdzenia(p, h.get("bpm"), h.get("camelot"),

@@ -51,6 +51,68 @@ def metronom(path: str, bpm: float, sekund: float = 90.0,
     return _zapisz_wav(x / max(1e-9, np.abs(x).max()), path)
 
 
+def _stopa(sr: int) -> np.ndarray:
+    """Stopa: ton opadający 120→50 Hz, atak 2 ms, wybrzmienie ~120 ms."""
+    n = int(0.4 * sr)
+    t = np.arange(n) / sr
+    f = 50 + 70 * np.exp(-t / 0.03)
+    return np.sin(2 * np.pi * np.cumsum(f) / sr) * np.exp(-t / 0.12) * np.minimum(1, t / 0.002)
+
+
+def _hihat(sr: int, rng) -> np.ndarray:
+    """Hi-hat: szum przefiltrowany górnoprzepustowo, bardzo ostry atak, 25 ms."""
+    n = int(0.05 * sr)
+    x = np.diff(rng.standard_normal(n), 2, prepend=[0, 0])
+    return x / (np.abs(x).max() + 1e-9) * np.exp(-np.arange(n) / sr / 0.025)
+
+
+def _crash(sr: int, rng) -> np.ndarray:
+    """Crash: szum > 3 kHz wybrzmiewający pół sekundy."""
+    n = int(1.0 * sr)
+    x = rng.standard_normal(n)
+    widmo = np.fft.rfft(x)
+    widmo[np.fft.rfftfreq(n, 1 / sr) < 3000] = 0
+    x = np.fft.irfft(widmo, n)
+    return x / (np.abs(x).max() + 1e-9) * np.exp(-np.arange(n) / sr / 0.5)
+
+
+def bit_klubowy(path: str, bpm: float, faza: float, sekund: float = 60.0,
+                hihat: float = 0.0, crash: float = 0.0, jedynka: int = 0,
+                cisza: float = 0.0) -> str:
+    """Stopa co bit od `faza`; opcjonalnie hi-hat na „i" (o pół bitu później)
+    o zadanej głośności względem stopy, crash na jedynce co 16 bitów i fill
+    (stopa milknie na 4 bity przed jedynką frazy co 32 bity). `jedynka` to
+    indeks bitu (0–3), na którym leży pierwsza jedynka taktu. `cisza`:
+    sekundy ciszy na początku, przed pierwszą stopą.
+
+    Wzorzec błędu z setu „speeding": hi-hat głośniejszy od stopy (hihat >= 2)
+    — dawna siatka ze spektralnego fluxu lądowała wtedy na hi-hatach, czyli
+    o pół bitu obok stopy.
+    """
+    rng = np.random.default_rng(ZIARNO + 7)
+    okres = 60.0 / bpm
+    n = int(SR * sekund)
+    x = np.zeros(n)
+    stopa, hat, cr = _stopa(SR), _hihat(SR, rng), _crash(SR, rng)
+    i = 0
+    while True:
+        t = cisza + faza + i * okres
+        s = int(round(t * SR))
+        if s >= n:
+            break
+        wzgl = (i - jedynka) % 32
+        if not (crash and wzgl >= 28):                 # fill: 4 bity bez stopy
+            x[s:s + len(stopa)] += stopa[:n - s]
+        if hihat:
+            sh = int(round((t + okres / 2) * SR))
+            if sh < n:
+                x[sh:sh + len(hat)] += hihat * hat[:n - sh]
+        if crash and i >= jedynka and (i - jedynka) % 16 == 0:
+            x[s:s + len(cr)] += crash * cr[:n - s]
+        i += 1
+    return _zapisz_wav(0.8 * x / (np.abs(x).max() + 1e-9), path)
+
+
 def pelne_pasmo(path: str, sekund: float = 20.0) -> str:
     """Szum o pełnym paśmie — tak wygląda prawdziwy lossless."""
     rng = np.random.default_rng(ZIARNO)

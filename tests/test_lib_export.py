@@ -230,6 +230,16 @@ class TestSiatkaWEksporcie:
         assert tempo.get("Bpm") == "150.00"
         assert tempo.get("Battito") == "1"
 
+    def test_zapisuje_numer_bitu_kotwicy(self, tmp_path):
+        """Kotwica bywa bitem 3 taktu — rekordbox liczy takty od Battito."""
+        root = self._xml(tmp_path, first_beat_s=0.468, battito=3)
+        assert root.find(".//COLLECTION/TRACK/TEMPO").get("Battito") == "3"
+
+    def test_bledny_numer_bitu_wraca_do_jedynki(self, tmp_path):
+        for zly in (0, 5, "x", None):
+            root = self._xml(tmp_path, first_beat_s=0.5, battito=zly)
+            assert root.find(".//COLLECTION/TRACK/TEMPO").get("Battito") == "1"
+
     def test_bez_kotwicy_nie_zmyslamy_siatki(self, tmp_path):
         assert self._xml(tmp_path).find(".//COLLECTION/TRACK/TEMPO") is None
 

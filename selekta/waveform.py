@@ -96,11 +96,14 @@ def wczytaj_siatke(path: str) -> dict | None:
     return _wczytaj_wszystkie().get(os.path.abspath(path))
 
 
-def zapisz_siatke(path: str, first_beat_s: float, bpm: float | None = None) -> dict:
-    """Zapamiętaj poprawkę wprowadzoną ręcznie."""
+def zapisz_siatke(path: str, first_beat_s: float, bpm: float | None = None,
+                  battito: int | None = None) -> dict:
+    """Zapamiętaj poprawkę wprowadzoną ręcznie (kotwica, BPM, numer bitu kotwicy)."""
     wpis = {"first_beat_s": round(float(first_beat_s), 4)}
     if bpm:
         wpis["bpm"] = round(float(bpm), 3)
+    if battito and 1 <= int(battito) <= 4:
+        wpis["battito"] = int(battito)
     dane = _wczytaj_wszystkie()
     dane[os.path.abspath(path)] = wpis
     os.makedirs(config.STATE_DIR, exist_ok=True)

@@ -37,6 +37,7 @@ import math
 
 import numpy as np
 
+from . import siatka
 from .narzedzia import ffmpeg_path, ffprobe_path
 
 # ---------------------------------------------------------------- stałe
@@ -73,6 +74,11 @@ class Cues:
     intro_end_s: float
     outro_start_s: float
     drop_s: float | None
+    # siatka beatów (moduł siatka.py): kotwica leży na STOPIE, nie na byle onsecie
+    battito: int = 1                     # numer bitu w takcie dla kotwicy (1–4)
+    bpm_siatki: float | None = None      # BPM dostrojone do stopy (całkowite, gdy tak wychodzi)
+    pewnosc_siatki: float | None = None  # spójność kicków z siatką, 0–1
+    pewnosc_taktu: float | None = None   # przewaga jedynki taktu nad drugą kandydatką, 0–1
 
 
 # ---------------------------------------------------------------- dekodowanie
@@ -348,7 +354,14 @@ def analyze(path: str, bpm: float | None = None) -> Cues:
         return Cues(round(duration, 3), 0.0, 0.0, round(duration, 3), None)
 
     n = total.size
-    first_beat = _first_beat(total, flux, bpm)
+    # Siatka: przy znanym tempie kotwicę i BPM daje moduł siatka (stopa,
+    # nie hi-hat). Spektralny flux zostaje tylko jako zapas, gdy w utworze
+    # nie ma wyraźnych stóp (ambient, a cappella) albo nie ma tempa.
+    s = siatka.oszacuj(x, SR, bpm, od_s=_poczatek_muzyki(total) / FPS) if bpm else None
+    if s is not None:
+        first_beat = s.first_beat_s
+    else:
+        first_beat = _first_beat(total, flux, bpm)
     fb = int(round(first_beat * FPS))          # dalsze kroki liczą w klatkach
     ie = _intro_end(low, fb)
     os_ = _outro_start(total, n)
@@ -378,6 +391,10 @@ def analyze(path: str, bpm: float | None = None) -> Cues:
         round(intro_end, 3),
         round(outro_start, 3),
         round(drop, 3) if drop is not None else None,
+        battito=s.battito if s else 1,
+        bpm_siatki=s.bpm if s else None,
+        pewnosc_siatki=s.pewnosc if s else None,
+        pewnosc_taktu=s.pewnosc_taktu if s else None,
     )
 
 
@@ -390,9 +407,10 @@ def _mmss(seconds: float) -> str:
 def format_report(c: Cues) -> str:
     """Jednolinijkowe podsumowanie punktów cue po polsku (mm:ss)."""
     drop = _mmss(c.drop_s) if c.drop_s is not None else "brak"
+    takt = f" (bit {c.battito} taktu)" if c.battito != 1 else ""
     return (
         f"Czas {_mmss(c.duration_s)} | "
-        f"pierwsze uderzenie {_mmss(c.first_beat_s)} | "
+        f"pierwsze uderzenie {_mmss(c.first_beat_s)}{takt} | "
         f"koniec intra {_mmss(c.intro_end_s)} | "
         f"początek outra {_mmss(c.outro_start_s)} | "
         f"drop {drop}"

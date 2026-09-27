@@ -31,7 +31,7 @@ from . import (
     uchem,
     cache, config, covers, cues, decyzje, dedupe, dj_export, harmonic, health,
     instalator, obserwator,
-    importers, loudness, matcher, pipeline, quality, radar, rekordbox,
+    importers, loudness, matcher, pipeline, quality, siatka, radar, rekordbox,
     dlqueue, folderpick, localplaylist, playlists, slskd_client, slskd_ctl,
     spotify,
     stores, tagfix,
@@ -1544,9 +1544,10 @@ def api_tempo_przyjmij(payload: dict) -> JSONResponse:
         raise HTTPException(400, "dla tego utworu nie ma poprawki BPM "
                                  "— tempo jest stałe albo faluje")
     c = cache.get(path, "cues") or {}
-    kotwica = ((waveform.wczytaj_siatke(path) or {}).get("first_beat_s")
-               or c.get("first_beat_s") or 0.0)
-    wpis = waveform.zapisz_siatke(path, kotwica, t["bpm_poprawione"])
+    reczna = waveform.wczytaj_siatke(path) or {}
+    kotwica = reczna.get("first_beat_s") or c.get("first_beat_s") or 0.0
+    battito = reczna.get("battito") if reczna else c.get("battito")
+    wpis = waveform.zapisz_siatke(path, kotwica, t["bpm_poprawione"], battito or 1)
     return JSONResponse({"ok": True, **wpis})
 
 
@@ -1833,14 +1834,22 @@ def api_waveform(file: str = Query(...)) -> JSONResponse:
         c = asdict(cues.analyze(path, bpm=h.get("bpm"))); cache.put(path, "cues", c)
 
     reczna = waveform.wczytaj_siatke(path)
-    bpm = (reczna or {}).get("bpm") or h.get("bpm")
+    # BPM siatki: ręczne > dostrojone do stopy (gdy pewne) > z analizy tempa
+    bpm = ((reczna or {}).get("bpm")
+           or (c.get("bpm_siatki")
+               if (c.get("pewnosc_siatki") or 0) >= siatka.PROG_PEWNOSCI else None)
+           or h.get("bpm"))
     pierwszy = ((reczna or {}).get("first_beat_s")
                 if reczna else c.get("first_beat_s"))
+    battito = ((reczna or {}).get("battito") or 1) if reczna else (c.get("battito") or 1)
     return JSONResponse(_clean({
         **dane,
         "file": os.path.basename(path),
         "bpm": bpm,
         "first_beat_s": pierwszy,
+        "battito": battito,
+        "pewnosc_siatki": c.get("pewnosc_siatki"),
+        "pewnosc_taktu": c.get("pewnosc_taktu"),
         "wyliczony_first_beat_s": c.get("first_beat_s"),
         "reczna_korekta": bool(reczna),
         "cues": {"intro": c.get("intro_end_s"), "drop": c.get("drop_s"),
@@ -1871,7 +1880,13 @@ def api_siatka(payload: dict) -> JSONResponse:
         bpm = None
     if bpm is not None and not (40 <= bpm <= 250):
         raise HTTPException(400, "BPM poza sensownym zakresem")
-    wpis = waveform.zapisz_siatke(path, first_beat, bpm)
+    try:
+        battito = int(dane.get("battito") or 1)
+    except (TypeError, ValueError):
+        battito = 1
+    if not 1 <= battito <= 4:
+        raise HTTPException(400, "numer bitu kotwicy musi być od 1 do 4")
+    wpis = waveform.zapisz_siatke(path, first_beat, bpm, battito)
     return JSONResponse({"ok": True, "reczna_korekta": True, **wpis})
 
 

@@ -110,7 +110,8 @@ def _save_store(kind: str, store: dict) -> None:
 # 2.09.2026: harmonic (nowe BPM: gęsta interpolacja + strażnik oktawy),
 # tempo (liczone z BPM), quality (dyskryminator transkodu, bitrate),
 # energia (naprawiona jasność, gęstość z bramką okresowości).
-WERSJE = {"cues": 2, "harmonic": 2, "tempo": 2, "quality": 2, "energia": 2}
+# cues 3: siatka na stopie (siatka.py) + Battito — stare kotwice były o pół bitu obok
+WERSJE = {"cues": 3, "harmonic": 2, "tempo": 2, "quality": 2, "energia": 2}
 
 
 def wersja(kind: str) -> int:

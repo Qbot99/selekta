@@ -27,9 +27,15 @@ from .slskd_client import SlskdClient, SoulseekOffline
 
 # ile razy wracamy do utworu, zanim uznamy go za nieudany
 MAX_ATTEMPTS = 3
+PUSTE_PROBY = 2            # pusta odpowiedź: drugie podejście po reszcie kolejki, dopiero potem „brak wyników"
 # przerwa, gdy Soulseek nas odciął — rośnie, ale NIE zżera prób utworu:
 # godzinna awaria łącza nie może skasować całej playlisty
 OFFLINE_BACKOFF_S = (20, 60, 150, 300, 600)
+# Osobna drabina dla „połączenie żyje, ale serwer oddaje same pustki":
+# zmierzone 27.09.2026 — tuż po starcie slskd pięć zapytań z rzędu wróciło
+# puste, klient uznał sieć za martwą i 26 utworów z rzędu padło jako „brak
+# wyników" w minutę, choć ręczne wyszukanie każdego z nich dawało setki plików.
+PUSTKI_BACKOFF_S = (30, 90, 180, 300)
 PLIK_KOLEJKI = os.path.join(config.STATE_DIR, "kolejka.json")
 
 
@@ -54,6 +60,7 @@ class Queue:
         self._paused_until = 0.0
         self._note = ""
         self._offline_streak = 0
+        self._pustki_streak = 0
 
     # ------------------------------------------------------------ trwałość
     def _zapisz(self) -> None:
@@ -200,16 +207,47 @@ class Queue:
                 continue
             self._offline_streak = 0
 
+            if client.network_down():
+                # Zalogowani, a mimo to seria pustek: to serwer nie oddaje
+                # wyników (chwiejność po starcie, dławienie częstych zapytań),
+                # nie utwory. Odpoczywamy i liczymy pustki od nowa — inaczej
+                # każde kolejne zadanie padałoby natychmiast jako „brak wyników".
+                idx = min(self._pustki_streak, len(PUSTKI_BACKOFF_S) - 1)
+                self._pustki_streak += 1
+                client.reset_empty_streak()
+                self._pause(PUSTKI_BACKOFF_S[idx],
+                            "Soulseek nie oddaje wyników — odpoczywam i wracam do kolejki")
+                continue
+
             job.status, job.detail = "searching", ""
             self._zapisz()
             try:
                 hits = client.search_track(job.artist, job.title, job.duration)
                 if hits:
+                    self._pustki_streak = 0
                     client.download(hits[0])
                     job.file = hits[0].filename.replace("\\", "/").split("/")[-1]
                     job.status, job.detail = "queued", "zlecone"
+                elif client.network_down():
+                    # Pustka zbiegła się z padnięciem serii — to nie dowód, że
+                    # utworu nie ma; wraca do kolejki bez odliczania próby, ale
+                    # NA KONIEC: serwer Soulseeka blokuje powtarzany tekst
+                    # zapytania (zmierzone: „Bryan Adams" 0 wyników, gdy „Dire
+                    # Straits" chwilę później daje 250 odpowiedzi), więc ten sam
+                    # utwór odpytywany w kółko nigdy by nie wyszedł z pętli.
+                    job.status, job.detail = "waiting", "serwer nie oddał wyników — wrócę po reszcie kolejki"
+                    self._na_koniec(job)
                 else:
-                    job.status, job.detail = "failed", "brak wyników"
+                    # Pojedyncza pustka bywa chwilową głuchotą serwera (patrz
+                    # PUSTKI_BACKOFF_S), więc utwór dostaje drugą szansę —
+                    # ale na KOŃCU kolejki, żeby brakujący naprawdę utwór nie
+                    # blokował reszty i kosztował tylko jedną dodatkową drabinę.
+                    job.attempts += 1
+                    if job.attempts >= PUSTE_PROBY:
+                        job.status, job.detail = "failed", "brak wyników"
+                    else:
+                        job.status, job.detail = "waiting", "brak wyników — spróbuję jeszcze raz po reszcie kolejki"
+                        self._na_koniec(job)
             except SoulseekOffline:
                 # utwór wraca do kolejki BEZ odliczenia próby — zawinił serwer
                 job.status, job.detail = "waiting", "wrócę, gdy połączenie wróci"
@@ -224,6 +262,12 @@ class Queue:
                 else:
                     job.status = "waiting"
             self._zapisz()
+
+    def _na_koniec(self, job: Job) -> None:
+        with self._lock:
+            if job in self._jobs:
+                self._jobs.remove(job)
+                self._jobs.append(job)
 
     def _pause(self, seconds: int, note: str) -> None:
         self._paused_until = time.time() + seconds

@@ -57,6 +57,21 @@ i cyfrową ciszę, prawdziwy master — łagodne zbocze). Przy wyborze pliku
 do pobrania jakość stoi przed popularnością: rzadki FLAC wygrywa
 z rozpowszechnioną 128-tką.
 
+### Siatka beatów — na stopie, nie na hi-hacie
+
+Kotwica siatki jest liczona z uderzeń, które mają jednocześnie ostry
+atak i skok basu 40–160 Hz — czyli ze stopy. Sam „najostrzejszy transjent"
+w hard techno bywa otwartym hi-hatem na „i", i wtedy siatka ląduje między
+kopnięciami (tak było do wersji 0.4.1). Do XML rekordboxa trafia też numer
+bitu kotwicy w takcie (`Battito`), wyznaczony z crashy i granic sekcji.
+Utwory, przy których stopa jest niewyraźna albo jedynka taktu niepewna,
+lądują w zakładce **Sprawdź uchem**.
+
+Rekordbox **nie nadpisuje** siatki utworów, które już ma w kolekcji. Żeby
+wczytać poprawioną: Preferencje → Zaawansowane → Baza danych → wskaż XML
+ponownie, usuń te utwory z kolekcji (pliki zostają), a potem w drzewie
+„rekordbox xml" → Playlists → prawy przycisk → „Importuj playlistę".
+
 ## Terminal (dla wprawionych)
 
 Ta sama aplikacja działa też z linii poleceń — przydatne do skryptów

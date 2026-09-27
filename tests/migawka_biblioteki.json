@@ -3,7 +3,7 @@
   "bpm": 145.0,
   "camelot": "6B",
   "cutoff_hz": 24100.0,
-  "first_beat_s": 1.456,
+  "first_beat_s": 1.978,
   "grade": "ok",
   "lufs": -13.99,
   "tempo_stabilne": true
@@ -12,7 +12,7 @@
   "bpm": 140.0,
   "camelot": "12B",
   "cutoff_hz": 22000.0,
-  "first_beat_s": 2.816,
+  "first_beat_s": 2.798,
   "grade": "ok",
   "lufs": -8.03,
   "tempo_stabilne": true
@@ -21,7 +21,7 @@
   "bpm": 152.0,
   "camelot": "8A",
   "cutoff_hz": 20000.0,
-  "first_beat_s": 0.442,
+  "first_beat_s": 0.241,
   "grade": "ok",
   "lufs": -7.28,
   "tempo_stabilne": true
@@ -30,7 +30,7 @@
   "bpm": 155.0,
   "camelot": "3A",
   "cutoff_hz": 21900.0,
-  "first_beat_s": 0.197,
+  "first_beat_s": 0.396,
   "grade": "ok",
   "lufs": -6.6,
   "tempo_stabilne": true
@@ -39,7 +39,7 @@
   "bpm": 144.0,
   "camelot": "10A",
   "cutoff_hz": 22000.0,
-  "first_beat_s": 0.412,
+  "first_beat_s": 0.417,
   "grade": "ok",
   "lufs": -8.87,
   "tempo_stabilne": true
@@ -48,7 +48,7 @@
   "bpm": 140.0,
   "camelot": "3A",
   "cutoff_hz": 20100.0,
-  "first_beat_s": 0.258,
+  "first_beat_s": 0.261,
   "grade": "ok",
   "lufs": -6.38,
   "tempo_stabilne": true
@@ -57,7 +57,7 @@
   "bpm": 150.0,
   "camelot": "1A",
   "cutoff_hz": 20700.0,
-  "first_beat_s": 0.401,
+  "first_beat_s": 0.404,
   "grade": "warn",
   "lufs": -8.41,
   "tempo_stabilne": true
@@ -66,7 +66,7 @@
   "bpm": 150.0,
   "camelot": "2B",
   "cutoff_hz": 22000.0,
-  "first_beat_s": 13.076,
+  "first_beat_s": 13.278,
   "grade": "ok",
   "lufs": -8.24,
   "tempo_stabilne": false
@@ -75,7 +75,7 @@
   "bpm": 148.0,
   "camelot": "2A",
   "cutoff_hz": 20100.0,
-  "first_beat_s": 0.206,
+  "first_beat_s": 0.01,
   "grade": "warn",
   "lufs": -9.21,
   "tempo_stabilne": false
@@ -84,7 +84,7 @@
   "bpm": 165.0,
   "camelot": "5A",
   "cutoff_hz": 22000.0,
-  "first_beat_s": 0.005,
+  "first_beat_s": 0.002,
   "grade": "ok",
   "lufs": -8.19,
   "tempo_stabilne": false
@@ -93,7 +93,7 @@
   "bpm": 155.0,
   "camelot": "3A",
   "cutoff_hz": 22000.0,
-  "first_beat_s": 1.164,
+  "first_beat_s": 0.77,
   "grade": "ok",
   "lufs": -6.0,
   "tempo_stabilne": true
@@ -102,7 +102,7 @@
   "bpm": 137.0,
   "camelot": "1A",
   "cutoff_hz": 20200.0,
-  "first_beat_s": 0.454,
+  "first_beat_s": 0.247,
   "grade": "ok",
   "lufs": -6.32,
   "tempo_stabilne": true

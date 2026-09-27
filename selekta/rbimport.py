@@ -59,6 +59,7 @@ class WpisRekordbox:
     bpm: float | None = None
     tonality: str = ""
     first_beat_s: float | None = None
+    battito: int = 1                 # numer bitu w takcie dla kotwicy (TEMPO Battito)
     kolor: str = ""
     ocena: int | None = None
     odtworzen: int | None = None
@@ -114,6 +115,8 @@ def wczytaj_xml(sciezka: str) -> list[WpisRekordbox]:
             w.first_beat_s = _liczba(tempo.get("Inizio"))
             if w.bpm is None:
                 w.bpm = _liczba(tempo.get("Bpm"))
+            b = _liczba(tempo.get("Battito"), calkowita=True)
+            w.battito = b if b is not None and 1 <= b <= 4 else 1
         for m in t.findall("POSITION_MARK"):
             start = _liczba(m.get("Start"))
             if start is None:

@@ -145,3 +145,76 @@ def test_rownolegly_zapis_nie_zostawia_uszkodzonego_pliku(tmp_path, monkeypatch)
     assert not zepsute, f"plik stanu bywał nieparsowalny: {zepsute[:3]}"
     with open(str(tmp_path / "kolejka.json"), encoding="utf-8") as fh:
         assert len(_json.load(fh)) == 40
+
+
+class _KlientPustek:
+    """Udaje SlskdClient: zalogowany, ale serwer oddaje pustki wg scenariusza."""
+
+    def __init__(self, scenariusz):
+        self.scenariusz = list(scenariusz)     # kolejne wyniki search_track
+        self._empty_streak = 0
+        self.pobrane = []
+        self.resety = 0
+
+    def logged_in(self):
+        return True
+
+    def network_down(self):
+        return self._empty_streak >= 5
+
+    def reset_empty_streak(self):
+        self._empty_streak = 0
+        self.resety += 1
+
+    def search_track(self, artist, title, duration=None):
+        hits = self.scenariusz.pop(0) if self.scenariusz else []
+        self._empty_streak = 0 if hits else self._empty_streak + 1
+        return hits
+
+    def download(self, hit):
+        self.pobrane.append(hit.filename)
+
+
+class TestPustkiSerwera:
+    """Regresja 27.09.2026: 26 utworów padło w minutę jako „brak wyników",
+    bo licznik pustek klienta był lepki — po pięciu pustkach każde kolejne
+    zadanie dostawało natychmiast pustą listę."""
+
+    def _kolejka_z_klientem(self, kolejka, monkeypatch, klient):
+        monkeypatch.setattr(dlqueue, "SlskdClient", lambda: klient)
+        monkeypatch.setattr(dlqueue, "PUSTKI_BACKOFF_S", (0, 0, 0, 0))
+        monkeypatch.setattr(dlqueue, "OFFLINE_BACKOFF_S", (0, 0, 0, 0, 0))
+        return kolejka
+
+    def test_seria_pustek_nie_uwala_kolejnych_utworow(self, kolejka, monkeypatch):
+        from types import SimpleNamespace
+        hit = SimpleNamespace(filename="X\\Y\\Dido - Thank You.flac")
+        # 5 pustek (serwer chwilowo głuchy), potem wszystko wraca do normy
+        klient = _KlientPustek([[], [], [], [], []] + [[hit]] * 6)
+        q = self._kolejka_z_klientem(kolejka, monkeypatch, klient)
+        q.add([{"artist": f"A{i}", "title": f"T{i}"} for i in range(6)])
+        q._run()
+        stany = [j.status for j in q._jobs]
+        assert stany.count("queued") == 6, stany
+        assert klient.resety >= 1, "po serii pustek kolejka ma odpocząć i wyzerować licznik"
+        assert "brak wyników" not in [j.detail for j in q._jobs]
+
+    def test_prawdziwy_brak_wynikow_nadal_jest_brakiem(self, kolejka, monkeypatch):
+        """Dwie pustki przy zdrowej sieci = utworu nie ma; nie kręcimy się w kółko."""
+        klient = _KlientPustek([[], []])
+        q = self._kolejka_z_klientem(kolejka, monkeypatch, klient)
+        q.add([{"artist": "Nikt", "title": "Nic"}])
+        q._run()
+        assert q._jobs[0].status == "failed" and q._jobs[0].detail == "brak wyników"
+        assert not klient.scenariusz, "drugie podejście ma się odbyć"
+
+    def test_pojedyncza_pustka_idzie_na_koniec_kolejki(self, kolejka, monkeypatch):
+        from types import SimpleNamespace
+        hit = SimpleNamespace(filename="a/b/c.flac")
+        # pierwszy utwór: pustka, drugi: trafienie, potem pierwszy jeszcze raz: trafienie
+        klient = _KlientPustek([[], [hit], [hit]])
+        q = self._kolejka_z_klientem(kolejka, monkeypatch, klient)
+        q.add([{"artist": "A", "title": "pierwszy"}, {"artist": "B", "title": "drugi"}])
+        q._run()
+        assert [j.title for j in q._jobs] == ["drugi", "pierwszy"], "pustka wędruje na koniec"
+        assert all(j.status == "queued" for j in q._jobs)

@@ -116,9 +116,14 @@ PATH_ONLY_PENALTY = 0.8    # tytuł tylko w nazwie folderu — słabszy dowód
 EMPTY_STREAK_LIMIT = 5     # po tylu pustkach z rzędu uznajemy sieć za padniętą
 SEARCH_TIMEOUT_S = 8       # limit przekazywany slskd
 SEARCH_WAIT_MIN_S = 45     # ile czekamy na stan „Completed" (patrz search())
-MIN_SEARCH_GAP_S = 2.5
+# Serwer Soulseeka zaczyna IGNOROWAĆ zapytania klienta, który pyta za często:
+# zmierzone 27.09.2026 — przy 2,5 s odstępu i ponowieniach każde kolejne
+# zapytanie wracało puste (nawet „Madonna Hung Up"), a to samo zapytanie
+# z osobnego procesu minutę później dawało 600 wyników. Sześć zapytań na
+# minutę serwer toleruje.
+MIN_SEARCH_GAP_S = 10.0
 # ile razy ponowić zapytanie, które wróciło puste (serwer bywa chwiejny)
-EMPTY_RETRIES = 2
+EMPTY_RETRIES = 1            # ile DODATKOWYCH przejść po całej drabinie, gdy wszystkie szczeble były puste
 _last_search_at = 0.0
 
 
@@ -247,6 +252,15 @@ class SlskdClient:
             self._empty_streak = 0
         else:
             self._empty_streak = getattr(self, "_empty_streak", 0) + 1
+
+    def reset_empty_streak(self) -> None:
+        """Zacznij liczyć pustki od nowa — po przerwie, którą dała kolejka.
+
+        Bez tego licznik był lepki: raz przekroczony próg zostawał na zawsze
+        w kliencie wątku roboczego i każde kolejne zadanie kończyło się
+        natychmiast pustą listą, którą kolejka brała za „brak wyników".
+        """
+        self._empty_streak = 0
 
     def network_down(self) -> bool:
         """Czy dalsze zapytania są bez sensu (i szkodliwe).
@@ -444,51 +458,57 @@ class SlskdClient:
         productive: set[str] = set()
         ranked: list[SearchHit] = []
 
-        for query in build_ladder(artist, title):
-            low = query.lower()
-            if low in productive:
-                continue          # ten tekst już coś dał — nie marnuj zapytania
-            # Serwer Soulseeka bywa chwiejny: TO SAMO zapytanie zwraca raz
-            # pustkę, raz komplet wyników (zmierzone: 0, 0, 7 pod rząd).
-            # Puste odpowiedzi ponawiamy — bez tego gubimy utwory, które
-            # w sieci są. Niepuste bierzemy od razu.
-            if self.network_down():
-                # nie eskalujemy drabiny w martwą sieć — to ona dobija połączenie
-                if not self.logged_in():
-                    raise SoulseekOffline(
-                        "slskd wypadł z sieci Soulseek podczas wyszukiwania "
-                        "— poczekaj chwilę i spróbuj ponownie")
+        # Serwer Soulseeka bywa chwiejny: TO SAMO zapytanie zwraca raz
+        # pustkę, raz komplet wyników. Dawniej ponawialiśmy każde puste
+        # zapytanie od razu (3 próby na szczebel), ale seria szybkich zapytań
+        # sama wywołuje ciszę serwera — i tak drabina zjadała limit pustek
+        # na JEDNYM utworze. Teraz: jedno przejście po szczeblach, a dopiero
+        # gdy wszystkie były puste, jedno ponowne przejście (EMPTY_RETRIES).
+        szczeble = build_ladder(artist, title)
+        dowiedzione = False
+        for przejscie in range(EMPTY_RETRIES + 1):
+            if przejscie and (pool or self.network_down()):
                 break
-            hits = []
-            for attempt in range(EMPTY_RETRIES + 1):
+            for query in szczeble:
+                low = query.lower()
+                if low in productive:
+                    continue          # ten tekst już coś dał — nie marnuj zapytania
+                if self.network_down():
+                    # nie eskalujemy drabiny w martwą sieć — to ona dobija połączenie
+                    if not self.logged_in():
+                        raise SoulseekOffline(
+                            "slskd wypadł z sieci Soulseek podczas wyszukiwania "
+                            "— poczekaj chwilę i spróbuj ponownie")
+                    break
                 try:
                     hits = self.search(query, timeout_s=timeout_s)
                 except SoulseekOffline:
                     raise
                 except requests.RequestException:
                     hits = []
-                if hits or self.network_down():
-                    break
-            for h in hits:
-                key = (h.username, h.filename)
-                if key in pool:
-                    pool[key][1] += 1
-                else:
-                    pool[key] = [h, 1]
-            if hits:
-                productive.add(low)   # pustych wolno spróbować ponownie
+                for h in hits:
+                    key = (h.username, h.filename)
+                    if key in pool:
+                        pool[key][1] += 1
+                    else:
+                        pool[key] = [h, 1]
+                if hits:
+                    productive.add(low)   # pustych wolno spróbować ponownie
 
-            copies = Counter(_name_key(h.filename) for h, _ in pool.values())
-            scored = [
-                (h, _hit_features(h, nvar, copies[_name_key(h.filename)],
-                                  duration_s, a_tok, t_tok))
-                for h, nvar in pool.values()
-            ]
-            scored.sort(key=lambda x: tuple(x[1][f] for f in _RANK_ORDER),
-                        reverse=True)
-            ranked = [h for h, _ in scored]
-            best_feat = scored[0][1] if scored else None
-            if _identity_proven(best_feat):
+                copies = Counter(_name_key(h.filename) for h, _ in pool.values())
+                scored = [
+                    (h, _hit_features(h, nvar, copies[_name_key(h.filename)],
+                                      duration_s, a_tok, t_tok))
+                    for h, nvar in pool.values()
+                ]
+                scored.sort(key=lambda x: tuple(x[1][f] for f in _RANK_ORDER),
+                            reverse=True)
+                ranked = [h for h, _ in scored]
+                best_feat = scored[0][1] if scored else None
+                if _identity_proven(best_feat):
+                    dowiedzione = True
+                    break
+            if dowiedzione:
                 break
 
         # Odsiew: kandydat bez ANI JEDNEGO słowa tytułu w całej ścieżce

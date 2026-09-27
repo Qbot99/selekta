@@ -155,3 +155,22 @@ class TestRecznaPracaWygrywa:
         nazwy = {m.get("Name")
                  for m in self._eksportuj(tmp_path, znaczniki=[]).findall("POSITION_MARK")}
         assert nazwy == {"intro", "drop", "outro"}
+
+
+class TestBattitoZRekordboxa:
+    def test_czyta_numer_bitu_kotwicy(self, tmp_path):
+        """Użytkownik ustawił w rekordboksie kotwicę jako bit 3 — to jego praca, wraca nietknięta."""
+        from urllib.parse import quote
+        plik = str(tmp_path / "u.flac"); open(plik, "wb").write(b"fLaC")
+        loc = "file://localhost" + quote(plik, safe="/")
+        xml = tmp_path / "rb.xml"
+        xml.write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0"><COLLECTION Entries="2">
+<TRACK TrackID="1" Name="A" Artist="B" AverageBpm="150.00" Location="{loc}">
+  <TEMPO Inizio="0.468" Bpm="150.00" Metro="4/4" Battito="3"/></TRACK>
+<TRACK TrackID="2" Name="C" Artist="D" AverageBpm="150.00" Location="{loc}">
+  <TEMPO Inizio="0.468" Bpm="150.00" Metro="4/4" Battito="9"/></TRACK>
+</COLLECTION></DJ_PLAYLISTS>''', encoding="utf-8")
+        w = rbimport.wczytaj_xml(str(xml))
+        assert w[0].battito == 3
+        assert w[1].battito == 1, "bezsensowny Battito wraca do jedynki"

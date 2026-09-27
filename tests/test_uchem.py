@@ -117,3 +117,18 @@ class TestEndpoint:
     def test_api_uchem_pusto_gdy_wszystko_pewne(self, client):
         d = client.get("/api/uchem").json()
         assert d["utwory"] == []
+
+
+class TestSiatkaWUchem:
+    def test_niepewna_siatka_trafia_na_liste(self):
+        p = uchem._powody(_h(), None, None, {"pewnosc_siatki": 0.12, "pewnosc_taktu": 0.9})
+        assert [x.kod for x in p] == ["siatka_niepewna"]
+        assert p[0].waga == uchem.WAGI["siatka_niepewna"]
+
+    def test_niepewny_takt_to_drobiazg(self):
+        p = uchem._powody(_h(), None, None, {"pewnosc_siatki": 0.8, "pewnosc_taktu": 0.1, "battito": 3})
+        assert [x.kod for x in p] == ["takt_niepewny"] and "bitu 3" in p[0].opis
+
+    def test_pewna_siatka_milczy(self):
+        assert uchem._powody(_h(), None, None, {"pewnosc_siatki": 0.8, "pewnosc_taktu": 0.9}) == []
+        assert uchem._powody(_h(), None, None, {}) == []

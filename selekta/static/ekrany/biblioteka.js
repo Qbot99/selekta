@@ -615,7 +615,7 @@
   // ARKUSZ „Szczegóły utworu" (3c)
   // ============================================================
   const SZCZ = {file:null, dane:null, fala:null, tempo:null, edytor:false,
-                kotwica:0, srodek:0, okno:4.0, bpm:0, seq:0};
+                kotwica:0, srodek:0, okno:4.0, bpm:0, battito:1, seq:0};
 
   function slupkiHTML(fala, cues){
     const N = 120, sz = (fala && fala.szczyt) || [], n = sz.length, czas = fala ? fala.czas_s : 0;
@@ -766,7 +766,7 @@
         const f = await api('/api/waveform?file=' + encF(file), {cicho:true});
         if(seq !== SZCZ.seq) return;
         if(!f.punkty) throw new Error('nie udało się odczytać dźwięku z tego pliku');
-        SZCZ.fala = f; SZCZ.bpm = f.bpm || 0; SZCZ.kotwica = f.first_beat_s || 0; SZCZ.srodek = SZCZ.kotwica;
+        SZCZ.fala = f; SZCZ.bpm = f.bpm || 0; SZCZ.kotwica = f.first_beat_s || 0; SZCZ.battito = f.battito || 1; SZCZ.srodek = SZCZ.kotwica;
         $('#szczFala', body).innerHTML = slupkiHTML(f, {intro_end_s:f.cues && f.cues.intro, outro_start_s:f.cues && f.cues.outro});
         $('#szczEtykiety', body).innerHTML = etykietyCue({intro_end_s:f.cues && f.cues.intro, drop_s:f.cues && f.cues.drop, outro_start_s:f.cues && f.cues.outro});
         siatkaStan(); odswiezKafle();
@@ -790,7 +790,8 @@
     s.style.color = kolor || '';
     if(msg){ s.innerHTML = msg; return; }
     const f = SZCZ.fala; if(!f) return;
-    s.innerHTML = `SIATKA · KOTWICA ${esc(fmtCs(SZCZ.kotwica))}${SZCZ.bpm ? ` · ${esc(fmtBpm(SZCZ.bpm))} BPM` : ''} · ${f.reczna_korekta ? `<span style="color:${K.acc}">POPRAWIONA RĘCZNIE</span>` : 'WYLICZONA'}`;
+    const pewn = f.pewnosc_siatki != null && !f.reczna_korekta ? ` · <span style="color:${f.pewnosc_siatki >= 0.25 ? K.ok : K.warn}">${f.pewnosc_siatki >= 0.25 ? 'NA STOPIE' : 'STOPA NIEWYRAŹNA — SPRAWDŹ UCHEM'}</span>` : '';
+    s.innerHTML = `SIATKA · KOTWICA ${esc(fmtCs(SZCZ.kotwica))} = BIT ${SZCZ.battito}/4${SZCZ.bpm ? ` · ${esc(fmtBpm(SZCZ.bpm))} BPM` : ''} · ${f.reczna_korekta ? `<span style="color:${K.acc}">POPRAWIONA RĘCZNIE</span>` : 'WYLICZONA'}${pewn}`;
   }
 
   // ---------- edytor siatki: dwa canvasy, kotwica, zapis ----------
@@ -806,7 +807,7 @@
         <canvas id="falaCala" height="56"></canvas>
         <div style="font-size:11.5px;color:#5e5650;margin-top:-4px">cały utwór — kliknij albo przeciągnij, żeby przybliżyć to miejsce</div>
         <canvas id="falaZoom" height="96"></canvas>
-        <div style="font-size:11.5px;color:#5e5650;margin-top:-4px">powiększenie — kliknij dokładnie na uderzeniu albo przeciągnij kotwicę; jasne kreski to takty, ciemniejsze to bity</div>
+        <div style="font-size:11.5px;color:#5e5650;margin-top:-4px">powiększenie — kliknij dokładnie na uderzeniu albo przeciągnij kotwicę; jasne kreski to jedynki taktów, ciemniejsze to bity. Przyciski „o bit ±1” przesuwają też numer bitu kotwicy</div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <span class="etyk">PRZESUŃ</span>
           <span class="seg mono ciemny"><button type="button" data-krok="-0.05">−50 ms</button><button type="button" data-krok="-0.005">−5 ms</button><button type="button" data-krok="0.005">+5 ms</button><button type="button" data-krok="0.05">+50 ms</button></span>
@@ -863,9 +864,11 @@
       if(SZCZ.bpm > 0){
         const okres = 60 / SZCZ.bpm;
         let k = Math.ceil((od - SZCZ.kotwica) / okres);
+        // kotwica ma numer bitu SZCZ.battito (1–4); jedynki taktu leżą co 4 bity od niej z tym przesunięciem
+        const jedynka = ((1 - (SZCZ.battito || 1)) % 4 + 4) % 4;
         for(let t = SZCZ.kotwica + k * okres; t <= do_; t += okres, k++){
           if(t < od) continue;
-          const takt = ((k % 4) + 4) % 4 === 0;
+          const takt = (((k - jedynka) % 4) + 4) % 4 === 0;
           g.fillStyle = takt ? 'rgba(242,236,230,.6)' : 'rgba(242,236,230,.2)';
           g.fillRect(x(t), takt ? 0 : h * 0.18, takt ? 1.5 : 1, takt ? h : h * 0.64);
         }
@@ -886,12 +889,12 @@
     zoom.addEventListener('pointermove', e => { if(e.buttons & 1){ SZCZ.kotwica = czasZoom(e); przerysujFale(); } });
     zoom.addEventListener('wheel', e => { e.preventDefault(); SZCZ.okno = Math.min(30, Math.max(1, SZCZ.okno * (e.deltaY > 0 ? 1.15 : 0.87))); przerysujFale(); }, {passive:false});
     $$('[data-krok]', box).forEach(b => b.onclick = () => { SZCZ.kotwica = Math.max(0, SZCZ.kotwica + parseFloat(b.dataset.krok)); SZCZ.srodek = SZCZ.kotwica; przerysujFale(); });
-    $$('[data-bit]', box).forEach(b => b.onclick = () => { if(!SZCZ.bpm) return; SZCZ.kotwica = Math.max(0, SZCZ.kotwica + parseFloat(b.dataset.bit) * (60 / SZCZ.bpm)); SZCZ.srodek = SZCZ.kotwica; przerysujFale(); });
+    $$('[data-bit]', box).forEach(b => b.onclick = () => { if(!SZCZ.bpm) return; const ile = parseFloat(b.dataset.bit); SZCZ.kotwica = Math.max(0, SZCZ.kotwica + ile * (60 / SZCZ.bpm)); if(Number.isInteger(ile)) SZCZ.battito = (((SZCZ.battito - 1 + ile) % 4) + 4) % 4 + 1; SZCZ.srodek = SZCZ.kotwica; przerysujFale(); });
     $('#siatkaZapisz', box).onclick = async (e) => {
       const b = e.currentTarget; b.disabled = true;
       try{
-        await api('/api/siatka', {method:'POST', body:{file:SZCZ.file, first_beat_s:SZCZ.kotwica, bpm:SZCZ.bpm || null}});
-        SZCZ.fala.reczna_korekta = true; SZCZ.fala.first_beat_s = SZCZ.kotwica;
+        await api('/api/siatka', {method:'POST', body:{file:SZCZ.file, first_beat_s:SZCZ.kotwica, bpm:SZCZ.bpm || null, battito:SZCZ.battito || 1}});
+        SZCZ.fala.reczna_korekta = true; SZCZ.fala.first_beat_s = SZCZ.kotwica; SZCZ.fala.battito = SZCZ.battito;
         S.toast('siatka zapisana — eksport użyje tej kotwicy', 'ok');
         przerysujFale(); odswiezKafle();
       }catch(err){}
@@ -903,8 +906,8 @@
         const j = await api('/api/siatka', {method:'POST', body:{file:SZCZ.file, reset:true}});
         SZCZ.kotwica = j.first_beat_s || 0; SZCZ.srodek = SZCZ.kotwica;
         SZCZ.fala.reczna_korekta = false; SZCZ.fala.first_beat_s = SZCZ.kotwica;
-        // po resecie BPM wraca do wyliczonego
-        try{ const f = await api('/api/waveform?file=' + encF(SZCZ.file), {cicho:true}); SZCZ.bpm = f.bpm || SZCZ.bpm; SZCZ.fala.bpm = f.bpm; }catch(e2){}
+        // po resecie BPM i numer bitu kotwicy wracają do wyliczonych
+        try{ const f = await api('/api/waveform?file=' + encF(SZCZ.file), {cicho:true}); SZCZ.bpm = f.bpm || SZCZ.bpm; SZCZ.fala.bpm = f.bpm; SZCZ.battito = f.battito || 1; SZCZ.fala.battito = SZCZ.battito; SZCZ.fala.pewnosc_siatki = f.pewnosc_siatki; }catch(e2){}
         S.toast('przywrócono siatkę wyliczoną', 'info');
         przerysujFale(); odswiezKafle();
       }catch(err){}
