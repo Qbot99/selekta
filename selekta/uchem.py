@@ -96,12 +96,12 @@ def _powody(h: dict, tempo: dict | None, q: dict | None,
             "bpm_inne_niz_w_tagu",
             f"apka liczy {bpm:.0f} BPM, a w tagu pliku jest {bpm_tag:.0f} — "
             f"posłuchaj, które jest prawdziwe", WAGI["bpm_inne_niz_w_tagu"]))
-    elif bpm and conf_bpm is not None and conf_bpm < PROG_TEMPA:
+    if bpm and conf_bpm is not None and conf_bpm < PROG_TEMPA:
         out.append(Powod(
             "tempo_niepewne",
             f"tempo {bpm:.0f} BPM z pewnością {conf_bpm:.2f} — apka nie jest "
-            f"go pewna; najczęstsza pomyłka to połowa lub podwójne tempo "
-            f"({bpm / 2:.0f} / {bpm * 2:.0f}), ale bywa też zupełnie inne — "
+            f"go pewna; najczęstsza pomyłka to podwojenie albo połowienie "
+            f"({bpm / 2:.0f} / {bpm * 2:.0f}), ale bywa też zupełnie inne tempo — "
             f"posłuchaj", WAGI["tempo_niepewne"]))
     conf_key = h.get("confidence_key")
     if h.get("key") and conf_key is not None and conf_key < PROG_TONACJI:
