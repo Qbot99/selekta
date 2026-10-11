@@ -143,6 +143,21 @@ def test_write_tags_flac_roundtrip(lib_copy):
     assert audio["COMMENT"] == ["8A"]
 
 
+def test_write_tags_flac_keeps_user_comment(lib_copy):
+    """Przegląd 0.4.2: komentarz „Kupione na Beatport — zagrać po 2 w nocy”
+    został zastąpiony przez „8A”."""
+    p = _copy(lib_copy, GOOD_FLAC)
+    audio = FLAC(p)
+    audio["COMMENT"] = "Kupione na Beatport — zagrać po 2 w nocy"
+    audio.save()
+    harmonic.write_tags(p, TrackAnalysis(145.6, "A minor", "8A", 0.42, 1.0))
+    harmonic.write_tags(p, TrackAnalysis(145.6, "A minor", "8A", 0.42, 1.0))
+    audio = FLAC(p)
+    assert audio["COMMENT"] == ["Kupione na Beatport — zagrać po 2 w nocy"]
+    assert audio["CAMELOT"] == ["8A"]
+    assert audio["INITIALKEY"] == ["Am"]
+
+
 def test_write_tags_flac_integer_bpm_formatting(lib_copy):
     p = _copy(lib_copy, GOOD_FLAC)
     harmonic.write_tags(p, TrackAnalysis(146.0, "F# minor", "11A", 0.5, 0.9))
