@@ -9,21 +9,24 @@ tempo grid with comb-filter harmonics (a real tempo also shows energy at
 tempos implements the octave fold: a half/double-tempo lobe only wins
 when its raw score dominates the true tempo's by a wide margin.
 
-Key: STFT bin -> pitch-class chromagram (CQT-ish: each bin weighted by
-its distance to the nearest equal-tempered semitone; every frame
-normalized to unit spectral energy, which compresses loudness like a log
-scale but keeps quiet tonal bars from being swamped by loud drops), with
-third-harmonic (fifth) leakage discounted, then correlated against the
-24 Krumhansl-Schmuckler major/minor profiles.  Reported as musical name
-("A minor"), standard tag notation ("Am") and Camelot code ("8A").
-Tuned on 14 library tracks with known keys: 14/14 exact.
+Key (v3, październik 2026): cały utwór (do 10 min) zdekodowany osobno
+w 11 025 Hz -> estymacja stroju (A != 440 Hz) -> widmo w półtonach
+własnego stroju utworu -> wybielanie (tłumi perkusję i szum) ->
+nieujemna transkrypcja nut słownikiem z harmonicznymi (alikwoty basu nie
+udają tercji) -> chroma basu (41-130 Hz) i środka (130-1047 Hz) -> profile
+Krumhansla.  Dur/moll: profile + kontrast tercji; bez tercji (bas techno:
+pryma + kwinta) tryb jest umowny — moll, jak w rekordboxie i Mixed In Key,
+z pewnością poniżej progu „sprawdź uchem”.  Pewność = słabsze z dwóch
+ogniw (tonika, tryb); key_alt podpowiada drugą możliwość.
+Badanie i liczby: naprawy/tonacja-wynik.md (zgodność z prawdą z >= 2
+niezależnych źródeł: rekordbox, Mixed In Key, Serato, Beatport).
 
 Tags: TBPM/TKEY (ID3: MP3, WAV, AIFF) and BPM/INITIALKEY (Vorbis: FLAC)
 get standard values the DJ software expects; the Camelot code goes only
 into COMMENT (Vorbis) / TXXX:CAMELOT (ID3).
 
-Analysis window: 75 s starting at 1/3 of the track duration, skipping
-intros and outros.
+Analysis window (BPM): 75 s starting at 1/3 of the track duration, skipping
+intros and outros.  Key: the whole track (see above).
 """
 from __future__ import annotations
 
@@ -53,11 +56,25 @@ TEMPO_CENTER = 140.0
 TEMPO_SIGMA = 0.5     # octaves
 AC_UP = 16            # upsampling autokorelacji (gładka interpolacja opóźnień)
 
-# Key stage
-K_NFFT = 8192
+# Key stage (tonacja v3, październik 2026 — opis w docstringu _key_from_signal)
+K_SR = 11025          # tonacja: osobne dekodowanie CAŁEGO utworu (do K_MAX_S)
+K_MAX_S = 600.0       # dłuższe pliki (sety, miksy): środkowe 10 minut
+K_NFFT = 8192         # 0,74 s okna -> 1,35 Hz: półtony rozdzielone już od ~40 Hz
 K_HOP = 4096
-F_LO, F_HI = 55.0, 2100.0
-FIFTH_DISCOUNT = 0.3  # fraction of 3rd-harmonic leakage removed per pc
+K_MIDI_MIN = 24       # C1 (32,7 Hz)
+K_NUT = 82            # półtony C1..A7 (do ~3,7 kHz)
+K_BAS = (28, 52)      # E1-D#3: 41-130 Hz (bas i strojona stopa niosą tonikę)
+K_SROD = (52, 96)     # E3-B6: 130-1047 Hz (akordy, pady, wokal)
+K_WYBIEL = 18         # wybielanie widma: średnia/odchylenie w oknie +-18 półtonów
+K_ALIKW_S = 0.7       # słownik nut: amplituda h-tej harmonicznej = s^(h-1)
+K_ALIKW_H = 8         # ...dla h = 1..8
+K_NNLS_IT = 30        # iteracje nieujemnej transkrypcji
+K_TERCJA_MIN = 0.1    # tercja słabsza niż 10% prymy/kwinty = brak tercji
+K_TERCJA_PELNA = 0.5  # tercja >= 50% prymy/kwinty = w pełni wiarygodny świadek trybu
+K_MOLL = 0.03         # lekka przewaga mollu przy remisie profili (konwencja klubowa)
+K_SKALA_TONIKI = 0.2  # przewaga korelacji 0,2 nad inną toniką = pewność 1
+K_SKALA_TRYBU = 0.25  # przewaga mollu/duru 0,25 = pewność 1
+K_PEWNOSC_BEZ_TERCJI = 0.3  # tryb umowny: zawsze poniżej progu „sprawdź uchem” (0,4)
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
@@ -82,6 +99,7 @@ class TrackAnalysis:
     camelot: str           # "8A"
     confidence_bpm: float  # 0..1
     confidence_key: float  # 0..1
+    key_alt: str = ""      # druga możliwość (Camelot), np. "11B" gdy dur/moll niepewny
 
 
 # ---------------------------------------------------------------- decoding
@@ -201,42 +219,203 @@ def _bpm_from_signal(x: np.ndarray) -> tuple[float, float]:
 
 # ---------------------------------------------------------------- key
 
-def _chroma_from_signal(x: np.ndarray) -> np.ndarray:
-    mags = _stft_mags(x, K_NFFT, K_HOP)
-    freqs = np.fft.rfftfreq(K_NFFT, 1.0 / SR)
-    band = (freqs >= F_LO) & (freqs <= F_HI)
-    midi = 69.0 + 12.0 * np.log2(freqs[band] / 440.0)
-    pc = np.round(midi).astype(int) % 12
-    # CQT-ish: down-weight bins that fall between semitones
-    tuning_w = np.exp(-0.5 * ((midi - np.round(midi)) / 0.25) ** 2)
-    # per-frame energy normalization: each frame votes equally, so loud
-    # drops don't drown out the quiet tonal passages
-    m = mags[:, band]
-    energy = m.sum(axis=1)
-    live = energy > 0
-    m = m[live] / energy[live, None]
-    weighted = m.sum(axis=0) * tuning_w
-    chroma = np.zeros(12)
-    for k in range(12):
-        chroma[k] = weighted[pc == k].sum()
-    # a note's 3rd harmonic lands a fifth up: remove that leakage, the
-    # classic cause of detecting the dominant instead of the tonic
-    chroma = np.clip(chroma - FIFTH_DISCOUNT * np.roll(chroma, 7), 0.0, None)
-    return chroma
+def _strojenie_sygnalu(x: np.ndarray, sr: int) -> float:
+    """Odchyłka stroju nagrania od A=440 Hz w półtonach (-0,5..0,5).
+
+    Szczyty widma 100-2000 Hz, częstotliwość doprecyzowana interpolacją
+    paraboliczną, odchyłki od siatki półtonów uśrednione kołowo (waga =
+    amplituda szczytu). W korpusie (październik 2026) mediana to -7 ct,
+    a kilkanaście utworów (bootlegi, stare płyty) jest przestrojonych o
+    20-45 ct — przy 45 ct nuty leżą w połowie między półtonami.
+    """
+    n_fft = K_NFFT * max(1, int(round(sr / K_SR)))
+    hop = n_fft // 2
+    f = np.fft.rfftfreq(n_fft, 1.0 / sr)
+    band = np.flatnonzero((f >= 100.0) & (f <= 2000.0))
+    lo, hi = int(band[0]), int(band[-1])
+    z = 0j
+    for mags in _ramki_widma(x, n_fft, hop):
+        mb = mags[:, lo - 1:hi + 2]
+        lg = np.log(mb + 1e-9)
+        c = lg[:, 1:-1]
+        pk = ((c > lg[:, :-2]) & (c > lg[:, 2:])
+              & (c > c.max(axis=1, keepdims=True) - np.log(10.0)))
+        r, k = np.nonzero(pk)
+        a, b, g = lg[r, k], lg[r, k + 1], lg[r, k + 2]
+        d = 0.5 * (a - g) / (a - 2 * b + g + 1e-12)
+        m = 12.0 * np.log2((lo + k + d) * (sr / n_fft) / 440.0)
+        z += np.sum(mb[r, k + 1] * np.exp(2j * np.pi * (m - np.round(m))))
+    return float(np.angle(z) / (2 * np.pi)) if abs(z) > 0 else 0.0
+
+
+def _ramki_widma(x: np.ndarray, n_fft: int, hop: int):
+    """Widmo amplitudowe w paczkach klatek (oszczędnie z pamięcią przy
+    całych utworach)."""
+    win = np.hanning(n_fft).astype(np.float32)
+    n = (len(x) - n_fft) // hop
+    for a in range(0, max(n, 0), 256):
+        b = min(n, a + 256)
+        idx = np.arange(n_fft)[None, :] + hop * np.arange(a, b)[:, None]
+        yield np.abs(np.fft.rfft(x[idx] * win, axis=1))
+
+
+_SLOWNIK: np.ndarray | None = None
+
+
+def _slownik_nut() -> np.ndarray:
+    """Wzorce nut (półtony x nuty): harmoniczne h=1..H z amplitudą s^(h-1)."""
+    global _SLOWNIK
+    if _SLOWNIK is None:
+        w = np.zeros((K_NUT, K_NUT))
+        for n in range(K_NUT):
+            for h in range(1, K_ALIKW_H + 1):
+                k = n + int(round(12 * np.log2(h)))
+                if k < K_NUT:
+                    w[k, n] += K_ALIKW_S ** (h - 1)
+        _SLOWNIK = w / np.linalg.norm(w, axis=0, keepdims=True)
+    return _SLOWNIK
+
+
+def _wybiel(y: np.ndarray) -> np.ndarray:
+    """Odejmij lokalną średnią widma (+-K_WYBIEL półtonów) i podziel przez
+    lokalne odchylenie; ujemne -> 0. Zostają szczyty nut, znika szeroki
+    szum perkusji (stopa, werbel, hi-hat, przesterowany bas)."""
+    n = y.shape[1]
+    c = np.cumsum(np.pad(y, ((0, 0), (1, 0))), axis=1)
+    c2 = np.cumsum(np.pad(y * y, ((0, 0), (1, 0))), axis=1)
+    lo = np.clip(np.arange(n) - K_WYBIEL, 0, n)
+    hi = np.clip(np.arange(n) + K_WYBIEL + 1, 0, n)
+    cnt = (hi - lo)[None, :]
+    mu = (c[:, hi] - c[:, lo]) / cnt
+    var = np.maximum((c2[:, hi] - c2[:, lo]) / cnt - mu * mu, 1e-12)
+    return np.maximum(0.0, (y - mu) / np.sqrt(var))
+
+
+def _chroma_bas_srodek(x: np.ndarray, sr: int = K_SR) -> tuple[np.ndarray, np.ndarray, float]:
+    """-> (chroma basu, chroma środka, odchyłka stroju w półtonach).
+
+    1. strojenie nagrania (A != 440 Hz),
+    2. widmo -> półtony C1..A7 względem WŁASNEGO stroju utworu,
+    3. wybielanie (tłumi perkusję i szum),
+    4. nieujemna transkrypcja nut słownikiem z harmonicznymi: alikwoty
+       basu (np. 5. harmoniczna = tercja WIELKA nad toniką piłokształtnego
+       basu) są przypisane basowi, a nie liczone jako osobne nuty —
+       to one wciągały mollowe utwory klubowe w dur,
+    5. suma aktywacji nut po całym utworze, osobno bas i środek.
+    """
+    n_fft = K_NFFT * max(1, int(round(sr / K_SR)))
+    hop = n_fft // 2
+    dev = _strojenie_sygnalu(x, sr)
+    f = np.fft.rfftfreq(n_fft, 1.0 / sr)
+    with np.errstate(divide="ignore"):
+        m = 69.0 + 12.0 * np.log2(np.maximum(f, 1e-9) / 440.0) - dev
+    s = np.round(m - K_MIDI_MIN).astype(int)
+    ok = np.flatnonzero((f > 0) & (s >= 0) & (s < K_NUT))
+    mapa = np.zeros((len(ok), K_NUT), np.float32)
+    mapa[np.arange(len(ok)), s[ok]] = 1.0
+    paczki = [mags[:, ok] @ mapa for mags in _ramki_widma(x, n_fft, hop)]
+    if not paczki:
+        return np.zeros(12), np.zeros(12), dev
+    y = _wybiel(np.concatenate(paczki).astype(np.float64))
+    w = _slownik_nut()
+    v = y.T
+    akt = w.T @ v
+    wtv = akt.copy()
+    wtw = w.T @ w
+    for _ in range(K_NNLS_IT):
+        akt *= wtv / (wtw @ akt + 1e-9)
+    suma = akt.sum(axis=1)                       # nuty, cały utwór
+    midi = K_MIDI_MIN + np.arange(K_NUT)
+
+    def _zloz(lo: int, hi: int) -> np.ndarray:
+        c = np.zeros(12)
+        sel = (midi >= lo) & (midi < hi)
+        np.add.at(c, midi[sel] % 12, suma[sel])
+        return c
+
+    return _zloz(*K_BAS), _zloz(*K_SROD), dev
+
+
+def _chroma_from_signal(x: np.ndarray, sr: int = K_SR) -> np.ndarray:
+    """Chroma do profili: bas i środek, każde znormalizowane, ważone po równo."""
+    cb, cs, _ = _chroma_bas_srodek(x, sr)
+    return cb / (cb.sum() + 1e-12) + cs / (cs.sum() + 1e-12)
+
+
+def _korelacje(chroma: np.ndarray) -> np.ndarray:
+    """Korelacja z profilami Krumhansla: [0]=dur, [1]=moll; [tryb, tonika]."""
+    c = (chroma - chroma.mean()) / (chroma.std() + 1e-9)
+    r = np.zeros((2, 12))
+    for i, prof in enumerate((KS_MAJOR, KS_MINOR)):
+        p = (prof - prof.mean()) / prof.std()
+        for t in range(12):
+            r[i, t] = float(np.dot(c, np.roll(p, t)) / 12)
+    return r
 
 
 def _best_key(chroma: np.ndarray) -> tuple[int, str, float, float]:
-    """Return (tonic pitch class, mode, best r, runner-up r)."""
-    c = (chroma - chroma.mean()) / (chroma.std() + 1e-9)
-    results = []
-    for shift in range(12):
-        for profile, mode in ((KS_MAJOR, "major"), (KS_MINOR, "minor")):
-            p = np.roll(profile, shift)
-            p = (p - p.mean()) / p.std()
-            results.append((float(np.dot(c, p) / 12), shift, mode))
-    results.sort(reverse=True)
-    (r1, tonic, mode), (r2, _, _) = results[0], results[1]
-    return tonic, mode, r1, r2
+    """Return (tonic pitch class, mode, best r, runner-up r) — sam profil,
+    bez reguły tercji (pilnowane przez testy korelacji)."""
+    r = _korelacje(chroma)
+    order = np.argsort(r.ravel())[::-1]
+    m, t = divmod(int(order[0]), 12)
+    return t, ("major", "minor")[m], float(r.ravel()[order[0]]), float(r.ravel()[order[1]])
+
+
+def _key_from_signal(x: np.ndarray, sr: int = K_SR) -> tuple[int, str, float, str]:
+    """Tonacja z sygnału -> (tonika, tryb, pewność 0..1, alternatywa Camelot).
+
+    Tonika: najlepsza korelacja chromy (bas + środek) z profilami Krumhansla.
+    Tryb przy tej tonice:
+    * tercja obecna (>= K_TERCJA_MIN prymy/kwinty w środku pasma) — decyduje
+      suma dwóch świadków: przewagi profilu mollowego nad durowym (z lekką
+      przewagą mollu przy remisie, K_MOLL) i kontrastu tercji małej/wielkiej;
+    * tercji brak (bas techno: pryma + kwinta) — tryb jest UMOWNY: moll,
+      jak w rekordboxie i Mixed In Key, a pewność spada poniżej progu
+      „sprawdź uchem”, z alternatywą = równoległa durowa.
+    Pewność = słabsze z dwóch ogniw: przewaga toniki nad najlepszą tonacją
+    o innej tonice (pomyłki kwintowe/relatywne) i przewaga trybu (pomyłki
+    równoległe). Sprawdzone na korpusie: wśród wyników z pewnością < 0,4
+    błędów jest wielokrotnie więcej niż wśród pozostałych.
+    """
+    cb, cs, _ = _chroma_bas_srodek(x, sr)
+    if cb.sum() <= 0 and cs.sum() <= 0:
+        return 0, "minor", 0.0, ""
+    chroma = cb / (cb.sum() + 1e-12) + cs / (cs.sum() + 1e-12)
+    r = _korelacje(chroma)
+    m, t = np.unravel_index(int(np.argmax(r)), r.shape)
+    t = int(t)
+    srod = cs / (cs.max() + 1e-12)
+    tercja = max(srod[(t + 3) % 12], srod[(t + 4) % 12])
+    oparcie = max(srod[t], srod[(t + 7) % 12], 1e-9)
+    dr = r[1, t] - r[0, t] + K_MOLL
+    bez_tercji = tercja < K_TERCJA_MIN * oparcie
+    if bez_tercji:
+        mode = 1
+        conf_tryb = K_PEWNOSC_BEZ_TERCJI
+    else:
+        # dwaj świadkowie trybu (dodatni = moll): przewaga profilu mollowego
+        # nad durowym przy tej tonice i kontrast tercji małej/wielkiej
+        # w środku pasma, ważony tym, jak wyraźna jest tercja w ogóle
+        z = dr / K_SKALA_TRYBU
+        m3, M3 = srod[(t + 3) % 12], srod[(t + 4) % 12]
+        tc = (m3 - M3) / (m3 + M3 + 1e-12) * min(1.0, tercja / (K_TERCJA_PELNA * oparcie))
+        mode = 1 if z + tc >= 0 else 0
+        zgodni = z * tc >= 0
+        conf_tryb = float(np.clip(max(abs(z), abs(tc)) if zgodni else abs(z + tc), 0.0, 1.0))
+    # przewaga toniki: najlepsza tonacja o innej tonice (dowolny tryb)
+    inne = np.delete(r, t, axis=1)
+    m_ton = r[:, t].max() - inne.max()
+    i_inna = np.unravel_index(int(np.argmax(inne)), inne.shape)
+    t_inna = int(i_inna[1] + (1 if i_inna[1] >= t else 0))
+    conf_ton = float(np.clip(m_ton / K_SKALA_TONIKI, 0.0, 1.0))
+    conf = min(conf_ton, conf_tryb)
+    mode_s = ("major", "minor")[mode]
+    if conf_tryb <= conf_ton:                     # słabsze ogniwo: tryb
+        alt = _key_names(t, ("minor", "major")[mode])[2]
+    else:                                         # słabsze ogniwo: tonika
+        alt = _key_names(t_inna, ("major", "minor")[int(i_inna[0])])[2]
+    return t, mode_s, conf, alt
 
 
 def _key_names(tonic: int, mode: str) -> tuple[str, str, str]:
@@ -267,11 +446,18 @@ def analyze(path: str) -> TrackAnalysis:
         return TrackAnalysis(0.0, "?", "?", 0.0, 0.0)
 
     bpm, conf_b = _bpm_from_signal(x)
-    tonic, mode, r1, r2 = _best_key(_chroma_from_signal(x))
+    # tonacja z CAŁEGO utworu (osobne dekodowanie w niższym próbkowaniu):
+    # wstępy z samym basem i stopą też niosą tonikę — na korpusie cały
+    # utwór wyraźnie wygrywał z oknem 75 s, z którego liczone jest BPM
+    if length > K_MAX_S:
+        xk = _decode(path, K_SR, (length - K_MAX_S) / 2.0, K_MAX_S)
+    else:
+        xk = _decode(path, K_SR, 0.0, max(length, WINDOW_S) + 1.0)
+    if len(xk) < K_SR * 5:
+        xk = _decode(path, K_SR, 0.0, WINDOW_S)
+    tonic, mode, conf_k, alt = _key_from_signal(xk, K_SR)
     key_name, _, camelot = _key_names(tonic, mode)
-    # confidence: winning correlation tempered by its margin over runner-up
-    conf_k = float(np.clip(max(r1, 0.0) * (0.5 + 5.0 * max(r1 - r2, 0.0)), 0.0, 1.0))
-    return TrackAnalysis(bpm, key_name, camelot, conf_b, round(conf_k, 2))
+    return TrackAnalysis(bpm, key_name, camelot, conf_b, round(conf_k, 2), alt)
 
 
 def write_tags(path: str, ta: TrackAnalysis) -> None:

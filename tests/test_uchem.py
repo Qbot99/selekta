@@ -132,3 +132,17 @@ class TestSiatkaWUchem:
     def test_pewna_siatka_milczy(self):
         assert uchem._powody(_h(), None, None, {"pewnosc_siatki": 0.8, "pewnosc_taktu": 0.9}) == []
         assert uchem._powody(_h(), None, None, {}) == []
+
+
+class TestTonacjaAlternatywa:
+    def test_opis_podaje_druga_mozliwosc(self):
+        """Tonacja v3 zapisuje key_alt — DJ widzi, czego posłuchać."""
+        h = _h(key="A minor", ck=0.3)
+        h["key_alt"] = "11B"
+        p = uchem._powody(h, None, None)
+        assert [x.kod for x in p] == ["tonacja_niepewna"]
+        assert "11B" in p[0].opis
+
+    def test_stary_wpis_bez_alternatywy(self):
+        p = uchem._powody(_h(key="A minor", ck=0.3), None, None)
+        assert "sąsiednia" in p[0].opis

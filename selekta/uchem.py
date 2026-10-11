@@ -16,6 +16,10 @@ Progi z pomiarów na prawdziwej bibliotece (wrzesień 2026):
   podwojenia dają 0,04-0,16 — próg 0,25 leży w przerwie z zapasem;
 * pewność tonacji 0,47-1,00; próg 0,4 jest spójny ze znakiem „(?)"
   w tabeli biblioteki.
+* tonacja v3 (październik 2026): pewność to słabsze ogniwo z toniki
+  i trybu; poniżej 0,4 trafiają utwory bez tercji (dur/moll umowny)
+  i te, w których druga tonika jest prawie tak samo dobra — wśród nich
+  błędów jest kilka razy więcej niż powyżej progu (naprawy/tonacja-wynik.md).
 """
 from __future__ import annotations
 
@@ -68,10 +72,12 @@ def _powody(h: dict, tempo: dict | None, q: dict | None,
             f"{bpm * 2:.0f}?)", WAGI["tempo_niepewne"]))
     conf_key = h.get("confidence_key")
     if h.get("key") and conf_key is not None and conf_key < PROG_TONACJI:
+        alt = h.get("key_alt")
+        druga = (f"równie możliwa jest {alt} — posłuchaj, która pasuje"
+                 if alt else "sąsiednia na kole Camelota jest równie prawdopodobna")
         out.append(Powod(
             "tonacja_niepewna",
-            f"tonacja {h['key']} z pewnością {conf_key:.2f} — sąsiednia "
-            f"na kole Camelota jest równie prawdopodobna",
+            f"tonacja {h['key']} z pewnością {conf_key:.2f} — {druga}",
             WAGI["tonacja_niepewna"]))
     if tempo:
         if not tempo.get("stabilne", True):

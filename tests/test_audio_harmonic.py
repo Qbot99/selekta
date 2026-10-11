@@ -47,7 +47,10 @@ def test_analyze_gucci_bpm_and_key(sample):
 
 def test_trackanalysis_has_all_fields():
     names = [f.name for f in dataclasses.fields(TrackAnalysis)]
-    assert names == ["bpm", "key", "camelot", "confidence_bpm", "confidence_key"]
+    # key_alt (tonacja v3): druga możliwość dla „sprawdź uchem”; z wartością
+    # domyślną, więc stare wpisy pamięci podręcznej nadal się wczytują
+    assert names == ["bpm", "key", "camelot", "confidence_bpm", "confidence_key", "key_alt"]
+    assert TrackAnalysis(1.0, "A minor", "8A", 0.5, 0.5).key_alt == ""
 
 
 def test_analyze_nonexistent_returns_placeholder():
