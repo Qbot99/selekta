@@ -379,9 +379,11 @@ def wzbogac_o_siatke(tracks: list[dict]) -> list[dict]:
         # nasze wyliczenie.
         rb = rbimport.dla_pliku(path) or {}
         reczna = waveform.wczytaj_siatke(path) or {}
-        t["first_beat_s"] = (reczna.get("first_beat_s")
-                             or rb.get("first_beat_s")
-                             or c.get("first_beat_s"))
+        # `is not None`, nie `or`: ręczna kotwica 0,0 s to świadoma decyzja
+        t["first_beat_s"] = next((v for v in (reczna.get("first_beat_s"),
+                                              rb.get("first_beat_s"),
+                                              c.get("first_beat_s"))
+                                  if v is not None), None)
         # Jedynka taktu idzie w parze z kotwicą, z którą ją policzono.
         if reczna.get("first_beat_s") is not None:
             t["battito"] = reczna.get("battito") or 1
