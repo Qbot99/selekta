@@ -24,7 +24,7 @@
       prob:{tagi:'NAZWA',okladka:'OKŁADKA',jakosc:'JAKOŚĆ',integralnosc:'PRZESKOKI',tempo:'TEMPO',duplikat:'DUBEL'},
       st:{searching:'szukam…',queued:'w kolejce',downloading:'pobieram',failed:'brak wyniku'},
       notes:{other:'inna wersja',similar:'podobne',ok:'✓'},
-      propTitle:'Masz inną wersję — zdecyduj', propUse:'Użyj mojej', propGet:'Pobierz właściwą', propHas:'masz: {file}', propLen:'{mine} zamiast {want}',
+      propTitle:'Masz inną wersję — zdecyduj', propUse:'Użyj mojej', propGet:'Pobierz właściwą', propHas:'{file}', propLen:'masz {mine}, playlista {want}',
       propWait:'{n} {utw} z inną wersją czeka na Twoją decyzję — bez niej nie trafią do setu.', buy:'kup', importNote:'Uwaga',
       // --- stany spoza makiety ---
       manual:'TRYB RĘCZNY', slskAmber:'Soulseek: rozłączony', slskRed:'slskd nie działa', slskOff:'brak połączenia z apką',
@@ -59,7 +59,7 @@
       prob:{tagi:'NAME',okladka:'COVER',jakosc:'QUALITY',integralnosc:'DROPOUTS',tempo:'TEMPO',duplikat:'DUPE'},
       st:{searching:'searching…',queued:'queued',downloading:'downloading',failed:'no result'},
       notes:{other:'other version',similar:'similar',ok:'✓'},
-      propTitle:'You have another version — decide', propUse:'Use mine', propGet:'Fetch the right one', propHas:'you have: {file}', propLen:'{mine} instead of {want}',
+      propTitle:'You have another version — decide', propUse:'Use mine', propGet:'Fetch the right one', propHas:'{file}', propLen:'you have {mine}, playlist {want}',
       propWait:'{n} {utw} with another version wait for your decision — without it they stay out of the set.', buy:'buy', importNote:'Note',
       manual:'MANUAL MODE', slskAmber:'Soulseek: disconnected', slskRed:'slskd is not running', slskOff:'app not reachable',
       justGot:'just downloaded', noneHave:'nothing from this playlist', allGot:'everything fetched',
@@ -874,7 +874,8 @@
       <div class="poz2">
         <span class="dot" style="background:${K.warn}"></span>
         <div class="kto"><div class="t">${esc(u.title)}</div>
-          <div class="a">${esc(u.artist)} · <span title="${esc(S.nazwaPliku(u.file||''))}">${esc(fmt(t.propHas, {file:S.nazwaPliku(u.file||'')}))}</span>${(u.file_duration && u.duration) ? ' · '+esc(fmt(t.propLen, {mine:czas(u.file_duration), want:czas(u.duration)})) : ''}</div></div>
+          <div class="a">${esc(u.artist)}</div>
+          <div class="a" style="color:${K.warn}" title="${esc(S.nazwaPliku(u.file||''))}">${(u.file_duration && u.duration) ? esc(fmt(t.propLen, {mine:czas(u.file_duration), want:czas(u.duration)}))+' · ' : ''}${esc(fmt(t.propHas, {file:S.nazwaPliku(u.file||'')}))}</div></div>
         <div class="akcje"><button class="b-pick" data-prop-use="${i}">${esc(t.propUse)}</button><button class="b-dl" data-prop-get="${i}">${esc(t.propGet)}</button></div>
       </div>`).join('') + (WIZ.pool.length ? `<div class="podnag" style="color:${K.acc}">${esc(t.poolTitle)}</div>` : '') : '';
     poolEl.innerHTML = propHtml + (WIZ.pool.length ? WIZ.pool.map((u, i) => {
