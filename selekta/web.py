@@ -31,7 +31,7 @@ from . import (
     uchem,
     cache, config, covers, cues, decyzje, dedupe, dj_export, harmonic, health,
     instalator, obserwator,
-    importers, loudness, matcher, pipeline, quality, siatka, radar, rekordbox,
+    importers, loudness, matcher, pipeline, poszukiwacz, quality, siatka, radar, rekordbox,
     dlqueue, folderpick, localplaylist, playlists, slskd_client, slskd_ctl,
     spotify,
     stores, tagfix,
@@ -432,6 +432,7 @@ def api_redownload(payload: dict) -> JSONResponse:
     name = os.path.splitext(_field(payload, "file"))[0]
     artist, _, title = name.partition(" - ")
     wishlist.add(artist.strip(), (title or name).strip())
+    poszukiwacz.POSZUKIWACZ.obudz()        # lista życzeń jest naprawdę szukana w tle
     return JSONResponse({"queued": name})
 
 
@@ -2259,7 +2260,8 @@ def api_cache_wyczysc(payload: dict | None = None) -> JSONResponse:
 
 @app.get("/api/wishlist")
 def api_wishlist() -> JSONResponse:
-    return JSONResponse({"items": wishlist.items()})
+    return JSONResponse({"items": wishlist.items(),
+                         "poszukiwacz": poszukiwacz.POSZUKIWACZ.stan()})
 
 
 @app.post("/api/wishlist")
@@ -2267,7 +2269,34 @@ def api_wishlist_add(payload: dict) -> JSONResponse:
     a = _field(payload, "artist"); t = _field(payload, "title")
     if a or t:
         wishlist.add(a.strip(), t.strip())
-    return JSONResponse({"items": wishlist.items()})
+        poszukiwacz.POSZUKIWACZ.obudz()
+    return JSONResponse({"items": wishlist.items(),
+                         "poszukiwacz": poszukiwacz.POSZUKIWACZ.stan()})
+
+
+@app.post("/api/wishlist/szukaj")
+def api_wishlist_szukaj() -> JSONResponse:
+    """„Szukaj teraz” — następny cykl od razu (tempo Soulseeka nadal pilnowane)."""
+    poszukiwacz.POSZUKIWACZ.obudz()
+    return JSONResponse({"poszukiwacz": poszukiwacz.POSZUKIWACZ.stan()})
+
+
+@app.post("/api/wishlist/pobierz")
+def api_wishlist_pobierz(payload: dict) -> JSONResponse:
+    """Użytkownik potwierdził znaleziony plik („do potwierdzenia”) — pobierz go."""
+    ident = _field(payload, "id")
+    if not ident:
+        raise HTTPException(400, "brak wskazania pozycji")
+    client = SlskdClient()
+    if not client.available():
+        raise HTTPException(503, "slskd niepodłączony — sprawdź Ustawienia")
+    try:
+        wpis = poszukiwacz.pobierz_kandydata(ident, client)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"nie udało się zlecić pobierania: {exc}")
+    return JSONResponse({"ok": True, "item": wpis, "items": wishlist.items()})
 
 
 @app.get("/api/slskd")
@@ -2367,6 +2396,8 @@ def serve(folder: str, host: str = "127.0.0.1", port: int = 8756) -> None:
     # nowe pliki mają analizować się same — po pobraniu w tle nie ma sensu
     # wymagać, żeby użytkownik wracał i klikał „Analizuj wszystko"
     obserwator.OBSERWATOR.start(folder)
+    # lista życzeń szukana w tle (wcześniej tylko w terminalu: wishlist --daemon)
+    poszukiwacz.POSZUKIWACZ.start()
     print(f"selekta — dashboard: http://{host}:{port}  (folder: {_folder()})")
     if wznowione:
         print(f"  wznawiam pobieranie: {wznowione} utworów czeka w kolejce")
