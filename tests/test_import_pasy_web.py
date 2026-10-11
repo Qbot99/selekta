@@ -49,7 +49,8 @@ def _importuj(klient, monkeypatch, utwory):
 def test_playlista_100lecie_pasy(klient, monkeypatch):
     utwory = [(a, t, d) for _e, a, t, d, _f in DANE["playlista_100lecie"]]
     d = _importuj(klient, monkeypatch, utwory)
-    assert d["counts"] == {"auto": 22, "resolve": 3, "missing": 5, "total": 30}
+    assert d["counts"] == {"auto": 22, "resolve": 3, "missing": 5, "total": 30, "zrodlo": 30}
+    assert d["uwagi"] == []
     # pas „resolve" to wyłącznie INNA WERSJA tego samego utworu
     assert all(r["other_version"] for r in d["resolve"])
     assert {r["title"] for r in d["resolve"]} == {
