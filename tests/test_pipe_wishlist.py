@@ -168,12 +168,19 @@ def test_radar_load_state_fresh_empty():
     assert radar._load_state() == {}
 
 
-def test_radar_register_first_diff_returns_everything():
-    found = [_rel("a"), _rel("b")]
-    new = radar._register("Artist", found)
-    assert [f["id"] for f in new] == ["a", "b"]
+def test_radar_register_first_check_reports_only_fresh_releases():
+    """Pierwsze sprawdzenie zapamiętuje katalog; nowością jest tylko świeże wydanie.
+
+    Wcześniej cały katalog (ABBA z 1997) lądował w „nowościach”.
+    """
+    from datetime import datetime, timedelta
+    swieze = {**_rel("a"), "date": (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")}
+    stare = {**_rel("b"), "date": "1997-07-02"}
+    bez_daty = _rel("c")
+    new = radar._register("Artist", [swieze, stare, bez_daty])
+    assert [f["id"] for f in new] == ["a"]
     state = radar._load_state()
-    assert state["Artist"]["seen"] == ["a", "b"]
+    assert state["Artist"]["seen"] == ["a", "b", "c"]
     assert state["Artist"]["last_check"] is not None
 
 
@@ -192,6 +199,7 @@ def test_radar_register_new_id_returns_only_new():
 
 def test_radar_register_separate_artists_independent():
     radar._register("One", [_rel("a")])
+    radar._register("Two", [])                 # pierwsze sprawdzenie Two
     new = radar._register("Two", [_rel("a")])  # ten sam id, inny artysta
     assert [f["id"] for f in new] == ["a"]
 

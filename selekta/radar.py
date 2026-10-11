@@ -139,24 +139,50 @@ def sprawdz(folder: str, limit: int = 10, offset: int = 0,
     stare = _load_results().get("items", [])
     klucze = {x.get("id") or x.get("url") for x in nowe}
     polaczone = nowe + [x for x in stare if (x.get("id") or x.get("url")) not in klucze]
+    nastepny = offset + len(porcja) if offset + len(porcja) < len(artists) else None
     d = {"checked_at": kiedy, "items": polaczone[:MAX_WYNIKOW],
          "last": {"checked": len(porcja), "offset": offset, "new": len(nowe),
-                  "total_artists": len(artists)}}
+                  "total_artists": len(artists), "next_offset": nastepny}}
     _save_results(d)
     if nowe and notify_new:
         notify(f"{len(nowe)} nowości u {len({x['artist'] for x in nowe})} artystów",
                title="selekta radar")
     return {"new": nowe, "checked": len(porcja), "offset": offset,
             "total_artists": len(artists), "checked_at": kiedy,
-            "next_offset": offset + len(porcja) if offset + len(porcja) < len(artists) else None}
+            "next_offset": nastepny}
+
+
+#: przy PIERWSZYM sprawdzeniu artysty za nowość uznajemy tylko wydania
+#: z ostatnich tylu dni — reszta katalogu to historia, nie nowości
+PIERWSZE_SPRAWDZENIE_DNI = 30
+
+
+def _swieze(item: dict, dni: int = PIERWSZE_SPRAWDZENIE_DNI) -> bool:
+    data = item.get("date")
+    if not data:
+        return False                    # bez daty nie wiemy — nie krzyczymy „nowe”
+    try:
+        kiedy = datetime.fromisoformat(str(data)[:10])
+    except ValueError:
+        return False
+    return (datetime.now() - kiedy).days <= dni
 
 
 def _register(artist: str, found: list[dict]) -> list[dict]:
-    """Diff `found` against state[artist].seen; persist and return the new."""
+    """Diff `found` against state[artist].seen; persist and return the new.
+
+    Pierwsze sprawdzenie artysty tylko zapamiętuje jego katalog: wcześniej
+    zgłaszało CAŁY katalog jako nowości (ABBA z 1997, „424 nowości u 19
+    artystów”). Za nowe uznajemy wtedy wyłącznie wydania z ostatnich
+    ``PIERWSZE_SPRAWDZENIE_DNI`` dni (Bandcamp nie podaje dat — nic).
+    """
     state = _load_state()
+    pierwszy_raz = artist not in state
     rec = state.setdefault(artist, {"last_check": None, "seen": []})
     seen = set(rec.get("seen") or [])
     new = [f for f in found if f["id"] not in seen]
+    if pierwszy_raz:
+        new = [f for f in new if _swieze(f)]
     rec["seen"] = sorted(seen | {f["id"] for f in found})
     rec["last_check"] = datetime.now().isoformat(timespec="seconds")
     _save_state(state)
@@ -263,6 +289,7 @@ _BC_RELEASE_HREF_RE = re.compile(
 )
 _BC_TITLE_RE = re.compile(r'<p class="title">\s*(.*?)\s*</p>', re.S)
 _BC_CLIENT_ITEMS_RE = re.compile(r'data-client-items="([^"]*)"')
+_BC_IMG_RE = re.compile(r'<img[^>]+(?:data-original|src)="(https://f\d\.bcbits\.com/img/[^"]+)"')
 
 
 def _bandcamp_artist_page(artist: str) -> str | None:
@@ -278,8 +305,9 @@ def _bandcamp_artist_page(artist: str) -> str | None:
         for url, name in zip(urls, names):
             if _norm(name) == _norm(artist):
                 return url
-        if urls:
-            return urls[0]  # best guess: first band result
+        # BEZ „najlepszego strzału”: pierwszy wynik wyszukiwarki to zwykle
+        # cudza strona (ABBA → amator „abba”, Anastacia → ktoś inny), a radar
+        # meldował jego dyskografię jako nowe wydania naszego artysty
 
     data = _post_json(
         "https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic",
@@ -287,13 +315,11 @@ def _bandcamp_artist_page(artist: str) -> str | None:
          "full_page": False, "fan_id": None},
     )
     results = ((data or {}).get("auto") or {}).get("results") or []
-    first = None
     for it in results:
         if it.get("type") == "b" and it.get("item_url_root"):
             if _norm(it.get("name", "")) == _norm(artist):
                 return it["item_url_root"]
-            first = first or it["item_url_root"]
-    return first
+    return None
 
 
 def check_bandcamp(artist: str) -> list[dict]:
@@ -316,14 +342,18 @@ def check_bandcamp(artist: str) -> list[dict]:
     found: list[dict] = []
     seen_paths: set[str] = set()
 
-    def add(path: str, title: str | None) -> None:
+    def add(path: str, title: str | None, cover: str | None = None) -> None:
         if path in seen_paths:
             return
         seen_paths.add(path)
-        found.append(
-            {"id": base + path, "title": title or path,
-             "url": base + path, "source": "bandcamp"}
-        )
+        # bez tytułu: czytelna nazwa ze ścieżki („/track/body-beat” → „Body Beat”),
+        # a nie surowe „/track/…”, które trafiało na listę życzeń
+        tytul = title or path.rsplit("/", 1)[-1].replace("-", " ").strip().title()
+        item = {"id": base + path, "title": tytul, "url": base + path,
+                "source": "bandcamp"}
+        if cover:
+            item["cover"] = cover
+        found.append(item)
 
     # walk <li> chunks so each release href pairs with its own title
     for chunk in page.split("<li")[1:]:
@@ -331,7 +361,9 @@ def check_bandcamp(artist: str) -> list[dict]:
         if not m:
             continue
         t = _BC_TITLE_RE.search(chunk)
-        add(m.group(1), _strip_tags(t.group(1)) if t else None)
+        img = _BC_IMG_RE.search(chunk)
+        add(m.group(1), _strip_tags(t.group(1)) if t else None,
+            img.group(1) if img else None)
 
     # overflow releases not rendered in the grid
     m = _BC_CLIENT_ITEMS_RE.search(page)
@@ -340,7 +372,9 @@ def check_bandcamp(artist: str) -> list[dict]:
             for it in json.loads(html.unescape(m.group(1))):
                 path = it.get("page_url")
                 if path and path.startswith(("/album/", "/track/")):
-                    add(path, it.get("title"))
+                    art = it.get("art_id")
+                    add(path, it.get("title"),
+                        f"https://f4.bcbits.com/img/a{art}_2.jpg" if art else None)
         except (json.JSONDecodeError, AttributeError, TypeError):
             log.warning("radar: nieczytelne data-client-items dla '%s'", artist)
 
@@ -383,6 +417,17 @@ def _release_artists(rel: dict) -> list[str]:
             if n:
                 names.append(str(n))
     return names
+
+
+def _beatport_okladka(rel: dict) -> str | None:
+    """Adres okładki wydania z rekordu Beatportu (różne kształty JSON-a)."""
+    for klucz in ("release_image_uri", "image_uri", "image", "release_image"):
+        v = rel.get(klucz)
+        if isinstance(v, dict):
+            v = v.get("uri") or v.get("dynamic_uri")
+        if isinstance(v, str) and v.startswith("http"):
+            return v.replace("{w}x{h}", "500x500")
+    return None
 
 
 def _slug(name: str) -> str:
@@ -428,15 +473,23 @@ def check_beatport(artist: str) -> list[dict]:
             or rel.get("new_release_date")
             or rel.get("publish_date")
         )
-        found.append(
-            {
-                "id": key,
-                "title": title,
-                "url": f"https://www.beatport.com/release/{_slug(title)}/{rid}",
-                "date": str(date)[:10] if date else None,
-                "source": "beatport",
-            }
-        )
+        item = {
+            "id": key,
+            "title": title,
+            "url": f"https://www.beatport.com/release/{_slug(title)}/{rid}",
+            "date": str(date)[:10] if date else None,
+            "source": "beatport",
+        }
+        # okładka i wytwórnia — ekran Radar czyta it.cover i it.label, a
+        # dotąd ich nie było (każda karta miała zaślepkę „okładka wydania”)
+        okl = _beatport_okladka(rel)
+        if okl:
+            item["cover"] = okl
+        lab = rel.get("label")
+        nazwa_lab = (lab.get("label_name") or lab.get("name")) if isinstance(lab, dict) else lab
+        if nazwa_lab:
+            item["label"] = str(nazwa_lab)
+        found.append(item)
     if not releases:
         log.warning(
             "radar: struktura wyników Beatportu nieczytelna dla '%s'", artist
