@@ -284,6 +284,10 @@ def uporzadkuj(path: str, artist: str, title: str, cover: bytes | None = None,
             nowa = rename_file(path, artist, tytul) if cel != path else path
     except (ValueError, OSError) as exc:
         return {"blad": str(exc), "z": path}
+    if (nowa == path and not okladka and (stary_a, stary_t) == (artist, tytul)):
+        # nic się nie zmieniło — nie ma czego cofać, nie piszemy dziennika
+        return {"z": path, "do": nowa, "artist": artist, "title": tytul, "uwaga": uwaga,
+                "bez_zmian": True}
     wpis = {"partia": partia or _time.strftime("%Y-%m-%dT%H:%M:%S"), "z": path, "do": nowa,
             "artist_przed": stary_a, "title_przed": stary_t,
             "artist": artist, "title": tytul, "okladka_dodana": bool(okladka),
