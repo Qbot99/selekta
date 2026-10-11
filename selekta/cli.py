@@ -60,7 +60,12 @@ def _load_tracks(source: str) -> list[spotify.Track]:
     tracks, origin = importers.resolve_any(text)
     if not tracks:
         sys.exit("nie znalazłem żadnych utworów w podanym źródle")
-    print(f"źródło: {origin} — {len(tracks)} utworów\n")
+    total = getattr(tracks, "zrodlo_total", None)
+    z = f" (z {total} w źródle)" if total and total > len(tracks) else ""
+    print(f"źródło: {origin} — {len(tracks)} utworów{z}")
+    for uwaga in getattr(tracks, "uwagi", []) or []:
+        print(f"⚠️ {uwaga}")
+    print()
     return tracks
 
 

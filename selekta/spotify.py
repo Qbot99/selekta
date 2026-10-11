@@ -12,13 +12,31 @@ from dataclasses import dataclass, field
 import requests
 
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
-# /intl-xx/ to prefiks lokalizacyjny z paska adresu przeglądarki (np. intl-pl)
+# /intl-xx/ to prefiks lokalizacyjny z paska adresu przeglądarki (np. intl-pl);
+# „spotify:track:…" to URI z „Kopiuj URI" w aplikacji Spotify
 _URL_RE = re.compile(
-    r"open\.spotify\.com/(?:intl-[A-Za-z-]+/)?(?:embed/)?(track|playlist|album)/([A-Za-z0-9]+)"
+    r"(?:open\.spotify\.com/(?:intl-[A-Za-z-]+/)?(?:embed/)?|spotify:)"
+    r"(track|playlist|album)[/:]([A-Za-z0-9]+)"
 )
+# Embed oddaje najwyżej tyle pozycji; reszty nie da się pobrać bez logowania
+EMBED_LIMIT = 100
 _NEXT_DATA_RE = re.compile(
     r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S
 )
+
+
+class Lista(list):
+    """Lista utworów + to, co użytkownik MUSI wiedzieć o imporcie.
+
+    ``uwagi`` — zdania do pokazania w interfejsie (ucięta lista, pominięte
+    linki/linie), ``zrodlo_total`` — ile utworów ma źródło, gdy wiadomo.
+    Zachowuje się jak zwykła lista, więc dotychczasowy kod działa bez zmian.
+    """
+
+    def __init__(self, items=(), uwagi=None, zrodlo_total: int | None = None):
+        super().__init__(items)
+        self.uwagi: list[str] = list(uwagi or [])
+        self.zrodlo_total = zrodlo_total
 
 
 @dataclass
@@ -84,6 +102,32 @@ def track(sid: str) -> Track:
     )
 
 
+def _bez_powtorzen(names: list[str]) -> list[str]:
+    """„Dimitri Vegas & Like Mike, …, Dimitri Vegas, Like Mike" → bez
+    członków duetu wymienionych drugi raz osobno."""
+    def slowa(n: str) -> set[str]:
+        return set(re.findall(r"\w+", n.lower()))
+    out: list[str] = []
+    for n in names:
+        if not n:
+            continue
+        if any(slowa(n) and slowa(n) <= slowa(o) for o in out):
+            continue
+        out.append(n)
+    return out
+
+
+def _song_count(kind: str, sid: str) -> int | None:
+    """Ile utworów ma playlista wg strony open.spotify.com (meta
+    music:song_count) — embed tego nie podaje, a ucina na 100."""
+    try:
+        r = requests.get(f"https://open.spotify.com/{kind}/{sid}", headers=UA, timeout=20)
+        m = re.search(r'music:song_count"\s+content="(\d+)"', r.text)
+        return int(m.group(1)) if m else None
+    except (requests.RequestException, ValueError):
+        return None
+
+
 def playlist_tracks(sid: str, kind: str = "playlist") -> list[Track]:
     """Track list from a playlist/album embed (embed caps very long playlists).
 
@@ -92,19 +136,31 @@ def playlist_tracks(sid: str, kind: str = "playlist") -> list[Track]:
     pustkę, którą resolve() po cichu połykał — link do albumu dawał 0 utworów.
     """
     e = _entity(kind, sid)
-    out = []
+    out = Lista()
     for t in e.get("trackList", []):
         tid = t["uri"].rsplit(":", 1)[-1]
+        names = _bez_powtorzen([a.strip() for a in t.get("subtitle", "").split(",")])
         out.append(
             Track(
                 id=tid,
-                artist=t.get("subtitle", ""),
+                artist=", ".join(names),
                 title=t.get("title", ""),
                 duration_s=(t.get("duration") or 0) / 1000 or None,
                 preview_url=(t.get("audioPreview") or {}).get("url", ""),
-                artists=[a.strip() for a in t.get("subtitle", "").split(",")],
+                artists=names,
             )
         )
+    if len(out) >= EMBED_LIMIT:
+        # Embed ucina długie playlisty na 100 — dawniej reszta znikała bez
+        # słowa (All Out 80s: 100 ze 150). Pełnej listy bez logowania do
+        # Spotify nie da się pobrać, więc przynajmniej mówimy, ile brakuje.
+        total = _song_count(kind, sid)
+        if total and total > len(out):
+            out.zrodlo_total = total
+            out.uwagi.append(
+                f"Spotify bez logowania udostępnia tylko {len(out)} pierwszych "
+                f"utworów — zaimportowano {len(out)} z {total}. Resztę wklej jako "
+                f"tekst („Artysta - Tytuł”) albo podziel playlistę na mniejsze.")
     return out
 
 
@@ -112,17 +168,42 @@ def resolve(text: str) -> list[Track]:
     """Turn pasted text (track links and/or playlist links) into Tracks.
 
     A single dead link is skipped, not fatal — a 50-track paste survives
-    one removed track.
+    one removed track. Ale NIE po cichu: pominięte linki trafiają do uwag,
+    a gdy nie wczytał się żaden, wyjątek mówi dlaczego (brak sieci/limit
+    Spotify wyglądał dawniej jak „nie znalazłem utworów").
     """
-    tracks: list[Track] = []
-    for kind, sid in parse_input(text):
+    tracks = Lista()
+    linki = parse_input(text)
+    martwe, siec = [], []
+    for kind, sid in linki:
         try:
             if kind == "track":
                 tracks.append(track(sid))
             else:
-                tracks.extend(playlist_tracks(sid, kind))
-        except Exception:  # noqa: BLE001 — skip this item, keep the rest
-            continue
+                czesc = playlist_tracks(sid, kind)
+                tracks.extend(czesc)
+                tracks.uwagi.extend(getattr(czesc, "uwagi", []))
+                if getattr(czesc, "zrodlo_total", None):
+                    tracks.zrodlo_total = (tracks.zrodlo_total or 0) + czesc.zrodlo_total
+        except requests.RequestException as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            (martwe if status in (400, 404, 410) else siec).append((kind, sid, exc))
+        except Exception as exc:  # noqa: BLE001 — skip this item, keep the rest
+            martwe.append((kind, sid, exc))
+    if not tracks and (siec or martwe):
+        if siec:
+            raise ImportError(
+                "nie udało się połączyć ze Spotify (brak internetu albo chwilowa "
+                f"blokada) — spróbuj za chwilę ({siec[0][2]})")
+        raise ImportError(
+            "Spotify nie zna tego linku — utwór lub playlista zostały usunięte "
+            "albo link jest błędny")
+    if martwe:
+        tracks.uwagi.append(f"Pominięto {len(martwe)} z {len(linki)} linków Spotify "
+                            "— usunięte albo błędne.")
+    if siec:
+        tracks.uwagi.append(f"Nie wczytano {len(siec)} z {len(linki)} linków Spotify "
+                            "przez błąd sieci — wklej je ponownie za chwilę.")
     return tracks
 
 

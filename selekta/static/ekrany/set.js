@@ -381,7 +381,8 @@ function impWiersz(r, i){
     nota = r.wziete ? `${fmtPL(r.score)} · wybrane ręcznie` : (r.from_file ? 'wskazany w pliku playlisty' : fmtPL(r.score));
     akcje = `<span style="font:500 11px var(--mono);color:${K.dim2};padding:6px 0">w playliście ✓</span>`;
   }else if(stan==='resolve'){
-    const roz = r.other_version ? ((t && t.duration && r.duration) ? `inna wersja: ${fmtTime(t.duration)} vs ${fmtTime(r.duration)}` : 'inna wersja miksu') : 'tytuł albo artysta różnią się';
+    const dl = (t && t.duration) || r.file_duration;
+    const roz = (dl && r.duration) ? `inna wersja: masz ${fmtTime(dl)}, playlista ${fmtTime(r.duration)}` : 'inna wersja tego utworu';
     nota = `${fmtPL(r.score)} · ${roz}`;
     const gra = S.player.gra(r.file);
     akcje = `<button class="btn mini acc" data-akcja="wez">Weź tę</button><button class="btn mini cichy" data-akcja="odsluchaj" style="${gra ? 'color:'+K.acc+';border-color:'+K.acc : ''}">${gra ? '❚❚ Gra' : 'Odsłuchaj'}</button><button class="btn mini cichy" data-akcja="szukaj">Szukaj innej</button>`;
@@ -404,8 +405,10 @@ function impWiersz(r, i){
 }
 function impRysuj(host){
   const d = IMP.dane, p = impPasy();
-  $('#impKafle', host).innerHTML = kafel(p.auto.length, 'DOPASOWANE ≥ 0,85', K.ok) + kafel(p.resolve.length, 'DO ROZSTRZYGNIĘCIA', K.warn) + kafel(p.missing.length, 'NIE ZNALEZIONO', K.bad);
-  $('#impLista', host).innerHTML = d.wiersze.length ? d.wiersze.map(impWiersz).join('') : `<div class="pusto">Nie znalazłem utworów w tym źródle.</div>`;
+  $('#impKafle', host).innerHTML = kafel(p.auto.length, 'MASZ — TEN SAM UTWÓR', K.ok) + kafel(p.resolve.length, 'INNA WERSJA — ZDECYDUJ', K.warn) + kafel(p.missing.length, 'NIE ZNALEZIONO', K.bad);
+  // uwagi importu: ucięta lista („100 z 150"), pominięte linie i linki
+  const uwagi = (d.uwagi||[]).map(u => `<div style="padding:10px 20px;border-bottom:1px solid ${K.line2};font-size:12.5px;color:${K.warn}">⚠ ${esc(u)}</div>`).join('');
+  $('#impLista', host).innerHTML = uwagi + (d.wiersze.length ? d.wiersze.map(impWiersz).join('') : `<div class="pusto">Nie znalazłem utworów w tym źródle.</div>`);
   const stopka = $('#impStopka', host);
   if(IMP.utworzona){
     const u = IMP.utworzona;
@@ -450,7 +453,7 @@ async function impWykonaj(host, zapytanie, etykieta){
   const btn = $('#impGo', host), lista = $('#impLista', host);
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span> ROZPOZNAJĘ…';
   lista.innerHTML = `<div class="pusto"><span class="spin"></span> rozpoznaję źródło i dopasowuję do biblioteki po czasie trwania i fingerprincie…</div>`;
-  $('#impKafle', host).innerHTML = kafel('—','DOPASOWANE ≥ 0,85',K.dim2) + kafel('—','DO ROZSTRZYGNIĘCIA',K.dim2) + kafel('—','NIE ZNALEZIONO',K.dim2);
+  $('#impKafle', host).innerHTML = kafel('—','MASZ — TEN SAM UTWÓR',K.dim2) + kafel('—','INNA WERSJA — ZDECYDUJ',K.dim2) + kafel('—','NIE ZNALEZIONO',K.dim2);
   $('#impStopka', host).innerHTML = '';
   IMP.utworzona = null;
   try{
@@ -458,7 +461,8 @@ async function impWykonaj(host, zapytanie, etykieta){
     const d = await zapytanie();
     IMP.dane = impPrzygotuj(d);
     IMP.nazwa = d.name || `${(ORIGIN(d.origin)||'import').toLowerCase()} ${dzis()}`;
-    impZrodlo(host, `${ORIGIN(d.origin)} · ${IMP.dane.counts.total}`);
+    const zr = IMP.dane.counts.zrodlo;
+    impZrodlo(host, `${ORIGIN(d.origin)} · ${IMP.dane.counts.total}${zr && zr > IMP.dane.counts.total ? ` z ${zr}` : ''}`, zr && zr > IMP.dane.counts.total ? K.warn : K.ok);
     if(S.biezacy()==='import') S.tytul(`Import · ${ORIGIN(d.origin)} · „${IMP.nazwa}” · ${IMP.dane.counts.total} ${lm(IMP.dane.counts.total,'utwór','utwory','utworów')}`);
     impRysuj(host);
   }catch(e){
@@ -490,8 +494,8 @@ S.ekran('import', {
         <button class="btn goly" id="impZPliku" title="Playlista z komputera: M3U/M3U8, PLS, XML rekordboxa, NML Traktora, CSV z Serato albo tekst">z pliku…</button>
         <button class="btn acc" id="impGo" style="border-radius:10px;padding:12px 20px;letter-spacing:.04em">ROZPOZNAJ I DOPASUJ</button>
       </div>
-      <div class="kafle c3" id="impKafle">${kafel('—','DOPASOWANE ≥ 0,85',K.dim2)}${kafel('—','DO ROZSTRZYGNIĘCIA',K.dim2)}${kafel('—','NIE ZNALEZIONO',K.dim2)}</div>
-      <div id="impLista" style="${PANEL};overflow:auto;flex:1;min-height:0"><div class="pusto">Trzy pasy: dopasowane automatycznie (≥ 0,85), do rozstrzygnięcia (inna wersja miksu albo słabsze dopasowanie) i nie znalezione — te ściągniesz z Soulseeka albo kupisz.</div></div>
+      <div class="kafle c3" id="impKafle">${kafel('—','MASZ — TEN SAM UTWÓR',K.dim2)}${kafel('—','INNA WERSJA — ZDECYDUJ',K.dim2)}${kafel('—','NIE ZNALEZIONO',K.dim2)}</div>
+      <div id="impLista" style="${PANEL};overflow:auto;flex:1;min-height:0"><div class="pusto">Trzy pasy: masz ten sam utwór (ta sama wersja), masz tylko inną wersję (decydujesz: weź albo szukaj właściwej) i nie ma — te ściągniesz z Soulseeka albo kupisz.</div></div>
       <div id="impStopka" style="display:flex;align-items:center;gap:14px;min-height:20px"></div>`;
     const ta = $('#impTekst', host);
     const rosnij = () => { ta.style.height = 'auto'; ta.style.height = Math.min(150, ta.scrollHeight) + 'px'; };

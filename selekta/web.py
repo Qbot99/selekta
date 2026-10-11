@@ -304,7 +304,11 @@ def api_import(payload: dict) -> JSONResponse:
     return JSONResponse({
         "origin": origin,
         "counts": {"auto": len(auto), "resolve": len(resolve), "missing": len(missing),
-                   "total": len(tracks)},
+                   "total": len(tracks),
+                   # ile utworów ma źródło, gdy wiadomo (lista bywa ucięta)
+                   "zrodlo": getattr(tracks, "zrodlo_total", None) or len(tracks)},
+        # zdania dla użytkownika: ucięta lista, pominięte linie/linki
+        "uwagi": list(getattr(tracks, "uwagi", []) or []),
         "auto": auto, "resolve": resolve, "missing": missing,
     })
 
