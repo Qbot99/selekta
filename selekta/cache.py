@@ -204,7 +204,10 @@ def _save_store(kind: str, store: dict) -> None:
 # tempo (liczone z BPM), quality (dyskryminator transkodu, bitrate),
 # energia (naprawiona jasność, gęstość z bramką okresowości).
 # cues 3: siatka na stopie (siatka.py) + Battito — stare kotwice były o pół bitu obok
-WERSJE = {"cues": 3, "harmonic": 2, "tempo": 2, "quality": 2, "energia": 2}
+# 11.10.2026: integrity 2 — porównanie z długością z nagłówka (stare „ok”
+# przepuszczało ucięte MP3)
+WERSJE = {"cues": 3, "harmonic": 2, "tempo": 2, "quality": 2, "energia": 2,
+          "integrity": 2}
 
 
 def wersja(kind: str) -> int:
