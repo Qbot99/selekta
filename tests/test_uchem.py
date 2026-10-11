@@ -132,3 +132,31 @@ class TestSiatkaWUchem:
     def test_pewna_siatka_milczy(self):
         assert uchem._powody(_h(), None, None, {"pewnosc_siatki": 0.8, "pewnosc_taktu": 0.9}) == []
         assert uchem._powody(_h(), None, None, {}) == []
+
+
+class TestRecznaKorekta:
+    """Przegląd 0.4.2: po „przyjmij” lista dalej pokazywała bpm_nietrafione,
+    z poprawką zaokrągloną do 0,1 („127.8” zamiast 127,75)."""
+
+    def test_poprawka_z_dwoma_miejscami(self):
+        p = uchem._powody(_h(bpm=128.0), {"stabilne": True, "bpm_nietrafione": True,
+                                          "bpm_poprawione": 127.75}, None)
+        assert "127.75" in p[0].opis
+
+    def test_po_przyjeciu_poprawki_nie_proponuje_jej_znowu(self):
+        tempo = {"stabilne": True, "bpm_nietrafione": True, "bpm_poprawione": 127.75}
+        reczna = {"first_beat_s": 0.5, "bpm": 127.75, "battito": 1}
+        assert uchem._powody(_h(bpm=128.0), tempo, None, None, reczna) == []
+
+    def test_reczna_siatka_wylacza_alarm_niepewnej_siatki(self):
+        c = {"pewnosc_siatki": 0.1, "pewnosc_taktu": 0.9}
+        assert uchem._powody(_h(), None, None, c, {"first_beat_s": 0.0}) == []
+
+    def test_sprawdz_czyta_reczna_korekte(self, lib_copy):
+        from selekta import waveform
+        a = os.path.join(lib_copy, os.path.basename(GOOD_MP3))
+        cache.put(a, "harmonic", _h(bpm=128.0))
+        cache.put(a, "tempo", {"stabilne": True, "bpm_nietrafione": True, "bpm_poprawione": 127.75})
+        assert [u["file"] for u in uchem.sprawdz(lib_copy)["utwory"]] == [a]
+        waveform.zapisz_siatke(a, 0.0, 127.75, 1)
+        assert uchem.sprawdz(lib_copy)["utwory"] == []
