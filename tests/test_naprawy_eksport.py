@@ -398,3 +398,147 @@ class TestUstawieniaRekordboxa:
         sety = {n.get("Name"): len(n.findall("TRACK"))
                 for n in root.iter("NODE") if n.get("Type") == "1"}
         assert sety == {"piątek": 2, "sobota": 2}
+
+
+# ---------------------------------------------------------------------------
+# #116 #117 #118 — pendrive
+# ---------------------------------------------------------------------------
+
+def _wav(path, tagi: bool = True) -> str:
+    from mutagen.id3 import COMM, GEOB, TBPM, TCON, TIT2, TKEY, TPE1
+    from mutagen.wave import WAVE
+    from tests import probka
+    os.makedirs(os.path.dirname(str(path)), exist_ok=True)
+    probka.ton(str(path), 440.0, sekund=1.0)
+    if tagi:
+        w = WAVE(str(path)); w.add_tags()
+        for r in (TIT2(encoding=3, text="Gucci"), TPE1(encoding=3, text="Odymel"),
+                  TBPM(encoding=3, text="146"), TKEY(encoding=3, text="Am"),
+                  TCON(encoding=3, text="Hard Techno"),
+                  COMM(encoding=3, lang="eng", desc="", text="8A - Energy 7"),
+                  GEOB(encoding=0, mime="application/octet-stream",
+                       desc="CuePoints", data=b"mik")):
+            w.tags.add(r)
+        w.save()
+    return str(path)
+
+
+def _mp3(path) -> str:
+    from tests import probka
+    os.makedirs(os.path.dirname(str(path)), exist_ok=True)
+    wav = str(path) + ".wav"
+    probka.ton(wav, 330.0, sekund=1.0)
+    probka.do_mp3(wav, str(path))
+    os.remove(wav)
+    return str(path)
+
+
+@pytest.fixture()
+def lib_usb(tmp_path):
+    lib = tmp_path / "lib"
+    pliki = [_mp3(lib / "Album" / "Ąę - Łódź.mp3"),
+             _mp3(lib / "Album 2" / "CD1" / "B - Drugi.mp3"),
+             _wav(lib / "Album" / "Odymel - Gucci.wav")]
+    web.set_folder(str(lib))
+    return {"lib": str(lib), "pliki": pliki, "klient": TestClient(web.app),
+            "dest": str(tmp_path / "USB")}
+
+
+class TestPendrive:
+    def test_cala_biblioteka_z_podfolderami_i_weryfikacja(self, lib_usb):
+        r = lib_usb["klient"].post("/api/usb", json={"dest": lib_usb["dest"]})
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["copied"] == 2 and d["converted"] == 1
+        assert d["weryfikacja"]["ok"] and d["weryfikacja"]["sprawdzonych"] == 3
+        assert "export.pdb" in d["co_powstaje"]
+
+    def test_zly_parametr_convert_to_400(self, lib_usb):
+        r = lib_usb["klient"].post("/api/usb", json={"dest": lib_usb["dest"],
+                                                     "convert": "mp3"})
+        assert r.status_code == 400 and "aiff" in r.json()["detail"]
+
+    def test_cel_w_bibliotece_odrzucony(self, lib_usb):
+        r = lib_usb["klient"].post("/api/usb", json={
+            "dest": os.path.join(lib_usb["lib"], "Album")})
+        assert r.status_code == 400 and "bibliotece" in r.json()["detail"]
+        assert not any("(2)" in f for f in os.listdir(os.path.join(lib_usb["lib"], "Album")))
+
+    def test_brak_miejsca_przed_kopiowaniem(self, lib_usb, monkeypatch):
+        import collections
+        from selekta import usb
+        monkeypatch.setattr(usb.shutil, "disk_usage",
+                            lambda p: collections.namedtuple("u", "total used free")(10**9, 10**9, 1000))
+        r = lib_usb["klient"].post("/api/usb", json={"dest": lib_usb["dest"]})
+        assert r.status_code == 400 and "wolnego" in r.json()["detail"]
+        assert os.listdir(lib_usb["dest"]) == []
+
+    def test_enospc_w_trakcie_przerywa_kopiowanie(self, lib_usb, monkeypatch):
+        import errno
+        from selekta import usb
+        prawdziwe = usb.shutil.copyfile
+        wywolan = []
+
+        def copyfile(src, dst):
+            wywolan.append(src)
+            if len(wywolan) == 1:
+                with open(dst, "wb") as fh:
+                    fh.write(b"polowa")            # częściowo zapisany plik
+                raise OSError(errno.ENOSPC, "No space left on device")
+            return prawdziwe(src, dst)
+        monkeypatch.setattr(usb.shutil, "copyfile", copyfile)
+        rep = usb.prepare(None, lib_usb["dest"], pliki=lib_usb["pliki"])
+        assert rep.przerwano
+        assert len(wywolan) == 1, "po ENOSPC nie wolno pisać dalej"
+        assert len(rep.skipped) == 3 and rep.copied == [] and rep.converted == []
+        assert os.listdir(lib_usb["dest"]) == []
+
+    def test_pliki_appledouble_sa_sprzatane(self, lib_usb, monkeypatch):
+        from selekta import usb
+        prawdziwe = usb.shutil.copyfile
+
+        def copyfile(src, dst):           # tak zachowuje się macOS na FAT32
+            prawdziwe(src, dst)
+            with open(os.path.join(os.path.dirname(dst), "._" + os.path.basename(dst)), "wb") as fh:
+                fh.write(b"\x00\x05\x16\x07")
+        monkeypatch.setattr(usb.shutil, "copyfile", copyfile)
+        rep = usb.prepare(None, lib_usb["dest"], pliki=lib_usb["pliki"], convert_wav=None)
+        assert rep.usuniete_appledouble == 3
+        assert not [n for n in os.listdir(lib_usb["dest"]) if n.startswith("._")]
+
+    @pytest.mark.parametrize("cel", ["aiff", "flac"])
+    def test_wav_po_konwersji_zachowuje_bpm_i_tonacje(self, lib_usb, cel):
+        from selekta import usb
+        wav = lib_usb["pliki"][2]
+        rep = usb.prepare(None, lib_usb["dest"], pliki=[wav], convert_wav=cel)
+        out = rep.converted[0]
+        if cel == "aiff":
+            from mutagen.aiff import AIFF
+            t = AIFF(out).tags
+            assert str(t["TBPM"]) == "146" and str(t["TKEY"]) == "Am"
+            assert str(t["TCON"]) == "Hard Techno" and t.getall("GEOB")
+            assert t.getall("COMM")[0].text[0] == "8A - Energy 7"
+        else:
+            from mutagen.flac import FLAC
+            f = FLAC(out)
+            assert f["BPM"] == ["146"] and f["INITIALKEY"] == ["Am"] and f["GENRE"] == ["Hard Techno"]
+        assert usb.zweryfikuj(rep.pary)["ok"]
+
+    def test_weryfikacja_konwersji_wykrywa_ucieta(self, lib_usb, tmp_path):
+        from selekta import usb
+        from tests import probka
+        krotki = probka.ton(str(tmp_path / "krotki.wav"), 440.0, sekund=0.3)
+        aiff = str(tmp_path / "x.aiff")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", krotki, aiff], check=True)
+        assert not usb.zweryfikuj([(lib_usb["pliki"][2], aiff)])["ok"]
+
+    def test_set_w_kolejnosci_z_numerami(self, lib_usb, monkeypatch, tmp_path):
+        from selekta import playlists
+        root = tmp_path / "sety"; (root / "piatek").mkdir(parents=True)
+        monkeypatch.setattr(playlists, "root", lambda: str(root))
+        a, b, _w = lib_usb["pliki"]
+        _analiza(a, 130.0, "9A"); _analiza(b, 120.0, "8A")
+        (root / "piatek" / "_selekta.json").write_text(json.dumps({"files": [a, b]}))
+        r = lib_usb["klient"].post("/api/usb", json={"dest": lib_usb["dest"], "name": "piatek"})
+        assert r.status_code == 200, r.text
+        assert sorted(os.listdir(lib_usb["dest"])) == ["01 B - Drugi.mp3", "02 Ae - Lodz.mp3"]

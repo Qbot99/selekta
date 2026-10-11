@@ -2178,16 +2178,84 @@ def api_rekordbox_restore() -> JSONResponse:
     return JSONResponse({"ok": res.ok, "message": res.message})
 
 
-@app.post("/api/usb")
-def api_usb(payload: dict) -> JSONResponse:
-    dest = os.path.expanduser(_field(payload, "dest"))
+def _usb_zrodlo(payload: dict | None) -> tuple[list[str], str, bool]:
+    """(pliki, opis, numeruj): set/playlista, zaznaczenie albo cała biblioteka.
+
+    Wcześniej źródłem był zawsze GŁÓWNY folder biblioteki bez podfolderów —
+    u użytkownika 0 plików. Set i zaznaczenie idą w kolejności harmonicznej
+    z numerami, bo CDJ sortuje folder po nazwie.
+    """
+    dane = payload or {}
+    nazwa = _field(dane, "name")
+    if nazwa:
+        pliki = [f for f in playlists.load_manifest(nazwa) if os.path.isfile(f)]
+        if not pliki:
+            raise HTTPException(404, f"nie znam playlisty „{nazwa}”")
+        return [p for p, _ta, _n in harmonic.order_set(_harmonic_for(pliki))], f"set „{nazwa}”", True
+    if dane.get("files"):
+        pliki, _opis = _zakres({"files": dane.get("files")})
+        return [p for p, _ta, _n in harmonic.order_set(_harmonic_for(pliki))], "zaznaczenie", True
+    return dj_export.pliki_biblioteki(_folder()), "cała biblioteka", False
+
+
+def _usb_parametry(payload: dict | None) -> tuple[str, str | None]:
+    dest = os.path.abspath(os.path.expanduser(_field(payload, "dest"))) if _field(payload, "dest") else ""
     if not dest:
         raise HTTPException(400, "podaj folder docelowy albo pendrive")
-    conv = (payload or {}).get("convert", "aiff")
-    rep = usb.prepare(_folder(), dest, convert_wav=(None if conv == "keep" else conv))
-    return JSONResponse({"copied": len(rep.copied), "converted": len(rep.converted),
-                         "skipped": len(rep.skipped),
-                         "mb": round(rep.total_bytes / 1_000_000)})
+    conv = _field(payload, "convert") or "aiff"
+    if conv not in ("aiff", "flac", "keep"):
+        raise HTTPException(400, "konwersja WAV: wybierz aiff, flac albo keep (bez konwersji)")
+    lib = os.path.abspath(_folder())
+    if os.path.commonpath([dest, lib]) == lib:
+        raise HTTPException(400, "folder docelowy leży w bibliotece — kopie wróciłyby "
+                                 "do niej jako duplikaty „(2)”. Wskaż pendrive albo "
+                                 "folder poza biblioteką.")
+    return dest, (None if conv == "keep" else conv)
+
+
+@app.post("/api/usb/plan")
+def api_usb_plan(payload: dict) -> JSONResponse:
+    """Ile utworów i miejsca — zanim cokolwiek skopiujemy."""
+    pliki, opis, _num = _usb_zrodlo(payload)
+    dest = os.path.abspath(os.path.expanduser(_field(payload, "dest") or "/"))
+    conv = _field(payload, "convert") or "aiff"
+    p = usb.plan(pliki, dest, None if conv == "keep" else conv)
+    return JSONResponse(_clean({
+        **p, "zrodlo": opis,
+        "wav": sum(1 for f in pliki if f.lower().endswith(".wav")),
+        "bez_okladki": sum(1 for f in pliki if covers.embedded_art(f) is None),
+        "mb": round(sum(os.path.getsize(f) for f in pliki) / 1_000_000),
+        "co_powstaje": usb.CO_POWSTAJE,
+    }))
+
+
+@app.post("/api/usb")
+def api_usb(payload: dict) -> JSONResponse:
+    dest, conv = _usb_parametry(payload)
+    pliki, opis, numeruj = _usb_zrodlo(payload)
+    if not pliki:
+        raise HTTPException(400, "nie ma czego kopiować — w źródle nie ma utworów")
+    try:
+        rep = usb.prepare(None, dest, convert_wav=conv, pliki=pliki, numeruj=numeruj)
+    except usb.BrakMiejsca as exc:
+        raise HTTPException(400, exc.strerror or str(exc))
+    except OSError as exc:
+        raise HTTPException(400, f"nie da się zapisać w {dest}: {exc.strerror or exc}")
+    weryf = usb.zweryfikuj(rep.pary)
+    return JSONResponse(_clean({
+        "copied": len(rep.copied), "converted": len(rep.converted),
+        "skipped": len(rep.skipped),
+        "pominiete": [{"plik": n, "powod": r} for n, r in rep.skipped[:20]],
+        "przerwano": rep.przerwano,
+        "mb": round(rep.total_bytes / 1_000_000),
+        "zrodlo": opis, "numerowane": numeruj,
+        "weryfikacja": {"ok": weryf["ok"], "sprawdzonych": weryf["sprawdzonych"],
+                        "zgodne": weryf["zgodne"],
+                        "rozne": [os.path.basename(p) for p in weryf["rozne"]],
+                        "brakujace": [os.path.basename(p) for p in weryf["brakujace"]]},
+        "usuniete_appledouble": rep.usuniete_appledouble,
+        "co_powstaje": usb.CO_POWSTAJE,
+    }))
 
 
 # --------------------------------------------------------------------------
