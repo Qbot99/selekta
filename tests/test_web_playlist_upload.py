@@ -98,3 +98,74 @@ class TestZaufaneFoldery:
         monkeypatch.setattr(folderpick, "choose_folder", anuluj)
         r = client.post("/api/pick", json={"what": "folder"})
         assert r.status_code == 200 and r.json()["cancelled"] is True
+
+
+# --------------------------------------------------------------------------
+# Przegląd 0.4.2: eksport .txt z rekordboxa (UTF-16, tabulatory) → 400,
+# a pełny XML kolekcji wczytywał wszystkie utwory bez wyboru playlisty.
+
+_RB_TXT = ("#\tArtwork\tTrack Title\tArtist\tAlbum\tGenre\tBPM\tRating\tTime\tKey\tDate Added\r\n"
+           "1\t\tGucci\tOdymel\t\tTechno\t146.00\t\t04:34\t8A\t2026-09-01\r\n"
+           "2\t\tHung Up\tMadonna\tConfessions\tPop\t125.00\t\t05:37\t5A\t2026-09-01\r\n")
+
+
+@pytest.mark.parametrize("kodowanie,nazwa", [
+    ("utf-16", "playlista.txt"), ("utf-8", "playlista.txt"), ("utf-8", "playlista.csv")])
+def test_eksport_txt_z_rekordboxa(client, kodowanie, nazwa):
+    r = client.post("/api/playlist/upload",
+                    files={"file": (nazwa, _RB_TXT.encode(kodowanie), "text/plain")})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["counts"]["total"] == 2
+    assert d["auto"][0]["file"] == GOOD_FLAC
+    assert {(x["artist"], x["title"], x["duration"]) for x in d["missing"]} == {
+        ("Madonna", "Hung Up", 337)}
+
+
+_RB_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0"><PRODUCT Name="rekordbox"/>
+<COLLECTION Entries="5">
+  <TRACK TrackID="1" Name="Gucci" Artist="Odymel" TotalTime="274" Location="file://localhost/nie/ma/Odymel%20-%20Gucci.flac"/>
+  <TRACK TrackID="2" Name="Hung Up" Artist="Madonna" TotalTime="337" Location="file://localhost/x/2.flac"/>
+  <TRACK TrackID="3" Name="Sorry" Artist="Madonna" TotalTime="282" Location="file://localhost/x/3.flac"/>
+  <TRACK TrackID="4" Name="Frozen" Artist="Madonna" TotalTime="372" Location="file://localhost/x/4.flac"/>
+  <TRACK TrackID="5" Name="Jump" Artist="Madonna" TotalTime="238" Location="file://localhost/x/5.flac"/>
+</COLLECTION>
+<PLAYLISTS><NODE Type="0" Name="ROOT" Count="2">
+  <NODE Name="Warm-up" Type="1" KeyType="0" Entries="2"><TRACK Key="4"/><TRACK Key="2"/></NODE>
+  <NODE Name="Sety" Type="0" Count="1">
+    <NODE Name="Peak" Type="1" KeyType="0" Entries="1"><TRACK Key="1"/></NODE>
+  </NODE>
+</NODE></PLAYLISTS></DJ_PLAYLISTS>"""
+
+
+def test_pelny_xml_rekordboxa_pyta_o_playliste(client):
+    r = client.post("/api/playlist/upload",
+                    files={"file": ("kolekcja.xml", _RB_XML, "text/xml")})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["wybor_playlisty"] == [{"name": "Warm-up", "count": 2},
+                                    {"name": "Sety / Peak", "count": 1}]
+    assert "auto" not in d
+    r = client.post("/api/playlist/upload", params={"playlista": "Warm-up"},
+                    files={"file": ("kolekcja.xml", _RB_XML, "text/xml")})
+    d = r.json()
+    # kolejność playlisty, nie kolekcji; tylko jej utwory
+    wiersze = d["auto"] + d["resolve"] + d["missing"]
+    assert sorted((x["title"]) for x in wiersze) == ["Frozen", "Hung Up"]
+    assert d["name"] == "Warm-up" and d["counts"]["total"] == 2
+    r = client.post("/api/playlist/upload", params={"playlista": "Sety / Peak"},
+                    files={"file": ("kolekcja.xml", _RB_XML, "text/xml")})
+    assert r.json()["auto"][0]["file"] == GOOD_FLAC
+
+
+def test_xml_z_jedna_playlista_bez_pytania(client, tmp_path):
+    jedna = _RB_XML.replace('<NODE Name="Sety" Type="0" Count="1">', '<!--').replace(
+        '</NODE>\n</NODE></PLAYLISTS>', '--></NODE></PLAYLISTS>')
+    from selekta import localplaylist
+    e = localplaylist.parse_text(jedna, "xml")
+    assert [x.title for x in e] == ["Frozen", "Hung Up"]
+    p = tmp_path / "jedna.xml"
+    p.write_text(_RB_XML, encoding="utf-8")
+    r = client.post("/api/playlist/local", json={"path": str(p), "playlista": "Warm-up"})
+    assert r.status_code == 200 and r.json()["counts"]["total"] == 2

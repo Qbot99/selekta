@@ -665,22 +665,32 @@
     return [...new Set(s)];
   }
 
-  async function wgrajPlik(f, prog){
+  // Pełny XML rekordboxa ma wiele playlist — użytkownik wybiera jedną
+  function pokazWyborPlaylisty(prog, d, wybierz){
+    prog.className = 'postep';
+    prog.innerHTML = `${esc(d.komunikat || '')}<div class="chipy" style="margin-top:10px">${(d.wybor_playlisty||[]).map((p, i) =>
+      `<button class="chip" data-pl="${i}">${esc(p.name)} · ${p.count}</button>`).join('')}</div>`;
+    prog.querySelectorAll('[data-pl]').forEach(b => b.onclick = () => wybierz(d.wybor_playlisty[+b.dataset.pl].name));
+  }
+  async function wgrajPlik(f, prog, playlista){
     if(!f) return;
     const t = T();
     pokazPostep(prog, spin()+esc(fmt(t.reading, {name:f.name})));
     const fd = new FormData(); fd.append('file', f);
     try{
-      const d = await api('/api/playlist/upload', {method:'POST', formData:fd, cicho:true});
+      const url = '/api/playlist/upload' + (playlista ? '?playlista='+encodeURIComponent(playlista) : '');
+      const d = await api(url, {method:'POST', formData:fd, cicho:true});
+      if(d.wybor_playlisty){ pokazWyborPlaylisty(prog, d, nazwa => wgrajPlik(f, prog, nazwa)); return; }
       const zPliku = (d.auto||[]).filter(x => x.from_file).length;
       pokazPostep(prog, esc(fmt(t.loaded, {n:d.counts.total})) + (zPliku ? esc(fmt(t.fromFile, {n:zPliku})) : ''));
       poImporcie(d, d.name);
     }catch(e){ pokazPostep(prog, '✗ '+esc(e.message), 'bad'); }
   }
-  async function wczytajZeSciezki(sciezka, prog){
+  async function wczytajZeSciezki(sciezka, prog, playlista){
     pokazPostep(prog, spin()+esc(T().readingDisk));
     try{
-      const d = await api('/api/playlist/local', {method:'POST', body:{path:sciezka}, cicho:true});
+      const d = await api('/api/playlist/local', {method:'POST', body:{path:sciezka, playlista:playlista||''}, cicho:true});
+      if(d.wybor_playlisty){ pokazWyborPlaylisty(prog, d, nazwa => wczytajZeSciezki(sciezka, prog, nazwa)); return; }
       poImporcie(d, d.name);
     }catch(e){ pokazPostep(prog, '✗ '+esc(e.message), 'bad'); }
   }

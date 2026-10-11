@@ -459,6 +459,13 @@ async function impWykonaj(host, zapytanie, etykieta){
   try{
     IMP.mapa = mapaTracks(await S.tracks().catch(()=>[]));
     const d = await zapytanie();
+    if(d.wybor_playlisty){
+      // pełny XML rekordboxa: kilka playlist — wybór jednej
+      IMP.dane = null; impZrodlo(host, etykieta, K.warn);
+      lista.innerHTML = `<div class="pusto">${esc(d.komunikat||'')}<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:12px">${d.wybor_playlisty.map((p, i) => `<button class="btn mini" data-pl="${i}">${esc(p.name)} · ${p.count}</button>`).join('')}</div></div>`;
+      lista.querySelectorAll('[data-pl]').forEach(b => b.onclick = () => impZPliku(host, IMP.plik, d.wybor_playlisty[+b.dataset.pl].name));
+      return;
+    }
     IMP.dane = impPrzygotuj(d);
     IMP.nazwa = d.name || `${(ORIGIN(d.origin)||'import').toLowerCase()} ${dzis()}`;
     const zr = IMP.dane.counts.zrodlo;
@@ -475,11 +482,13 @@ function impRozpoznaj(host){
   if(!text){ toast('Najpierw wklej link playlisty albo tracklistę.', 'warn'); ta.focus(); return; }
   return impWykonaj(host, () => api('/api/import', {method:'POST', body:{text}, cicho:true}), wykryjZrodlo(text));
 }
-function impZPliku(host, f){
+function impZPliku(host, f, playlista){
   if(!f) return;
+  IMP.plik = f;
   const fd = new FormData(); fd.append('file', f);
   $('#impTekst', host).value = f.name;
-  return impWykonaj(host, () => api('/api/playlist/upload', {method:'POST', formData:fd, cicho:true}), `PLIK · ${f.name.split('.').pop().toUpperCase()}`);
+  const url = '/api/playlist/upload' + (playlista ? '?playlista='+encodeURIComponent(playlista) : '');
+  return impWykonaj(host, () => api(url, {method:'POST', formData:fd, cicho:true}), `PLIK · ${f.name.split('.').pop().toUpperCase()}`);
 }
 
 S.ekran('import', {

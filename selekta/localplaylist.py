@@ -146,20 +146,93 @@ def _from_pls(text: str, base_dir: str) -> list[Entry]:
     return out
 
 
-def _from_rekordbox_xml(text: str, base_dir: str) -> list[Entry]:
-    root = ET.fromstring(text)
+class WyborPlaylisty(Exception):
+    """XML rekordboxa ma kilka playlist — trzeba wskazać, którą wziąć.
+
+    Typowy eksport „Export Collection in xml format" to CAŁA kolekcja plus
+    drzewo playlist; dawniej wciągaliśmy całą kolekcję jako jedną playlistę
+    w kolejności kolekcji, a węzeł PLAYLISTS był ignorowany.
+    """
+
+    def __init__(self, playlisty: list[dict]):
+        super().__init__("wybierz playlistę z pliku rekordboxa")
+        self.playlisty = playlisty
+
+
+def _rb_entry(t: ET.Element, base_dir: str) -> Entry:
+    total = t.get("TotalTime")
+    try:
+        dur = float(total) if total else None
+    except ValueError:
+        dur = None
+    return Entry(t.get("Artist", "") or "", t.get("Name", "") or "",
+                 dur, _resolve(t.get("Location") or "", base_dir))
+
+
+def _rb_playlists(root: ET.Element) -> list[tuple[str, list[ET.Element]]]:
+    """(ścieżka „Folder / Nazwa", wpisy TRACK) dla każdej playlisty."""
     out = []
-    for t in root.iter("TRACK"):
+    pl = root.find("PLAYLISTS")
+    if pl is None:
+        return out
+
+    def walk(node: ET.Element, prefix: str) -> None:
+        for child in node.findall("NODE"):
+            name = child.get("Name") or ""
+            sciezka = f"{prefix} / {name}" if prefix else name
+            if child.get("Type") == "1":
+                out.append((sciezka, child.findall("TRACK")))
+            else:
+                walk(child, sciezka if name and name.upper() != "ROOT" else prefix)
+
+    walk(pl, "")
+    return out
+
+
+def rekordbox_playlists(text: str) -> list[dict]:
+    """Playlisty w XML rekordboxa: [{name, count}] (puste pomijamy)."""
+    root = ET.fromstring(text)
+    return [{"name": n, "count": len(t)} for n, t in _rb_playlists(root) if t]
+
+
+def _from_rekordbox_xml(text: str, base_dir: str,
+                        playlista: str | None = None) -> list[Entry]:
+    root = ET.fromstring(text)
+    kolekcja: dict[str, ET.Element] = {}
+    po_lokacji: dict[str, ET.Element] = {}
+    lista = []
+    col = root.find("COLLECTION")
+    zrodlo = col.iter("TRACK") if col is not None else root.iter("TRACK")
+    for t in zrodlo:
         loc = t.get("Location")
         if loc is None and t.get("Key") is not None:
             continue                      # wpis playlisty, nie definicja utworu
-        total = t.get("TotalTime")
-        try:
-            dur = float(total) if total else None
-        except ValueError:
-            dur = None
-        out.append(Entry(t.get("Artist", "") or "", t.get("Name", "") or "",
-                         dur, _resolve(loc or "", base_dir)))
+        lista.append(t)
+        if t.get("TrackID"):
+            kolekcja[t.get("TrackID")] = t
+        if loc:
+            po_lokacji[loc] = t
+
+    playlisty = [(n, tr) for n, tr in _rb_playlists(root) if tr]
+    if playlista:
+        wybrane = [tr for n, tr in playlisty if n == playlista]
+        if not wybrane:
+            raise ValueError(f"w pliku nie ma playlisty „{playlista}”")
+    elif len(playlisty) == 1:
+        wybrane = [playlisty[0][1]]           # eksport jednej playlisty
+    elif len(playlisty) > 1:
+        raise WyborPlaylisty([{"name": n, "count": len(tr)} for n, tr in playlisty])
+    else:
+        wybrane = []
+    if not wybrane:
+        return [_rb_entry(t, base_dir) for t in lista]   # sama kolekcja
+
+    out = []
+    for wpis in wybrane[0]:
+        key = wpis.get("Key") or ""
+        t = po_lokacji.get(key) if wpis.get("KeyType") == "1" else kolekcja.get(key)
+        if t is not None:
+            out.append(_rb_entry(t, base_dir))
     return out
 
 
@@ -186,7 +259,8 @@ def _from_traktor_nml(text: str, base_dir: str) -> list[Entry]:
 
 
 _ARTIST_COLS = ("artist", "artysta", "author", "wykonawca", "artist name")
-_TITLE_COLS = ("title", "name", "tytuł", "tytul", "track", "track name", "song")
+_TITLE_COLS = ("title", "name", "tytuł", "tytul", "track", "track name", "song",
+               "track title")             # eksport .txt z rekordboxa
 _TIME_COLS = ("time", "duration", "length", "czas", "total time")
 
 
@@ -250,18 +324,54 @@ def _clock(value: str) -> float | None:
         return None
 
 
-def parse_text(text: str, kind: str, base_dir: str = "") -> list[Entry]:
+def decode(raw: bytes) -> str:
+    """Bajty pliku playlisty → tekst.
+
+    rekordbox zapisuje eksport .txt w UTF-16 (z BOM) — dekodowanie jako
+    UTF-8 dawało krzaki i „nie znalazłem utworów". Obsługujemy BOM-y UTF-8,
+    UTF-16 LE/BE i UTF-16 bez BOM (dużo bajtów zerowych).
+    """
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return raw[3:].decode("utf-8", errors="replace")
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16", errors="replace")
+    probka = raw[:2000]
+    if probka and probka.count(b"\x00") > len(probka) // 4:
+        parzyste = probka[0::2].count(b"\x00")
+        return raw.decode("utf-16-be" if parzyste > len(probka) // 4 else "utf-16-le",
+                          errors="replace")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("cp1250", errors="replace")
+
+
+def _wyglada_na_tabele(text: str) -> bool:
+    """Czy pierwszy wiersz to nagłówek kolumn (rekordbox .txt, arkusz)."""
+    pierwsza = text.lstrip("\ufeff").splitlines()[0] if text.strip() else ""
+    if "\t" not in pierwsza and "," not in pierwsza and ";" not in pierwsza:
+        return False
+    kolumny = {c.strip().strip('"').lower() for c in re.split(r"[\t,;|]", pierwsza)}
+    return bool(kolumny & set(_TITLE_COLS)) and bool(kolumny & set(_ARTIST_COLS))
+
+
+def parse_text(text: str, kind: str, base_dir: str = "",
+               playlista: str | None = None) -> list[Entry]:
     """Rozbierz zawartość playlisty znanego typu."""
     kind = kind.lower().lstrip(".")
+    text = text.lstrip("\ufeff")
     if kind in ("m3u", "m3u8"):
         return _from_m3u(text, base_dir)
     if kind == "pls":
         return _from_pls(text, base_dir)
     if kind == "xml":
-        return _from_rekordbox_xml(text, base_dir)
+        return _from_rekordbox_xml(text, base_dir, playlista)
     if kind == "nml":
         return _from_traktor_nml(text, base_dir)
-    if kind == "csv":
+    if kind == "csv" or (kind == "txt" and _wyglada_na_tabele(text)):
+        # eksport playlisty z rekordboxa to .txt z tabulatorami i nagłówkiem
+        # „#  Artwork  Track Title  Artist …" — dawniej szedł do parsera
+        # „Artysta - Tytuł" i kończył się 400
         return _from_csv(text)
     from selekta.importers import from_text
     return [Entry(t.artist, t.title, t.duration_s) for t in from_text(text)]
@@ -286,13 +396,14 @@ def sniff(text: str, filename: str = "") -> str:
     return "txt"
 
 
-def from_file(path: str) -> Parsed:
+def from_file(path: str, playlista: str | None = None) -> Parsed:
     """Wczytaj playlistę z pliku na dysku."""
     with open(path, "rb") as fh:
         raw = fh.read()
-    text = raw.decode("utf-8", errors="replace")
+    text = decode(raw)
     kind = sniff(text, path)
-    entries = parse_text(text, kind, base_dir=os.path.dirname(os.path.abspath(path)))
+    entries = parse_text(text, kind, base_dir=os.path.dirname(os.path.abspath(path)),
+                         playlista=playlista)
     return Parsed(entries, kind, os.path.splitext(os.path.basename(path))[0])
 
 

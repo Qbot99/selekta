@@ -993,22 +993,36 @@ def api_pick(payload: dict) -> JSONResponse:
                          "name": os.path.basename(path)})
 
 
+def _wybor_playlisty(exc: "localplaylist.WyborPlaylisty", nazwa: str) -> JSONResponse:
+    """Plik ma kilka playlist (pełny XML rekordboxa) — oddaj listę do wyboru."""
+    return JSONResponse({"name": nazwa, "wybor_playlisty": exc.playlisty,
+                         "komunikat": "Ten plik rekordboxa zawiera kilka playlist — "
+                                      "wybierz, którą wczytać."})
+
+
 @app.post("/api/playlist/upload")
-async def api_playlist_upload(file: UploadFile = File(...)) -> JSONResponse:
+async def api_playlist_upload(file: UploadFile = File(...),
+                              playlista: str = Query("")) -> JSONResponse:
     """Playlista wgrana z komputera: M3U/M3U8, PLS, XML rekordboxa,
-    NML Traktora, CSV z Serato albo zwykła tracklista."""
+    NML Traktora, CSV z Serato, eksport .txt z rekordboxa albo zwykła
+    tracklista. Przy pełnym XML rekordboxa bez `playlista` zwraca listę
+    playlist do wyboru (`wybor_playlisty`)."""
     raw = await file.read(MAX_PLAYLIST_BYTES + 1)
     if len(raw) > MAX_PLAYLIST_BYTES:
         raise HTTPException(400, "plik playlisty jest za duży (limit 8 MB)")
-    if not raw.strip():
+    if not raw.strip(b" \t\r\n\x00\xff\xfe\xef\xbb\xbf"):
         raise HTTPException(400, "plik playlisty jest pusty")
-    text = raw.decode("utf-8", errors="replace")
+    text = localplaylist.decode(raw)
     nazwa = os.path.splitext(os.path.basename(file.filename or "playlista"))[0]
     kind = localplaylist.sniff(text, file.filename or "")
     try:
-        entries = localplaylist.parse_text(text, kind)
+        entries = localplaylist.parse_text(text, kind, playlista=playlista or None)
+    except localplaylist.WyborPlaylisty as exc:
+        return _wybor_playlisty(exc, nazwa)
     except Exception as exc:  # noqa: BLE001 — komunikat trafia do interfejsu
         raise HTTPException(400, f"nie udało się odczytać playlisty ({kind}): {exc}")
+    if playlista:
+        nazwa = playlista.split(" / ")[-1]
     if not entries:
         raise HTTPException(400, "nie znalazłem utworów w tym pliku")
     return JSONResponse(_clean(_lanes_from_entries(entries, f"plik:{kind}", nazwa)))
@@ -1026,17 +1040,22 @@ def api_playlist_local(payload: dict) -> JSONResponse:
     if not path:
         raise HTTPException(400, "podaj ścieżkę do playlisty albo folderu")
     path = os.path.abspath(path)
+    wybor = _field(payload, "playlista") or None
     try:
         if os.path.isdir(path):
             parsed = localplaylist.from_folder(path)
         elif os.path.isfile(path):
             if os.path.getsize(path) > MAX_PLAYLIST_BYTES:
                 raise HTTPException(400, "plik playlisty jest za duży (limit 8 MB)")
-            parsed = localplaylist.from_file(path)
+            parsed = localplaylist.from_file(path, playlista=wybor)
+            if wybor:
+                parsed.name = wybor.split(" / ")[-1]
         else:
             raise HTTPException(404, f"nie ma takiej ścieżki: {path}")
     except HTTPException:
         raise
+    except localplaylist.WyborPlaylisty as exc:
+        return _wybor_playlisty(exc, os.path.splitext(os.path.basename(path))[0])
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(400, f"nie udało się odczytać playlisty: {exc}")
     if not parsed.entries:
