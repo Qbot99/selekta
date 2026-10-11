@@ -510,7 +510,13 @@ def api_queue_cancel() -> JSONResponse:
 def api_status() -> JSONResponse:
     """Lekki stan połączenia — pod kropkę w rogu, odpytywany co kilka sekund."""
     client = SlskdClient()
-    if not client.available():
+    stan = client.stan_api()
+    if stan == "klucz":
+        return JSONResponse({"level": "red", "label": "slskd: zły klucz API",
+                             "hint": "slskd działa, ale nie przyjmuje klucza selekty. "
+                                     "Ustawienia → Soulseek → „Wykryj automatycznie”.",
+                             "wersja": _wersja_pakietu()})
+    if stan != "ok":
         return JSONResponse({"level": "red", "label": "slskd nie działa",
                              "hint": "Uruchom slskd w zakładce Ustawienia.",
                              "wersja": _wersja_pakietu()})
@@ -1070,12 +1076,18 @@ def api_setup_stan() -> JSONResponse:
     utworow = len(matcher.audio_files(folder)) if ma_folder else 0
 
     binarka = slskd_ctl.find_binary()
-    dziala = slskd_ctl.is_running()
     klucz = bool(config.get("slskd_api_key"))
     yml = slskd_ctl.find_config()
     konto = instalator.konto_ustawione(yml) if yml else False
     client = SlskdClient()
-    polaczony = client.logged_in() if (dziala and klucz) else False
+    # O stanie decyduje to, co odpowiada API, a nie tylko znane ścieżki
+    # i pgrep: slskd w Dockerze, z innego HOME albo z kontem wpisanym
+    # w jego panelu też działa — kreator nie może wtedy proponować
+    # pobrania 55 MB ani pisać „połączony” przy niezrobionym kroku.
+    api = client.stan_api()
+    dziala = api != "brak" or slskd_ctl.is_running()
+    zly_klucz = api == "klucz"
+    polaczony = client.logged_in() if api == "ok" else False
 
     kroki = [
         {"id": "folder", "tytul": "Folder z muzyką",
@@ -1084,28 +1096,31 @@ def api_setup_stan() -> JSONResponse:
                   else "wskaż katalog, w którym trzymasz muzykę"),
          "akcja": "wybierz-folder"},
         {"id": "slskd", "tytul": "Program do pobierania (slskd)",
-         "gotowe": bool(binarka),
-         "opis": (f"zainstalowany" if binarka
+         "gotowe": bool(binarka) or dziala,
+         "opis": ("zainstalowany" if binarka
+                  else "działa (zainstalowany poza folderami, które znam)" if dziala
                   else "pobiorę go automatycznie, ok. 55 MB"),
-         "akcja": None if binarka else "instaluj-slskd"},
+         "akcja": None if (binarka or dziala) else "instaluj-slskd"},
         {"id": "konfiguracja", "tytul": "Konfiguracja i klucz dostępu",
-         "gotowe": klucz,
-         "opis": ("gotowa" if klucz
+         "gotowe": klucz and not zly_klucz,
+         "opis": ("slskd działa, ale odrzuca zapisany klucz — ustawię go ponownie"
+                  if klucz and zly_klucz else "gotowa" if klucz
                   else "wygeneruję klucz i ustawię katalogi pobierania"),
-         "akcja": None if klucz else "konfiguruj"},
+         "akcja": None if (klucz and not zly_klucz) else "konfiguruj"},
         {"id": "konto", "tytul": "Konto Soulseek",
-         "gotowe": konto and polaczony,
+         # zalogowany slskd = konto działa, niezależnie od tego, gdzie je wpisano
+         "gotowe": polaczony,
          "opis": ("połączony z siecią Soulseek" if polaczony
                   else "zapisane, ale bez połączenia — sprawdź dane"
                   if konto else
                   "podaj swój login i hasło; nie ma rejestracji — konto "
                   "powstaje przy pierwszym logowaniu"),
-         "akcja": None if (konto and polaczony) else "podaj-konto"},
+         "akcja": None if polaczony else "podaj-konto"},
         {"id": "uruchomiony", "tytul": "Wszystko działa",
-         "gotowe": dziala and polaczony,
-         "opis": ("slskd działa i jest połączony" if (dziala and polaczony)
+         "gotowe": polaczony,
+         "opis": ("slskd działa i jest połączony" if polaczony
                   else "uruchomię i sprawdzę połączenie"),
-         "akcja": None if (dziala and polaczony) else "uruchom-slskd"},
+         "akcja": None if polaczony else "uruchom-slskd"},
     ]
     zostalo = [k for k in kroki if not k["gotowe"]]
     return JSONResponse(_clean({
@@ -1113,7 +1128,20 @@ def api_setup_stan() -> JSONResponse:
         "krokow": len(kroki), "zrobionych": len(kroki) - len(zostalo),
         "nastepny": zostalo[0]["id"] if zostalo else None,
         "kroki": kroki,
+        "pominiety": bool(config.load().get("kreator_pominiety")),
     }))
+
+
+@app.post("/api/setup/pomin")
+def api_setup_pomin(payload: dict | None = None) -> JSONResponse:
+    """Zapamiętaj „Pomiń konfigurację” — kreator nie wraca przy każdym starcie.
+
+    Pamiętamy w config.json, nie w przeglądarce: apka wybiera wolny port,
+    więc pamięć karty (localStorage) potrafi zniknąć między uruchomieniami.
+    """
+    pominiety = bool((payload or {}).get("pominiety", True))
+    config.save({"kreator_pominiety": pominiety})
+    return JSONResponse({"ok": True, "pominiety": pominiety})
 
 
 @app.post("/api/setup/instaluj")
@@ -1200,7 +1228,12 @@ def api_setup_konto(payload: dict) -> JSONResponse:
 def api_setup_polaczenie() -> JSONResponse:
     """Czy slskd zalogował się do sieci Soulseek."""
     client = SlskdClient()
-    if not client.available():
+    stan = client.stan_api()
+    if stan == "klucz":
+        return JSONResponse({"stan": "zly-klucz",
+                             "opis": "slskd działa, ale odrzuca klucz API selekty — "
+                                     "Ustawienia → Soulseek → „Wykryj automatycznie”"})
+    if stan != "ok":
         return JSONResponse({"stan": "brak-slskd",
                              "opis": "slskd nie odpowiada"})
     if client.logged_in():

@@ -707,8 +707,9 @@
       try{
         const d = await api('/api/setup/polaczenie', {cicho: true});
         if(d.stan === 'polaczony') return 'połączono z siecią Soulseek';
+        if(d.stan === 'zly-klucz') throw Object.assign(new Error(d.opis), {staly: true});   // czekanie nic nie da
         if(d.stan === 'niezalogowany' && i > 12) throw new Error(d.opis);
-      }catch(e){ if(i > 12) throw e; }
+      }catch(e){ if(e.staly || i > 12) throw e; }
     }
     throw new Error('nie udało się połączyć — sprawdź login i hasło');
   }
@@ -844,7 +845,10 @@
         </div>
       </div></div>`;
     $('#zanimAuto', host).onclick = zanimAuto;
-    $('#zanimPomin', host).onclick = zanimZakoncz;
+    $('#zanimPomin', host).onclick = async () => {
+      try{ await api('/api/setup/pomin', {method: 'POST', body: {pominiety: true}, cicho: true}); }catch(e){}
+      zanimZakoncz();
+    };
     on(host, 'click', '.w-krok button[data-i]', (e, b) => zanimWykonaj(+b.dataset.i));
   }
   async function zanimLaduj(host){

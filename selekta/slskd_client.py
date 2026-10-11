@@ -280,6 +280,24 @@ class SlskdClient:
         except requests.RequestException:
             return False
 
+    def stan_api(self) -> str:
+        """Dlaczego API (nie) działa: "ok" | "klucz" | "brak" | "blad".
+
+        available() zlewa w jedno „nie działa” dwie różne sytuacje: slskd
+        wyłączony i slskd działający, ale odrzucający nasz klucz (401/403).
+        Użytkownik dostawał wtedy „Uruchom slskd” i szukał problemu w złym
+        miejscu — dokładnie po nadpisaniu slskd.yml innym kluczem.
+        """
+        try:
+            r = requests.get(f"{self.base}/api/v0/session", headers=self.headers, timeout=5)
+        except requests.RequestException:
+            return "brak"
+        if r.ok:
+            return "ok"
+        if r.status_code in (401, 403):
+            return "klucz"
+        return "blad"
+
     def logged_in(self) -> bool:
         """Czy slskd jest zalogowany do sieci Soulseek."""
         try:

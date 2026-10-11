@@ -23,6 +23,8 @@ DEFAULTS: dict[str, Any] = {
     "library_folder": "",
     "slskd_binary": "",
     "downloads_root": "~/Music/selekta",
+    # „Pomiń konfigurację” w kreatorze — pamiętane, żeby nie wracał przy każdym starcie
+    "kreator_pominiety": False,
 }
 
 # klucze, których wartości nigdy nie pokazujemy w całości w UI/logach
