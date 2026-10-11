@@ -684,3 +684,113 @@ class TestDrobneEksportu:
         assert dj_export._wolumin("/Volumes/DJ USB/Muzyka/a.mp3") == "/Volumes/DJ USB"
         assert dj_export._wolumin("/Users/x/a.mp3") is None
 
+
+# ---------------------------------------------------------------------------
+# #99 #25 — kolejność setu: bez serii zgrzytów na końcu, tempo narasta
+# ---------------------------------------------------------------------------
+
+# BPM i Camelot setu speeding (51 utworów) z analizy w piaskownicy przeglądu
+SPEEDING = [
+    (128, "7B"), (129, "1A"), (130, "7B"), (135, "5A"), (135, "7A"), (137, "1A"),
+    (137, "5A"), (138, "12B"), (138, "5A"), (140, "10A"), (140, "2B"), (140, "3A"),
+    (144, "10A"), (144, "8A"), (145, "6B"), (146, "6A"), (146, "8A"), (147, "8B"),
+    (147, "9A"), (148, "12B"), (148, "2A"), (148, "8A"), (150, "10A"), (150, "12A"),
+    (150, "1A"), (150, "2A"), (150, "2B"), (150, "2B"), (150, "8A"), (150, "8A"),
+    (150, "8A"), (150, "8A"), (150, "8A"), (152, "10A"), (152, "1A"), (152, "8A"),
+    (154, "9A"), (155, "12A"), (155, "1A"), (155, "3A"), (155, "3A"), (155, "5B"),
+    (155, "7A"), (155, "7B"), (155, "8A"), (155, "8A"), (155, "8B"), (165, "10A"),
+    (165, "10A"), (165, "5A"), (174, "3A")]
+
+
+def _zgodne(c1, c2):
+    n1, l1, n2, l2 = int(c1[:-1]), c1[-1], int(c2[:-1]), c2[-1]
+    d = min(abs(n1 - n2), 12 - abs(n1 - n2))
+    return (l1 == l2 and d <= 1) or (d == 0 and l1 != l2)
+
+
+def _spearman(x):
+    """Korelacja rang pozycji i wartości (remisy = średnia ranga)."""
+    n = len(x)
+    order = sorted(range(n), key=lambda i: x[i])
+    rangi = [0.0] * n
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and x[order[j + 1]] == x[order[i]]:
+            j += 1
+        for k in range(i, j + 1):
+            rangi[order[k]] = (i + j) / 2
+        i = j + 1
+    m = (n - 1) / 2
+    cov = sum((p - m) * (r - m) for p, r in enumerate(rangi))
+    vp = sum((p - m) ** 2 for p in range(n))
+    vr = sum((r - m) ** 2 for r in rangi)
+    return cov / (vp * vr) ** 0.5
+
+
+def _ta(bpm, cam):
+    from selekta import harmonic
+    return harmonic.TrackAnalysis(float(bpm), "", cam, 0.9, 0.9)
+
+
+class TestKolejnoscSetu:
+    @pytest.mark.parametrize("tasuj", [False, True])
+    def test_speeding_bez_zgrzytow_na_koncu_i_bez_duzych_spadkow(self, tasuj):
+        import random
+        from selekta import harmonic
+        items = [(f"{i:02d}.mp3", _ta(b, c)) for i, (b, c) in enumerate(SPEEDING)]
+        if tasuj:
+            random.Random(7).shuffle(items)
+        out = harmonic.order_set(items)
+        tas = [ta for _n, ta, _x in out]
+        assert sorted(n for n, _t, _x in out) == sorted(n for n, _t in items)
+        zg = [_zgodne(a.camelot, b.camelot) for a, b in zip(tas, tas[1:])]
+        spadki = [a.bpm - b.bpm for a, b in zip(tas, tas[1:])]
+        # przed: 5 niezgodnych w ostatnich 10 przejściach, zejście 150→129
+        # (pojedynczy spadek 10 BPM), suma zejść 57 BPM, korelacja 0,66
+        assert zg[-10:].count(False) <= 3, "końcówka setu pełna zgrzytów"
+        serie, biez = [], 0
+        for z in zg:
+            biez = 0 if z else biez + 1
+            serie.append(biez)
+        assert max(serie) <= 3
+        assert max(spadki) <= 5, f"duży spadek tempa w środku setu: {max(spadki)} BPM"
+        assert sum(x for x in spadki if x > 0) <= 35
+        assert tas[0].bpm == 128 and tas[-1].bpm == 174
+        assert _spearman([t.bpm for t in tas]) >= 0.8, "tempo ma narastać"
+        assert sum(zg) / len(zg) >= 0.74            # przed: 76 % (kosztem zjazdu 150→129)
+
+    def test_kolo_12a_przy_stalym_tempie_same_zgodne(self):
+        from selekta import harmonic
+        items = [(f"{n}A", _ta(128, f"{n}A")) for n in (5, 9, 1, 12, 3, 7, 2, 11, 4, 8, 6, 10)]
+        tas = [ta for _n, ta, _x in harmonic.order_set(items)]
+        assert all(_zgodne(a.camelot, b.camelot) for a, b in zip(tas, tas[1:]))
+
+    def test_male_zestawy_blisko_optimum_funkcji_celu(self):
+        """Pełny przegląd permutacji (start = najniższe BPM) na 30 losowych
+        zestawach po 7 utworów — algorytm ma trafiać w optimum."""
+        import itertools
+        import random
+        from selekta import harmonic
+        rng = random.Random(99)
+        trafione = 0
+        for _ in range(30):
+            items = [(str(i), _ta(rng.choice(range(124, 150)),
+                                  f"{rng.randint(1, 12)}{rng.choice('AB')}"))
+                     for i in range(7)]
+            u = harmonic._Uklad([t for _n, t in items])
+            pierwszy = min(range(7), key=lambda i: items[i][1].bpm)
+            opt = min(u.cel([pierwszy, *p]) for p in itertools.permutations(
+                [i for i in range(7) if i != pierwszy]))
+            idx = {n: i for i, (n, _t) in enumerate(items)}
+            wynik = u.cel([idx[n] for n, _t, _x in harmonic.order_set(items)])
+            assert wynik <= opt * 1.05 + 1e-9
+            trafione += abs(wynik - opt) < 1e-9
+        assert trafione >= 27
+
+    def test_ta_sama_kolejnosc_przy_kazdym_wywolaniu(self):
+        from selekta import harmonic
+        items = [(f"{i:02d}", _ta(b, c)) for i, (b, c) in enumerate(SPEEDING)]
+        a = [n for n, _t, _x in harmonic.order_set(items)]
+        b = [n for n, _t, _x in harmonic.order_set(list(items))]
+        assert a == b, "ekran i eksport muszą dostać ten sam set"
