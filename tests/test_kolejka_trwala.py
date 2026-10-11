@@ -12,6 +12,7 @@ import os
 import pytest
 
 from selekta import dlqueue
+from selekta.slskd_client import SearchHit, SlskdClient
 
 
 @pytest.fixture
@@ -168,11 +169,20 @@ class _KlientPustek:
 
     def search_track(self, artist, title, duration=None):
         hits = self.scenariusz.pop(0) if self.scenariusz else []
+        if hits == "trafienie":           # wynik pasujący do szukanego utworu
+            hits = [_hit(f"X\\Y\\{artist} - {title}.flac")]
         self._empty_streak = 0 if hits else self._empty_streak + 1
         return hits
 
+    # prawdziwa bramka tożsamości (nie używa sieci ani stanu klienta)
+    pewny_wynik = SlskdClient.pewny_wynik
+
     def download(self, hit):
         self.pobrane.append(hit.filename)
+
+
+def _hit(sciezka, dlugosc=None, user="u"):
+    return SearchHit(user, sciezka, 30_000_000, None, dlugosc, True, True)
 
 
 class TestPustkiSerwera:
@@ -187,10 +197,8 @@ class TestPustkiSerwera:
         return kolejka
 
     def test_seria_pustek_nie_uwala_kolejnych_utworow(self, kolejka, monkeypatch):
-        from types import SimpleNamespace
-        hit = SimpleNamespace(filename="X\\Y\\Dido - Thank You.flac")
         # 5 pustek (serwer chwilowo głuchy), potem wszystko wraca do normy
-        klient = _KlientPustek([[], [], [], [], []] + [[hit]] * 6)
+        klient = _KlientPustek([[], [], [], [], []] + ["trafienie"] * 6)
         q = self._kolejka_z_klientem(kolejka, monkeypatch, klient)
         q.add([{"artist": f"A{i}", "title": f"T{i}"} for i in range(6)])
         q._run()
@@ -209,12 +217,109 @@ class TestPustkiSerwera:
         assert not klient.scenariusz, "drugie podejście ma się odbyć"
 
     def test_pojedyncza_pustka_idzie_na_koniec_kolejki(self, kolejka, monkeypatch):
-        from types import SimpleNamespace
-        hit = SimpleNamespace(filename="a/b/c.flac")
         # pierwszy utwór: pustka, drugi: trafienie, potem pierwszy jeszcze raz: trafienie
-        klient = _KlientPustek([[], [hit], [hit]])
+        klient = _KlientPustek([[], "trafienie", "trafienie"])
         q = self._kolejka_z_klientem(kolejka, monkeypatch, klient)
         q.add([{"artist": "A", "title": "pierwszy"}, {"artist": "B", "title": "drugi"}])
         q._run()
         assert [j.title for j in q._jobs] == ["drugi", "pierwszy"], "pustka wędruje na koniec"
         assert all(j.status == "queued" for j in q._jobs)
+
+
+class TestBramkaTozsamosci:
+    """Automat kolejki pobiera tylko plik, który JEST tym utworem."""
+
+    def test_cudzy_plik_nie_jest_pobierany(self, kolejka, monkeypatch):
+        cudzy = _hit("Muzyka\\Rick Astley - Never Gonna Give You Up.flac", 213)
+        wlasciwy = _hit("Muzyka\\Madonna - Hung Up.mp3", 337, user="v")
+        klient = _KlientPustek([[cudzy, wlasciwy]])
+        monkeypatch.setattr(dlqueue, "SlskdClient", lambda: klient)
+        kolejka.add([{"artist": "Madonna", "title": "Hung Up", "duration": 337.7}])
+        kolejka._run()
+        job = kolejka._jobs[0]
+        assert klient.pobrane == ["Muzyka\\Madonna - Hung Up.mp3"]
+        assert (job.status, job.user, job.path) == ("queued", "v", "Muzyka\\Madonna - Hung Up.mp3")
+
+    def test_same_cudze_wyniki_to_nieudane_z_powodem(self, kolejka, monkeypatch):
+        klient = _KlientPustek([[_hit("x\\Linds - Kick It.wav", 258)]])
+        monkeypatch.setattr(dlqueue, "SlskdClient", lambda: klient)
+        kolejka.add([{"artist": "Michael Jackson", "title": "Beat It", "duration": 258}])
+        kolejka._run()
+        job = kolejka._jobs[0]
+        assert klient.pobrane == []
+        assert job.status == "failed" and "ręcznie" in job.detail
+
+
+class TestZleconeDostajaKoniec:
+    """Regresja z przeglądu 0.4.2: „zlecone" nigdy nie przechodziło w
+    „done" — nie dało się dodać utworu ponownie ani wyczyścić kolejki."""
+
+    def _zlecone(self, kolejka, **kw):
+        kolejka.add([{"artist": "Madonna", "title": "Hung Up"}])
+        job = kolejka._jobs[0]
+        job.status, job.file = "queued", "Hung Up.flac"
+        job.user, job.path = kw.get("user", "u"), kw.get("path", "M\\Hung Up.flac")
+        job.queued_at = kw.get("queued_at", 1.0)
+        return job
+
+    def test_udany_transfer_konczy_zadanie(self, kolejka):
+        job = self._zlecone(kolejka)
+        assert kolejka.uzgodnij([{"user": "u", "path": "M\\Hung Up.flac",
+                                  "name": "Hung Up.flac", "status": "done"}]) == 1
+        assert job.status == "done"
+        assert kolejka.clear_finished() == 1 and kolejka._jobs == []
+
+    def test_nieudany_transfer_pozwala_dodac_ponownie(self, kolejka):
+        job = self._zlecone(kolejka)
+        assert kolejka.add([{"artist": "Madonna", "title": "Hung Up"}]) == 0
+        kolejka.uzgodnij([{"user": "u", "path": "M\\Hung Up.flac", "name": "Hung Up.flac",
+                           "status": "failed", "state_raw": "Completed, Rejected"}])
+        assert job.status == "failed" and "Rejected" in job.detail
+        assert kolejka.add([{"artist": "Madonna", "title": "Hung Up"}]) == 1
+
+    def test_trwajacy_transfer_zostaje_zlecony(self, kolejka):
+        job = self._zlecone(kolejka)
+        kolejka.uzgodnij([{"user": "u", "path": "M\\Hung Up.flac", "name": "Hung Up.flac",
+                           "status": "active", "percent": 42.0}])
+        assert job.status == "queued" and "42" in job.detail
+
+    def test_plik_na_dysku_konczy_zadanie(self, kolejka, tmp_path):
+        job = self._zlecone(kolejka)
+        (tmp_path / "Madonna").mkdir()
+        (tmp_path / "Madonna" / "Hung Up.flac").write_bytes(b"x")
+        kolejka.uzgodnij([], [str(tmp_path)])
+        assert job.status == "done"
+
+    def test_zagubiony_transfer_po_czasie_to_nieudane(self, kolejka):
+        import time as _t
+        job = self._zlecone(kolejka, queued_at=_t.time())
+        kolejka.uzgodnij([])
+        assert job.status == "queued", "świeże zlecenie — slskd mógł jeszcze nie pokazać"
+        job.queued_at = _t.time() - dlqueue.ZNIKNIETE_PO_S - 1
+        kolejka.uzgodnij([])
+        assert job.status == "failed"
+
+    def test_slskd_nie_odpowiada_nic_nie_przesadza(self, kolejka):
+        job = self._zlecone(kolejka, queued_at=1.0)
+        kolejka.uzgodnij(None)
+        assert job.status == "queued"
+
+    def test_api_queue_uzgadnia_ze_slskd(self, kolejka, monkeypatch, tmp_path):
+        from fastapi.testclient import TestClient
+        from selekta import web
+        job = self._zlecone(kolejka)
+        monkeypatch.setattr(dlqueue, "QUEUE", kolejka)
+
+        class Klient:
+            def available(self):
+                return True
+
+            def downloads_or_none(self):
+                return [{"user": "u", "path": "M\\Hung Up.flac", "name": "Hung Up.flac",
+                         "status": "done"}]
+
+        monkeypatch.setattr(web, "SlskdClient", lambda: Klient())
+        web.set_folder(str(tmp_path))
+        d = TestClient(web.app).get("/api/queue").json()
+        assert d["jobs"][0]["status"] == "done"
+        assert job.status == "done"

@@ -506,17 +506,31 @@ def api_queue_add(payload: dict) -> JSONResponse:
     items = (payload or {}).get("items") or []
     if not isinstance(items, list) or not items:
         raise HTTPException(400, "brak utworów do dodania")
+    _uzgodnij_kolejke()       # nieudane „zlecone" nie mogą blokować ponownego dodania
     added = dlqueue.QUEUE.add([i for i in items if isinstance(i, dict)])
     return JSONResponse({"added": added, **dlqueue.QUEUE.state()})
 
 
+def _uzgodnij_kolejke() -> None:
+    """Zlecone zadania kolejki → „pobrane"/„nieudane" wg transferów slskd
+    i plików na dysku (inaczej wisiały jako „zlecone" na zawsze)."""
+    if not dlqueue.QUEUE.state()["counts"].get("queued"):
+        return
+    client = SlskdClient()
+    rows = client.downloads_or_none() if client.available() else None
+    pobrania = os.path.expanduser(config.get("downloads_root") or "")
+    dlqueue.QUEUE.uzgodnij(rows, [pobrania, _folder()])
+
+
 @app.get("/api/queue")
 def api_queue_state() -> JSONResponse:
+    _uzgodnij_kolejke()
     return JSONResponse(dlqueue.QUEUE.state())
 
 
 @app.post("/api/queue/clear")
 def api_queue_clear() -> JSONResponse:
+    _uzgodnij_kolejke()
     return JSONResponse({"removed": dlqueue.QUEUE.clear_finished(),
                          **dlqueue.QUEUE.state()})
 
