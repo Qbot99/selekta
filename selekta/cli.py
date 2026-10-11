@@ -249,7 +249,7 @@ def cmd_analyze(args) -> None:
         print(f"{ta.bpm:>5.1f} BPM  {ta.camelot:>3}  {ta.key:<8} {os.path.basename(p)}{flag}")
 
     if args.order:
-        print("\n— kolejność harmoniczna (koło Camelot, energia rosnąco) —")
+        print("\n— kolejność harmoniczna (koło Camelota, tempo rosnąco) —")
         for pos, (name, ta, note) in enumerate(harmonic.order_set(rows), 1):
             print(f"  {pos:>2}. {ta.camelot:>3}  {ta.bpm:>5.1f}  {name}   [{note}]")
     if args.apply:

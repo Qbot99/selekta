@@ -43,6 +43,9 @@ def embedded_art(path: str) -> bytes | None:
         return audio.pictures[0].data if audio.pictures else None
     tags = getattr(audio, "tags", None)
     if tags:
+        # M4A/MP4: okładka w atomie 'covr' (bez tego każdy M4A miał „brak okładki")
+        if "covr" in tags and tags["covr"]:
+            return bytes(tags["covr"][0])
         for key in tags.keys():
             if key.startswith("APIC"):
                 return tags[key].data

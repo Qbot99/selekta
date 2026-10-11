@@ -15,6 +15,7 @@ import math
 import os
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -125,6 +126,8 @@ def _tags(path: str) -> tuple[str, str]:
         if path.lower().endswith(".flac"):
             return (str(a.get("ARTIST", [""])[0]), str(a.get("TITLE", [""])[0]))
         t = getattr(a, "tags", None)
+        if t and ("\xa9ART" in t or "\xa9nam" in t):     # M4A/MP4: ©ART / ©nam
+            return (str((t.get("\xa9ART") or [""])[0]), str((t.get("\xa9nam") or [""])[0]))
         if t:
             return (str(t.get("TPE1", "")), str(t.get("TIT2", "")))
     except Exception:                          # noqa: BLE001
@@ -443,7 +446,7 @@ def api_redownload(payload: dict) -> JSONResponse:
 # --------------------------------------------------------------------------
 
 def _in_set_order(tracks: list[dict]) -> list[dict]:
-    """Ułóż utwory w kolejności harmonicznej (koło Camelot, energia rosnąco).
+    """Ułóż utwory w kolejności harmonicznej (koło Camelota, tempo rosnąco).
 
     Bez tego rekordbox dostaje playlistę alfabetyczną — czyli kolekcję,
     a nie set do zagrania. Utwory bez policzonej analizy lądują na końcu.
@@ -488,7 +491,9 @@ def api_export(payload: dict) -> JSONResponse:
     elif target == "m3u8":
         out = dj_export.to_m3u8(tracks, os.path.join(_folder(), f"{name}.m3u8"))
     else:
-        out = dj_export.install_serato_crate(tracks, os.path.expanduser("~/Music"), name)
+        wszystkie = dj_export.install_serato_crates(tracks, os.path.expanduser("~/Music"), name)
+        out = wszystkie[0]
+        return JSONResponse({"path": out, "paths": wszystkie, "count": len(tracks)})
     return JSONResponse({"path": out, "count": len(tracks), "bez_analizy": bez_analizy})
 
 
@@ -1365,7 +1370,11 @@ def api_rekordbox_stan() -> JSONResponse:
 def api_rekordbox_zapomnij(payload: dict | None = None) -> JSONResponse:
     """Skasuj zapamiętane dane z rekordboxa."""
     plik = _field(payload or {}, "file")
-    ile = rbimport.wyczysc(_safe(plik) if plik else None)
+    if plik and os.path.isabs(plik) and _within_allowed(plik) and os.path.isfile(plik):
+        cel = os.path.abspath(plik)       # kopia w folderze playlisty też się liczy
+    else:
+        cel = _safe(plik) if plik else None
+    ile = rbimport.wyczysc(cel)
     return JSONResponse({"ok": True, "usunietych": ile})
 
 
@@ -1470,8 +1479,9 @@ def _metryki_sesji(sciezki: list[str]) -> dict:
             czas += float(getattr(getattr(a, "info", None), "length", 0) or 0)
         except Exception:  # noqa: BLE001 — plik mógł zniknąć
             pass
-    bpmy.sort()
-    mediana = bpmy[len(bpmy) // 2] if bpmy else None
+    # prawdziwa mediana: przy parzystej liczbie średnia dwóch środkowych
+    # (wcześniej górny element — [129, 150] dawało 150 zamiast 139,5)
+    mediana = statistics.median(bpmy) if bpmy else None
     return {"czas_s": round(czas), "bpm_mediana": round(mediana, 1) if mediana else None,
             "tonacje": tonacje, "tonacje_opis": (f"{tonacje[0]} → {tonacje[-1]}" if tonacje else "")}
 
@@ -1621,6 +1631,7 @@ def api_statystyki_zakres(payload: dict | None = None) -> JSONResponse:
                        "artist": artysta, "title": tytul})
     d = statystyki.policz(utwory)
     d.update(_glosnosc_zbiorcza(sciezki))
+    d["rozklad_formatow"] = statystyki.rozklad_formatow(sciezki)
     d["bez_analizy"] = len(sciezki) - d["przeanalizowanych"]
     d["zakres"] = opis
     return JSONResponse(_clean(d))
@@ -1657,6 +1668,7 @@ def api_statystyki() -> JSONResponse:
     d = statystyki.policz(utwory)
     d["bez_analizy"] = len(matcher.audio_files(_folder())) - d["przeanalizowanych"]
     d.update(_glosnosc_zbiorcza(matcher.audio_files(_folder())))
+    d["rozklad_formatow"] = statystyki.rozklad_formatow(matcher.audio_files(_folder()))
     return JSONResponse(_clean(d))
 
 
@@ -2010,8 +2022,7 @@ def api_playlist_review(payload: dict) -> JSONResponse:
 
     # utwory odstające tempem — mediana setu jako punkt odniesienia
     if bpms:
-        srt = sorted(bpms)
-        median = srt[len(srt) // 2]
+        median = statistics.median(bpms)
         for r in rows:
             if not r["bpm"]:
                 continue
@@ -2047,7 +2058,7 @@ def api_playlist_review(payload: dict) -> JSONResponse:
     return JSONResponse(_clean({
         "name": name, "count": len(rows), "z_problemami": problemowe,
         "pominiete": pominiete,
-        "mediana_bpm": (sorted(bpms)[len(bpms)//2] if bpms else None),
+        "mediana_bpm": (statistics.median(bpms) if bpms else None),
         "tracks": rows,
     }))
 
@@ -2076,10 +2087,17 @@ def api_playlist_fix(payload: dict) -> JSONResponse:
 
     # brak tagów — uzupełniamy je z OCZYSZCZONEJ nazwy pliku, bo to ona
     # trafia potem do rekordboxa jako artysta i tytuł
+    # tagger zapisuje tylko FLAC/MP3/WAV — dla M4A/AIFF/OGG mówimy to wprost
+    # zamiast wywalić się błędem 500
+    nie_umiem = ("tagów w tym formacie nie zapisuję automatycznie — "
+                 "popraw je w Muzyce albo w Mp3tag")
     if not (artist and title) and z_nazwy:
         artist, title = z_nazwy[0]
-        tagger.tag_file(path, artist, title, covers.embedded_art(path))
-        zrobione.append(f"uzupełniono nazwę: {artist} — {title}"[:60])
+        try:
+            tagger.tag_file(path, artist, title, covers.embedded_art(path))
+            zrobione.append(f"uzupełniono nazwę: {artist} — {title}"[:60])
+        except ValueError:
+            nieudane.append(nie_umiem)
 
     if covers.embedded_art(path) is None:
         proby: list[tuple[str, str]] = []
@@ -2098,8 +2116,12 @@ def api_playlist_fix(payload: dict) -> JSONResponse:
                 artist, title = a, t
                 break
         if hit:
-            tagger.tag_file(path, artist, title, hit.data)
-            zrobione.append(f"dodano okładkę ({hit.description[:40]})")
+            try:
+                tagger.tag_file(path, artist, title, hit.data)
+                zrobione.append(f"dodano okładkę ({hit.description[:40]})")
+            except ValueError:
+                if nie_umiem not in nieudane:
+                    nieudane.append(nie_umiem)
         else:
             nieudane.append("nie znaleziono okładki w sieci — wgraj ją ręcznie")
 

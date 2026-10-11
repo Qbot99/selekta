@@ -542,3 +542,145 @@ class TestPendrive:
         r = lib_usb["klient"].post("/api/usb", json={"dest": lib_usb["dest"], "name": "piatek"})
         assert r.status_code == 200, r.text
         assert sorted(os.listdir(lib_usb["dest"])) == ["01 B - Drugi.mp3", "02 Ae - Lodz.mp3"]
+
+
+# ---------------------------------------------------------------------------
+# #124 #125 #127 — historia, mediana sesji, statystyki
+# ---------------------------------------------------------------------------
+
+def _xml_historia(path, sesje: dict[str, list[str]]):
+    """sesje: nazwa → lista ścieżek."""
+    wszystkie = sorted({p for l in sesje.values() for p in l})
+    tid = {p: str(i) for i, p in enumerate(wszystkie, 1)}
+    kol = "".join(f'<TRACK TrackID="{tid[p]}" Location="{_loc(p)}"/>' for p in wszystkie)
+    pl = "".join(f'<NODE Type="1" Name="{n}" Entries="{len(l)}">'
+                 + "".join(f'<TRACK Key="{tid[p]}"/>' for p in l) + "</NODE>"
+                 for n, l in sesje.items())
+    path.write_text(f'<DJ_PLAYLISTS><COLLECTION>{kol}</COLLECTION><PLAYLISTS>'
+                    f'<NODE Type="0" Name="ROOT">{pl}</NODE></PLAYLISTS></DJ_PLAYLISTS>')
+    return str(path)
+
+
+class TestHistoriaIStatystyki:
+    def test_zakres_dat_po_drugim_pliku_ze_starsza_sesja(self, tmp_path):
+        from selekta import historia
+        lib = tmp_path / "lib"
+        a, b = _plik(lib / "a.mp3"), _plik(lib / "b.mp3")
+        historia.dopisz(historia.wczytaj_sesje(_xml_historia(
+            tmp_path / "1.xml", {"2026-07-05": [a], "2026-09-12": [b]}), str(lib)))
+        historia.dopisz(historia.wczytaj_sesje(_xml_historia(
+            tmp_path / "2.xml", {"2026-06-01": [a, b]}), str(lib)))
+        assert historia.podsumowanie(str(lib))["zakres_dat"] == ["2026-06-01", "2026-09-12"]
+        assert [s["data"] for s in historia.sesje()] == ["2026-06-01", "2026-07-05", "2026-09-12"]
+
+    def test_kopia_w_secie_nie_robi_z_oryginalu_martwego_balastu(self, tmp_path):
+        from selekta import historia
+        lib = tmp_path / "lib"
+        oryg = _plik(lib / "Album" / "Hit.mp3", b"H" * 50)
+        kopia = _plik(lib / "set" / "Hit.mp3", b"H" * 50)
+        (lib / "set" / "_selekta.json").write_text("{}")
+        _plik(lib / "Album" / "Nigdy.mp3", b"N" * 60)
+        historia.dopisz(historia.wczytaj_sesje(_xml_historia(
+            tmp_path / "h.xml", {"2026-08-01": [kopia]}), str(lib)))
+        d = historia.podsumowanie(str(lib))
+        assert d["w_bibliotece"] == 2
+        assert [m["file"] for m in d["martwe"]] == ["Nigdy.mp3"]
+        assert oryg
+
+    def test_mediana_bpm_sesji_przy_parzystej_liczbie(self, tmp_path):
+        a, b = _plik(tmp_path / "a.mp3"), _plik(tmp_path / "b.mp3")
+        _analiza(a, 129.0, "8A"); _analiza(b, 150.0, "8A")
+        assert web._metryki_sesji([a, b])["bpm_mediana"] == 139.5
+
+    def test_gniazdo_z_okna_tempa_nie_z_kubelkow(self):
+        from selekta import statystyki as st
+        utwory = [{"bpm": b, "camelot": "8A", "title": str(i)}
+                  for i, b in enumerate((140, 140.5, 141, 141.5, 142, 142.5))]
+        d = st.policz(utwory)
+        assert d["gniazd"] == 1, "6 utworów 8A w 140–142,5 BPM to jedno gniazdo"
+
+    def test_statystyki_maja_rozklad_formatow(self, klient, biblioteka):
+        d = klient.get("/api/statystyki").json()
+        assert d["rozklad_formatow"][0]["format"] == "MP3"
+        d = klient.post("/api/statystyki", json={}).json()
+        assert sum(f["ile"] for f in d["rozklad_formatow"]) >= 4
+
+
+# ---------------------------------------------------------------------------
+# #102 #106 #107 #123 #115 — zaznaczenie, M4A w bramce, zapomnij, Serato
+# ---------------------------------------------------------------------------
+
+class TestDrobneEksportu:
+    def test_zaznaczenie_ze_sciezka_wzgledna_bierze_wlasciwy_plik(self, tmp_path, monkeypatch):
+        """Dwa różne „01 - Intro.mp3" z dwóch albumów — UI wysyła ścieżkę
+        względną, a wyszukiwanie po nazwie brało pierwszy z brzegu."""
+        from selekta import playlists
+        lib = tmp_path / "lib"
+        _plik(lib / "A" / "01 - Intro.mp3", b"A" * 10)
+        b = _plik(lib / "B" / "01 - Intro.mp3", b"B" * 20)
+        monkeypatch.setattr(playlists, "root", lambda: str(tmp_path / "sety"))
+        web.set_folder(str(lib))
+        r = TestClient(web.app).post("/api/playlist/from-selection",
+                                     json={"name": "x", "files": ["B/01 - Intro.mp3"]})
+        assert r.status_code == 200, r.text
+        with open(r.json()["files"][0], "rb") as fh:
+            assert fh.read() == b"B" * 20
+        sciezki, _ = web._zakres({"files": ["B/01 - Intro.mp3"]})
+        assert sciezki == [b]
+
+    def test_m4a_z_tagami_i_okladka_nie_jest_zglaszany(self, tmp_path):
+        from mutagen.mp4 import MP4, MP4Cover
+        from selekta import covers
+        from tests import probka
+        wav = probka.ton(str(tmp_path / "x.wav"), 440.0, sekund=1.0)
+        m4a = str(tmp_path / "Urszula - Malinowy.m4a")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", wav, "-c:a", "aac", m4a], check=True)
+        f = MP4(m4a)
+        f["\xa9ART"] = ["Urszula Sipińska"]; f["\xa9nam"] = ["Malinowy"]
+        f["covr"] = [MP4Cover(b"\xff\xd8\xff" + b"0" * 2000, imageformat=MP4Cover.FORMAT_JPEG)]
+        f.save()
+        assert web._tags(m4a) == ("Urszula Sipińska", "Malinowy")
+        assert covers.embedded_art(m4a) is not None
+
+    def test_napraw_m4a_bez_tagow_nie_konczy_sie_500(self, tmp_path, monkeypatch):
+        from selekta import covers
+        from tests import probka
+        wav = probka.ton(str(tmp_path / "x.wav"), 440.0, sekund=1.0)
+        m4a = str(tmp_path / "Ktos - Cos.m4a")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", wav, "-c:a", "aac", m4a], check=True)
+        monkeypatch.setattr(covers, "from_itunes", lambda a, t: None)
+        web.set_folder(str(tmp_path))
+        r = TestClient(web.app, raise_server_exceptions=False).post(
+            "/api/playlist/fix", json={"path": m4a})
+        assert r.status_code == 200, r.text
+        assert "nie zapisuję" in json.dumps(r.json(), ensure_ascii=False)
+
+    def test_zapomnij_utwor_z_folderu_playlisty(self, tmp_path, monkeypatch):
+        from selekta import playlists
+        lib = tmp_path / "lib"; lib.mkdir()
+        sety = tmp_path / "sety"
+        p = _plik(sety / "piatek" / "A - B.mp3")
+        monkeypatch.setattr(playlists, "root", lambda: str(sety))
+        rbimport._zapisz_stan({p: {"ocena": 3}})
+        web.set_folder(str(lib))
+        r = TestClient(web.app).post("/api/rekordbox/zapomnij", json={"file": p})
+        assert r.status_code == 200, r.text
+        assert r.json()["usunietych"] == 1
+
+    def test_serato_crate_na_woluminie_utworow(self, tmp_path, monkeypatch):
+        zewn = str(tmp_path / "Volumes" / "USB")
+        a = _plik(tmp_path / "home" / "a.mp3")
+        b = _plik(tmp_path / "Volumes" / "USB" / "Muzyka" / "b.mp3")
+        monkeypatch.setattr(dj_export, "_wolumin",
+                            lambda p: zewn if p.startswith(zewn) else None)
+        sciezki = dj_export.install_serato_crates([{"path": a}, {"path": b}],
+                                                  str(tmp_path / "Music"), "set")
+        assert sorted(sciezki) == sorted([
+            str(tmp_path / "Music" / "_Serato_" / "Subcrates" / "set.crate"),
+            os.path.join(zewn, "_Serato_", "Subcrates", "set.crate")])
+
+    def test_wolumin_z_sciezki(self, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "darwin")
+        assert dj_export._wolumin("/Volumes/DJ USB/Muzyka/a.mp3") == "/Volumes/DJ USB"
+        assert dj_export._wolumin("/Users/x/a.mp3") is None
+

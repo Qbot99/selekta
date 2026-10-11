@@ -542,12 +542,46 @@ def to_serato_crate(tracks: list[dict], crate_path: str) -> str:
     return crate_path
 
 
+def _wolumin(path: str) -> str | None:
+    """'/Volumes/USB/...' → '/Volumes/USB' (macOS); None dla dysku systemowego."""
+    p = os.path.abspath(path)
+    if sys.platform == "darwin" and p.startswith("/Volumes/"):
+        czesci = p.split("/", 3)
+        return "/".join(czesci[:3]) if len(czesci) >= 3 else None
+    return None
+
+
+def install_serato_crates(tracks: list[dict], library_root: str,
+                          crate_name: str = "selekta") -> list[str]:
+    """Zapisz crate Serato na KAŻDYM woluminie, na którym leżą utwory.
+
+    Serato czyta 'ptrk' względem woluminu, na którym leży folder _Serato_:
+    utwory z /Volumes/X muszą trafić do /Volumes/X/_Serato_ (ścieżka
+    względem /Volumes/X). Wcześniej wszystko szło do ~/Music/_Serato_,
+    więc utwory z dysku zewnętrznego nie pasowały.
+    """
+    safe = FORBIDDEN.sub("", crate_name).strip().rstrip(".") or "crate"
+    grupy: dict[str | None, list[dict]] = {}
+    for t in tracks:
+        grupy.setdefault(_wolumin(t["path"]), []).append(t)
+    if not grupy:
+        grupy[None] = []
+    sciezki = []
+    for wolumin, lista in sorted(grupy.items(), key=lambda kv: kv[0] or ""):
+        korzen = wolumin or library_root
+        crate_path = os.path.join(korzen, "_Serato_", "Subcrates", safe + ".crate")
+        sciezki.append(to_serato_crate(lista, crate_path))
+    return sciezki
+
+
 def install_serato_crate(tracks: list[dict], library_root: str,
                          crate_name: str = "selekta") -> str:
-    """Write <library_root>/_Serato_/Subcrates/<crate_name>.crate; return its path."""
-    safe = FORBIDDEN.sub("", crate_name).strip().rstrip(".") or "crate"
-    crate_path = os.path.join(library_root, "_Serato_", "Subcrates", safe + ".crate")
-    return to_serato_crate(tracks, crate_path)
+    """Write <library_root>/_Serato_/Subcrates/<crate_name>.crate; return its path.
+
+    Utwory z innych woluminów dostają osobny crate na swoim woluminie
+    (install_serato_crates); zwracamy pierwszą ścieżkę.
+    """
+    return install_serato_crates(tracks, library_root, crate_name)[0]
 
 def wzbogac_o_siatke(tracks: list[dict], licz_brakujace: bool = True) -> list[dict]:
     """Dołóż do eksportu siatkę beatów i punkty cue.

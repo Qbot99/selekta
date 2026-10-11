@@ -184,7 +184,7 @@ function kolRysuj(host){
   const m = KOL.model = kolModel(); if(!m) return;
   const {us, peak} = m, n = us.length;
   const med = mediana(us.map(u=>u.bpm));
-  $('#kolSub', host).innerHTML = `Koło Camelot, energia rosnąco${peak!=null ? ` · kulminacja na pozycji <b style="color:${K.txt}">${peak+1}</b>` : ''}${med!=null ? ` · mediana ${Math.round(med)} BPM` : ''}`;
+  $('#kolSub', host).innerHTML = `Koło Camelota, tempo rosnąco${peak!=null ? ` · kulminacja na pozycji <b style="color:${K.txt}">${peak+1}</b>` : ''}${med!=null ? ` · mediana ${Math.round(med)} BPM` : ''}`;
   const czas = us.reduce((s,u)=>s+(u.duration||0), 0);
   if(S.biezacy()==='kolejnosc') S.tytul(`${m.opis} · ${n} ${lm(n,'utwór','utwory','utworów')}${czas ? ' · '+czasSetu(czas) : ''}`);
 
@@ -264,7 +264,7 @@ async function kolLaduj(host){
   let body = {};
   if(z.tryb==='zaznaczenie'){
     const w = wybrane();
-    if(!w.length){ lista.innerHTML = `<div class="pusto">Najpierw zaznacz utwory w Bibliotece.</div>`; $('#kolSub', host).textContent = 'Koło Camelot, energia rosnąco'; return; }
+    if(!w.length){ lista.innerHTML = `<div class="pusto">Najpierw zaznacz utwory w Bibliotece.</div>`; $('#kolSub', host).textContent = 'Koło Camelota, tempo rosnąco'; return; }
     body = {files:w};
   }else if(z.tryb==='playlista' && z.playlista){
     body = {name:z.playlista};
@@ -310,7 +310,7 @@ S.ekran('kolejnosc', {
     host.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 320px;grid-template-rows:auto minmax(0,1fr);gap:20px 24px';
     host.innerHTML = `
       <div style="grid-column:1/3;display:flex;align-items:flex-end;gap:16px">
-        <div><h1 class="h1">Kolejność setu</h1><div class="sub" id="kolSub">Koło Camelot, energia rosnąco</div></div>
+        <div><h1 class="h1">Kolejność setu</h1><div class="sub" id="kolSub">Koło Camelota, tempo rosnąco</div></div>
         <div class="seg" id="kolZakres" style="margin-left:auto" title="Zakres setu: cała biblioteka, zaznaczenie z Biblioteki albo playlista z apki">
           <span data-z="biblioteka" class="on">Cała biblioteka</span><span data-z="zaznaczenie">Zaznaczenie</span>
           <select id="kolPlaylista" class="setSeg" data-z="playlista" style="appearance:none;-webkit-appearance:none;background:transparent;border:0;padding:6px 12px;border-radius:7px;font-weight:600;font-size:12.5px;color:${K.dim};cursor:pointer;font-family:inherit"></select>
@@ -668,7 +668,7 @@ S.ekran('eksport', {
             <div id="expCele" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px"></div>
             <div style="display:flex;flex-direction:column;gap:10px">
               ${rzad('Zakres', '<span id="expZakres"></span>')}
-              ${rzad('Kolejność', `<span style="font:500 12px var(--mono);color:${K.muted}">harmoniczna (Camelot, energia ↑)</span>`)}
+              ${rzad('Kolejność', `<span style="font:500 12px var(--mono);color:${K.muted}">harmoniczna (Camelot, tempo ↑)</span>`)}
               ${rzad('Cue z analizy', `<span id="expCue" style="font:500 12px var(--mono);color:${K.muted};text-align:right">intro · drop · outro → hot cue A B C</span>`)}
             </div>
             <div id="expUwaga" class="uwaga hide"></div>

@@ -216,8 +216,11 @@
       if(dl.length) czas = fmtTime(dl.reduce((a, b) => a + b, 0) / dl.length);
     }
     const lufs = d.srednia_lufs ?? d.lufs ?? null;   // backend jeszcze nie oddaje średniej LUFS
+    // rozkład formatów z /api/statystyki (FLAC 120 · MP3 98 · WAV 40)
+    const formaty = (d.rozklad_formatow || []).map(f => `${f.format} ${f.ile}`).join(' · ');
     return kafel(med != null ? String(Math.round(med)) : '—', med != null ? 'BPM' : '', 'MEDIANA TEMPA')
-      + kafel(gb, gb !== '—' ? 'GB' : '', bezstr)
+      + kafel(gb, gb !== '—' ? 'GB' : '', formaty ? `${bezstr}<br><span style="letter-spacing:0;font-size:11px">${esc(formaty)}</span>` : bezstr,
+              (d.rozklad_formatow || []).map(f => `${f.format}: ${f.ile} utw., ${f.mb} MB`).join('\n'))
       + kafel(lufs != null ? fmtN(lufs, 1).replace('-', '−') : '—', lufs != null ? 'LUFS' : '', 'ŚREDNIA GŁOŚNOŚĆ',
               lufs == null ? 'głośność liczy się per utwór (Szczegóły) — średniej dla zakresu API jeszcze nie oddaje' : '')
       + kafel(czas, '', 'ŚREDNI CZAS UTWORU');
