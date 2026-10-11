@@ -182,3 +182,24 @@ class TestPominZapamietane:
         wj = open(os.path.join(os.path.dirname(web.__file__), "static", "ekrany",
                                "wiecej.js"), encoding="utf-8").read()
         assert "/api/setup/pomin" in wj
+
+
+class TestKonfigurujPrzyOdrzuconymKluczu:
+    def test_bierze_dzialajacy_klucz_z_konfiguracji_slskd(self, client, monkeypatch, tmp_path):
+        from selekta import config, slskd_client, slskd_ctl
+        yml = tmp_path / "slskd.yml"
+        yml.write_text("web:\n  authentication:\n    api_keys:\n      moj:\n"
+                       "        key: dzialajacy0123456789abcdef\n", encoding="utf-8")
+        tresc = yml.read_text(encoding="utf-8")
+        monkeypatch.setattr(slskd_ctl, "find_config", lambda: str(yml))
+        config.save({"slskd_api_key": "stary-klucz-0123456789"})
+
+        def get(url, headers=None, timeout=None):
+            ok = (headers or {}).get("X-API-Key") == "dzialajacy0123456789abcdef"
+            return _Odp(200 if ok else 401)
+
+        monkeypatch.setattr(slskd_client.requests, "get", get)
+        r = client.post("/api/setup/konfiguruj", json={})
+        assert r.status_code == 200 and "działający klucz" in r.json()["message"]
+        assert config.load()["slskd_api_key"] == "dzialajacy0123456789abcdef"
+        assert yml.read_text(encoding="utf-8") == tresc          # pliku nie ruszamy

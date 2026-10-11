@@ -1180,7 +1180,18 @@ def api_setup_konfiguruj(payload: dict | None = None) -> JSONResponse:
     nic wspólnego z hasłem do Soulseeka i nigdzie nie wychodzi.
     """
     yml = slskd_ctl.config_write_path()
-    klucz = config.get("slskd_api_key") or instalator.wygeneruj_klucz()
+    zapisany = config.get("slskd_api_key") or ""
+    odrzucony = bool(zapisany) and SlskdClient().stan_api() == "klucz"
+    if odrzucony:
+        # slskd działa i odrzuca nasz klucz — zwykle ma w konfiguracji inny,
+        # działający (np. po ręcznej zmianie). Weź go, zamiast dopisywać
+        # klucz, którego działający slskd i tak nie zna do restartu.
+        wykryty = slskd_ctl.api_key_from_slskd_config()
+        if wykryty and wykryty != zapisany and SlskdClient(api_key=wykryty).stan_api() == "ok":
+            config.save({"slskd_api_key": wykryty})
+            return JSONResponse({"ok": True, "plik": yml, "udostepnianie": False,
+                                 "message": "znalazłem działający klucz w konfiguracji slskd"})
+    klucz = zapisany or instalator.wygeneruj_klucz()
     udostepniane = None
     if (payload or {}).get("udostepniaj"):
         udostepniane = [_folder()]
@@ -1196,7 +1207,9 @@ def api_setup_konfiguruj(payload: dict | None = None) -> JSONResponse:
     config.save({"slskd_api_key": klucz})
     return JSONResponse({"ok": True, "plik": yml,
                          "udostepnianie": bool(udostepniane),
-                         "message": "konfiguracja zapisana"})
+                         "message": ("konfiguracja zapisana — działający slskd przyjmie klucz "
+                                     "po ponownym uruchomieniu" if odrzucony
+                                     else "konfiguracja zapisana")})
 
 
 @app.post("/api/setup/konto")
