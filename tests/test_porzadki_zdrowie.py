@@ -263,3 +263,60 @@ def test_status_zly_klucz_to_nie_wylaczony_slskd(monkeypatch):
         raise requests.ConnectionError("nie ma")
     monkeypatch.setattr(requests, "get", brak)
     assert TestClient(web.app).get("/api/status").json()["label"] == "slskd nie działa"
+
+
+# --------------------------------------------------------------- kosz i raport
+
+def test_przywroc_tylko_z_kosza_i_pod_wlasna_nazwa(tmp_path):
+    from fastapi.testclient import TestClient
+    from selekta import web
+    lib = tmp_path / "lib"
+    a = utwor(str(lib / "pobrane" / "A - B.mp3"), "A", "B", sekund=3)
+    web.set_folder(str(lib))
+    c = TestClient(web.app)
+    # zwykły plik biblioteki nie „wraca” do katalogu nadrzędnego (poza bibliotekę)
+    assert c.post("/api/tracks/przywroc", json={"w_koszu": a}).status_code == 400
+    assert os.path.isfile(a)
+    # dwa razy ten sam plik do kosza: drugi dostaje „ (2)”, ale wraca pod SWOJĄ nazwą
+    k1 = c.post("/api/tracks/usun", json={"file": "pobrane/A - B.mp3"}).json()["w_koszu"]
+    utwor(a, "A", "B", sekund=3, hz=500)
+    k2 = c.post("/api/tracks/usun", json={"file": "pobrane/A - B.mp3"}).json()["w_koszu"]
+    assert k2.endswith("A - B (2).mp3")
+    assert c.post("/api/tracks/przywroc", json={"w_koszu": k2}).json()["rel"] == "pobrane/A - B.mp3"
+    assert c.post("/api/tracks/przywroc", json={"w_koszu": k1}).status_code == 409
+    kosz = c.get("/api/kosz").json()["pliki"]
+    assert [x["skad"] for x in kosz] == ["pobrane/A - B.mp3"]
+
+
+def test_api_zdrowia_oddaje_braki_tagow_i_podejrzane(tmp_path):
+    from fastapi.testclient import TestClient
+    from selekta import web
+    lib = tmp_path / "lib"
+    utwor(str(lib / "bez_tagow.flac"), None, None, sekund=3)
+    utwor(str(lib / "Mi - Utwor.flac"), "Mi", "Utwor", sekund=12)
+    utwor(str(lib / "Mi - Utwor.mp3"), "Mi", "Utwor", sekund=6)
+    web.set_folder(str(lib))
+    h = TestClient(web.app).get("/api/health").json()
+    assert h["missing_tags"] == [{"file": "bez_tagow.flac", "brak": ["ARTIST", "TITLE"]}]
+    assert [sorted(g["files"]) for g in h["suspect_duplicates"]] == [["Mi - Utwor.flac",
+                                                                      "Mi - Utwor.mp3"]]
+
+
+# --------------------------------------------------------------- sprawdź uchem
+
+def test_uchem_bpm_z_tagu_i_kopie_raz(tmp_path):
+    from mutagen.id3 import ID3, TBPM
+    from selekta import cache, uchem
+    lib = tmp_path / "lib"
+    a = utwor(str(lib / "Asia - Heat.mp3"), "Asia", "Heat", sekund=3)
+    t = ID3(a); t.add(TBPM(encoding=3, text="98")); t.save(a)
+    b = kopia(a, str(lib / "Asia - Heat (1).mp3"))
+    for p in (a, b):
+        cache.put(p, "harmonic", {"bpm": 139.0, "confidence_bpm": 0.19, "camelot": "8A",
+                                  "key": "A minor", "confidence_key": 0.9})
+    w = uchem.sprawdz(str(lib))
+    assert len(w["utwory"]) == 1 and w["utwory"][0]["kopii"] == 2
+    kody = [p["kod"] for p in w["utwory"][0]["powody"]]
+    assert "bpm_inne_niz_w_tagu" in kody
+    assert "98" in w["utwory"][0]["powody"][0]["opis"]
+    assert w["bez_sprawdzenia_tempa"] == 1

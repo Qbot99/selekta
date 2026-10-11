@@ -111,9 +111,9 @@ def from_itunes(artist: str, title: str, duration: float | None = None) -> Cover
     Wcześniej wystarczała zgodność tytułu: przy pospolitym tytule („Kick It”)
     plik Lindsa dostawał okładkę Natashy Bedingfield. Teraz trafienie musi
     mieć tego samego wykonawcę i wszystkie słowa tytułu; gdy znamy czas
-    trwania, wybieramy wersję o najbliższej długości, a wersja dłuższa/krótsza
-    o więcej niż 20 s przechodzi tylko wtedy, gdy różnicę tłumaczy dopisek
-    wersji (Extended/Radio Edit/Remix).
+    trwania, wybieramy wersję o najbliższej długości, a wersja różniąca się
+    o więcej niż 20 s i 25 % długości przechodzi tylko wtedy, gdy różnicę
+    tłumaczy dopisek wersji (Extended/Radio Edit/Remix).
     """
     if not (artist or "").strip() or not (title or "").strip():
         return None
@@ -136,7 +136,9 @@ def from_itunes(artist: str, title: str, duration: float | None = None) -> Cover
             continue
         ms = item.get("trackTimeMillis")
         roznica = abs(ms / 1000 - duration) if (ms and duration) else None
-        if roznica is not None and roznica > 20:
+        # wersja klubowa bywa o minutę dłuższa od singla w iTunes (Linds —
+        # Kick It: 258 s w pliku, 225 s w iTunes) — tolerujemy 25 % długości
+        if roznica is not None and roznica > max(20.0, 0.25 * (duration or 0)):
             wersje = (mix_signature(normalize(title))
                       | mix_signature(normalize(item.get("trackName", ""))))
             if not wersje:

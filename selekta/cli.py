@@ -108,6 +108,10 @@ def cmd_organize(args) -> None:
                 continue
             if w.get("uwaga"):
                 print(f"    · {w['uwaga']}")
+            if w["do"] != w["z"]:
+                print("    · nowa nazwa: analizy, ręczna siatka i historia idą za plikiem; "
+                      "playlisty wysłane wcześniej do rekordboxa wskażą starą nazwę — "
+                      "wyślij je ponownie")
             print(f"    → {os.path.basename(w['do'])}")
 
     if missing:
