@@ -947,7 +947,8 @@
     const lossless = ['flac', 'wav', 'aiff', 'aif'].includes((t.ext || '').toLowerCase());
     let d;
     try{
-      d = await api('/api/upgrade/find', {method:'POST', body:{artist:t.artist, title:t.title, duration:t.duration, lossless, bitrate:0, grade:t.quality}});
+      // bitrate z analizy, a gdy go brak — serwer odczyta go z pliku (file)
+      d = await api('/api/upgrade/find', {method:'POST', body:{artist:t.artist, title:t.title, duration:t.duration, lossless, bitrate:t.bitrate_kbps || 0, file:t.file, grade:t.quality}});
     }catch(e){ box.innerHTML = `<div style="font-size:13px;color:${K.bad}">✗ ${esc(e.message)}</div>`; btn.disabled = false; btn.textContent = 'Szukaj lepszej wersji'; return; }
     btn.disabled = false; btn.textContent = 'Szukaj lepszej wersji';
     if(!d.count){

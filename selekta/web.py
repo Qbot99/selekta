@@ -841,7 +841,21 @@ def api_upgrade_find(payload: dict) -> JSONResponse:
         raise HTTPException(400, "podaj artystę albo tytuł")
     duration = (payload or {}).get("duration")
     mam_lossless = bool((payload or {}).get("lossless"))
-    mam_bitrate = int((payload or {}).get("bitrate") or 0)
+    try:
+        mam_bitrate = int(float((payload or {}).get("bitrate") or 0))
+    except (TypeError, ValueError):
+        mam_bitrate = 0
+    plik = _field(payload, "file")
+    if plik and not mam_bitrate:
+        # Ekran szczegółów wysyłał bitrate:0 — dla zdrowego MP3 320 apka
+        # proponowała jako „lepsze” inne MP3 320. Bierzemy go z samego pliku.
+        sciezka = _safe(plik)
+        try:
+            a = MutagenFile(sciezka)
+            mam_bitrate = int(getattr(getattr(a, "info", None), "bitrate", 0) or 0) // 1000
+        except Exception:                      # noqa: BLE001 — uszkodzony plik = nie wiemy
+            mam_bitrate = 0
+        mam_lossless = mam_lossless or os.path.splitext(sciezka)[1].lower() in LOSSLESS_EXT
     # Nagłówek MP3 potrafi kłamać: plik przekodowany ze 128 kbps do 320
     # deklaruje 320, choć pasmo urywa się na 16 kHz. Gdy analiza uznała
     # jakość za złą, nie ufamy tej liczbie — inaczej odrzucalibyśmy
