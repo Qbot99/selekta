@@ -1146,6 +1146,8 @@ def api_setup_konfiguruj(payload: dict | None = None) -> JSONResponse:
             yml, klucz_api=klucz, katalog_pobran=_folder(),
             katalog_niepelnych=os.path.join(os.path.dirname(yml), "incomplete"),
             udostepniane=udostepniane)
+    except ValueError as exc:             # nietypowy zapis w slskd.yml — plik nietknięty
+        raise HTTPException(409, str(exc))
     except OSError as exc:
         raise HTTPException(500, f"nie udało się zapisać konfiguracji: {exc}")
     config.save({"slskd_api_key": klucz})
@@ -1176,6 +1178,10 @@ def api_setup_konto(payload: dict) -> JSONResponse:
             yml, klucz_api=klucz, katalog_pobran=_folder(),
             katalog_niepelnych=os.path.join(os.path.dirname(yml), "incomplete"),
             login=login, haslo=haslo)
+    except instalator.NietypowyZapis as exc:   # plik nietknięty, slskd nie restartujemy
+        raise HTTPException(409, str(exc))
+    except ValueError:
+        raise HTTPException(400, "login lub hasło zawiera niedozwolony znak")
     except OSError as exc:
         raise HTTPException(500, f"nie udało się zapisać konfiguracji: {exc}")
     config.save({"slskd_api_key": klucz})

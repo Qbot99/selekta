@@ -99,9 +99,13 @@ def api_key_from_slskd_config() -> str:
             if line.strip() and not line.startswith(" "):
                 in_keys = False
                 continue
-            m = re.match(r"^\s+key:\s*(\S+)\s*$", line)
-            if m and len(m.group(1)) >= 16:
-                best = m.group(1)
+            m = re.match(r"^\s+key:[ \t]+(.+?)\s*$", line)
+            if m:
+                # selekta zapisuje wartości w cudzysłowach (bezpieczny YAML)
+                from .instalator import _rozbij
+                wartosc = _rozbij(m.group(1))[0]
+                if len(wartosc) >= 16 and " " not in wartosc:
+                    best = wartosc
     return best
 
 

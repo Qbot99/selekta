@@ -45,7 +45,7 @@ class TestKonfiguracja:
         instalator.zapisz_konfiguracje(str(yml), klucz_api="ABC123",
                                        katalog_pobran="/muzyka")
         tresc = yml.read_text(encoding="utf-8")
-        assert "ABC123" in tresc and "downloads: /muzyka" in tresc
+        assert "ABC123" in tresc and 'downloads: "/muzyka"' in tresc
 
     def test_plik_z_haslem_ma_prawa_0600(self, tmp_path):
         yml = tmp_path / "slskd.yml"
@@ -72,7 +72,7 @@ class TestKonfiguracja:
         instalator.zapisz_konfiguracje(str(yml), klucz_api="K",
                                        katalog_pobran="/b")
         tresc = yml.read_text(encoding="utf-8")
-        assert "username: dj" in tresc and "tajne123" in tresc
+        assert 'username: "dj"' in tresc and "tajne123" in tresc
 
     def test_konto_ustawione_wykrywa_komplet(self, tmp_path):
         yml = tmp_path / "slskd.yml"
@@ -153,3 +153,215 @@ class TestHasloNieWyplywa:
         r = client.post("/api/setup/konto",
                         json={"login": "d" * 200, "haslo": "x"})
         assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# YAML pisany poprawnie — regresje z przeglądu 11.10.2026
+# ---------------------------------------------------------------------------
+yaml = pytest.importorskip("yaml")
+
+
+class _Scisly(yaml.SafeLoader):
+    """Parser, który — jak część parserów YAML — odrzuca zdublowane klucze."""
+
+
+def _bez_duplikatow(loader, node, deep=False):
+    klucze = [loader.construct_object(k, deep=deep) for k, _ in node.value]
+    dup = {k for k in klucze if klucze.count(k) > 1}
+    if dup:
+        raise ValueError(f"zdublowane klucze: {dup}")
+    return yaml.SafeLoader.construct_mapping(loader, node, deep)
+
+
+_Scisly.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _bez_duplikatow)
+
+
+def _wczytaj(sciezka) -> dict:
+    with open(sciezka, encoding="utf-8") as fh:
+        return yaml.load(fh, Loader=_Scisly)
+
+
+TRUDNE_HASLA = [
+    "zwykle123", "abc #def", "pa: ss", "@start", "*gwiazdka", "%proc",
+    "'w cudzyslowie'", '"podwojny"', "[nawias", "{klamra", "!wykrzyk", "|pion",
+    "> wiekszy", "- myslnik", "koniec ", " poczatek", "tak", "yes", "123456",
+    "1e3", "0x1F", "null", "~", "#hash", "a'b\"c", "back\\slash\\", "tab\tw środku",
+    "zażółć gęślą jaźń", "emoji 🎧🔥", "ctrl\x7f\x01", "a: b # c: d",
+]
+
+
+class TestYamlZCudzyslowami:
+    @pytest.mark.parametrize("haslo", TRUDNE_HASLA)
+    def test_haslo_wraca_identyczne(self, tmp_path, haslo):
+        yml = tmp_path / "slskd.yml"
+        instalator.zapisz_konfiguracje(str(yml), klucz_api="k" * 48,
+                                       katalog_pobran="/m", login="dj", haslo=haslo)
+        d = _wczytaj(yml)
+        assert d["soulseek"]["password"] == haslo
+        assert d["soulseek"]["username"] == "dj"
+        # ponowny zapis bez danych konta (jak „Skonfiguruj”) nie może ich zmienić
+        instalator.zapisz_konfiguracje(str(yml), klucz_api="k" * 48, katalog_pobran="/m")
+        assert _wczytaj(yml)["soulseek"]["password"] == haslo
+        assert instalator._wyczytaj(yml.read_text(encoding="utf-8"), "password") == haslo
+
+    def test_login_ze_znakami_specjalnymi(self, tmp_path):
+        yml = tmp_path / "slskd.yml"
+        instalator.zapisz_konfiguracje(str(yml), klucz_api="K" * 20, katalog_pobran="/m",
+                                       login="dj #1: ziom", haslo="x")
+        assert _wczytaj(yml)["soulseek"]["username"] == "dj #1: ziom"
+
+    def test_foldery_ze_znakami_specjalnymi(self, tmp_path):
+        yml = tmp_path / "slskd.yml"
+        dziwny = "/Users/x/Music/DJ #1: sety 'stare' \"nowe\""
+        instalator.zapisz_konfiguracje(str(yml), klucz_api="K" * 20,
+                                       katalog_pobran=dziwny,
+                                       katalog_niepelnych=dziwny + "/nie",
+                                       udostepniane=[dziwny, "/a: b"])
+        d = _wczytaj(yml)
+        assert d["directories"]["downloads"] == dziwny
+        assert d["directories"]["incomplete"] == dziwny + "/nie"
+        assert d["shares"]["directories"] == [dziwny, "/a: b"]
+
+    def test_klucz_api_cyfrowy_zostaje_tekstem(self, tmp_path):
+        yml = tmp_path / "slskd.yml"
+        instalator.zapisz_konfiguracje(str(yml), klucz_api="1" * 48, katalog_pobran="/m")
+        klucz = _wczytaj(yml)["web"]["authentication"]["api_keys"]["selekta"]["key"]
+        assert klucz == "1" * 48
+
+    def test_autowykrywanie_klucza_czyta_wartosc_w_cudzyslowie(self, tmp_path, monkeypatch):
+        from selekta import slskd_ctl
+        yml = tmp_path / "slskd.yml"
+        instalator.zapisz_konfiguracje(str(yml), klucz_api="abcdef0123456789" * 3,
+                                       katalog_pobran="/m")
+        monkeypatch.setattr(slskd_ctl, "find_config", lambda: str(yml))
+        assert slskd_ctl.api_key_from_slskd_config() == "abcdef0123456789" * 3
+
+    def test_plik_tymczasowy_z_haslem_nigdy_nie_jest_czytelny_dla_innych(
+            self, tmp_path, monkeypatch):
+        yml = tmp_path / "slskd.yml"
+        tryby = []
+        oryg = os.replace
+
+        def szpieg(a, b):
+            tryby.append(os.stat(a).st_mode & 0o777)
+            return oryg(a, b)
+
+        monkeypatch.setattr(instalator.os, "replace", szpieg)
+        instalator.zapisz_konfiguracje(str(yml), klucz_api="K" * 20, katalog_pobran="/m",
+                                       login="dj", haslo="tajne")
+        assert tryby and all(t == 0o600 for t in tryby), [oct(t) for t in tryby]
+
+
+UZYTKOWNIKA = """\
+# moja konfiguracja slskd
+directories:
+  downloads: /Users/x/Downloads/slsk   # stary folder
+  # incomplete: /tmp/x
+soulseek:
+  username: stary
+  password: starehaslo
+  listen_port: 50300
+web:
+  port: 5030
+  authentication:
+    username: admin
+    password: "admin pass"
+    api_keys:
+      moj:
+        key: mojwlasnykluczapi0123456789
+        role: readonly
+shares:
+  directories:
+  - /Users/x/Music/udostepnione
+debug: true
+"""
+
+
+class TestScalanieZSekcjamiUzytkownika:
+    def _zapisz(self, yml, **kw):
+        arg = dict(klucz_api="k" * 48, katalog_pobran="/Users/x/Music",
+                   katalog_niepelnych="/Users/x/inc")
+        arg.update(kw)
+        instalator.zapisz_konfiguracje(str(yml), **arg)
+
+    def test_brak_zdublowanych_kluczy_i_zachowane_ustawienia(self, tmp_path):
+        yml = tmp_path / "slskd.yml"
+        yml.write_text(UZYTKOWNIKA, encoding="utf-8")
+        self._zapisz(yml, login="nowy", haslo="nowe #haslo",
+                     udostepniane=["/Users/x/Music"])
+        d = _wczytaj(yml)                      # ścisły parser: brak duplikatów
+        assert d["soulseek"] == {"username": "nowy", "password": "nowe #haslo",
+                                 "listen_port": 50300}
+        assert d["directories"]["downloads"] == "/Users/x/Music"
+        assert d["directories"]["incomplete"] == "/Users/x/inc"
+        auth = d["web"]["authentication"]
+        assert auth["username"] == "admin" and auth["password"] == "admin pass"
+        assert auth["api_keys"]["moj"]["key"] == "mojwlasnykluczapi0123456789"
+        assert auth["api_keys"]["selekta"]["key"] == "k" * 48
+        assert d["web"]["port"] == 5030 and d["debug"] is True
+        assert d["shares"]["directories"] == ["/Users/x/Music/udostepnione", "/Users/x/Music"]
+        tresc = yml.read_text(encoding="utf-8")
+        assert "# moja konfiguracja slskd" in tresc and "# incomplete: /tmp/x" in tresc
+
+    def test_ponowny_zapis_niczego_nie_zmienia(self, tmp_path):
+        yml = tmp_path / "slskd.yml"
+        yml.write_text(UZYTKOWNIKA, encoding="utf-8")
+        self._zapisz(yml, login="nowy", haslo="h", udostepniane=["/Users/x/Music"])
+        raz = yml.read_text(encoding="utf-8")
+        self._zapisz(yml, udostepniane=["/Users/x/Music"])
+        assert yml.read_text(encoding="utf-8") == raz
+
+    def test_kopia_zapasowa_przed_zapisem(self, tmp_path):
+        yml = tmp_path / "slskd.yml"
+        yml.write_text(UZYTKOWNIKA, encoding="utf-8")
+        self._zapisz(yml)
+        kopia = tmp_path / ("slskd.yml" + instalator.KOPIA_PIERWOTNA)
+        assert kopia.read_text(encoding="utf-8") == UZYTKOWNIKA
+        assert oct(os.stat(kopia).st_mode)[-3:] == "600"
+        self._zapisz(yml, login="a", haslo="b")
+        # oryginał sprzed pierwszej ingerencji selekty zostaje nietknięty
+        assert kopia.read_text(encoding="utf-8") == UZYTKOWNIKA
+        assert (tmp_path / ("slskd.yml" + instalator.KOPIA_OSTATNIA)).is_file()
+
+    def test_nietypowy_zapis_nie_jest_psuty(self, tmp_path):
+        yml = tmp_path / "slskd.yml"
+        tresc = "soulseek: {username: a, password: b}\n"
+        yml.write_text(tresc, encoding="utf-8")
+        with pytest.raises(ValueError, match="soulseek"):
+            self._zapisz(yml, login="x", haslo="y")
+        assert yml.read_text(encoding="utf-8") == tresc
+
+    def test_domyslny_plik_slskd_same_komentarze(self, tmp_path):
+        """Domyślny slskd.yml to same komentarze — blok selekty jak dotąd."""
+        yml = tmp_path / "slskd.yml"
+        yml.write_text("# debug: false\n# soulseek:\n#   username: ~\n", encoding="utf-8")
+        self._zapisz(yml, login="dj", haslo="p")
+        tresc = yml.read_text(encoding="utf-8")
+        assert tresc.count(instalator.POCZATEK) == 1
+        assert _wczytaj(yml)["soulseek"]["username"] == "dj"
+
+
+class TestEndpointyPrzyNietypowymPliku:
+    def test_konto_przy_nietypowym_pliku_409_i_bez_restartu(self, client, tmp_path,
+                                                            monkeypatch):
+        yml = tmp_path / "slskd.yml"
+        yml.write_text("soulseek: {username: a, password: b}\n", encoding="utf-8")
+        wywolania = []
+        monkeypatch.setattr(web.slskd_ctl, "find_config", lambda: str(yml))
+        monkeypatch.setattr(web.slskd_ctl, "stop", lambda: wywolania.append("stop") or (True, ""))
+        monkeypatch.setattr(web.slskd_ctl, "start", lambda: wywolania.append("start") or (True, ""))
+        monkeypatch.setattr(web.time, "sleep", lambda s: None)
+        r = client.post("/api/setup/konto", json={"login": "dj", "haslo": "x #y"})
+        assert r.status_code == 409 and "soulseek" in r.json()["detail"]
+        assert wywolania == [] and "x #y" not in r.text
+        assert yml.read_text(encoding="utf-8") == "soulseek: {username: a, password: b}\n"
+
+    def test_konfiguruj_scala_z_sekcjami_uzytkownika(self, client, tmp_path, monkeypatch):
+        yml = tmp_path / "slskd.yml"
+        yml.write_text(UZYTKOWNIKA, encoding="utf-8")
+        monkeypatch.setattr(web.slskd_ctl, "find_config", lambda: str(yml))
+        r = client.post("/api/setup/konfiguruj", json={})
+        assert r.status_code == 200, r.text
+        d = _wczytaj(yml)
+        assert d["soulseek"]["username"] == "stary"          # konto użytkownika zostaje
+        assert d["web"]["authentication"]["api_keys"]["selekta"]["key"]
