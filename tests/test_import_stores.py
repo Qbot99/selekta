@@ -40,7 +40,9 @@ def test_special_characters_encoded():
 def test_buy_links_keys_and_values():
     t = _t("Hardwell, Maddix", "ACID")
     links = buy_links(t)
-    assert set(links.keys()) == {"beatport", "qobuz", "juno", "bandcamp"}
+    # Juno Download zamknięty 1.06.2026 — domena bez rekordu A
+    assert set(links.keys()) == {"beatport", "qobuz", "apple", "bandcamp"}
+    assert not any("junodownload" in u for u in links.values())
     assert links["beatport"] == beatport_search(t)
     assert links["bandcamp"] == bandcamp_search(t)
     assert links["beatport"].startswith("https://www.beatport.com/search?q=")
@@ -78,3 +80,40 @@ def test_radio_edit_jest_oficjalny():
                                    "Everytime We Touch (Radio Edit)")) is False
     assert stores.is_unofficial(_t("Ktoś", "Cudzy Utwór (DJ X Edit)")) is True
     assert stores.is_unofficial(_t("Ktoś", "Utwór (Bootleg)")) is True
+
+
+def test_juno_usuniety_z_podpowiedzi():
+    from selekta import stores
+    assert not hasattr(stores, "juno_search")
+    assert "Juno" not in stores.gdzie_szukac(_t("Ktoś", "Coś"))
+
+
+def test_pop_dostaje_sklepy_popowe_przodem():
+    """Beatport nie ma Madonny („Madonna Hung Up" → same „The Blessed
+    Madonna") — dla popu pierwsze mają być Qobuz i Apple Music."""
+    from selekta import stores
+    lista = stores.sklepy(_t("Madonna", "Hung Up"))
+    assert [s["id"] for s in lista][:2] == ["qobuz", "apple"]
+    assert {s["id"] for s in lista} >= {"beatport", "bandcamp", "qobuz", "apple"}
+    assert all(s["url"].startswith("https://") and s["name"] for s in lista)
+
+
+def test_dance_dostaje_beatport_przodem():
+    from selekta import stores
+    assert stores.sklepy(_t("Pegassi", "Flashback (Extended Mix)"))[0]["id"] == "beatport"
+    # „Whitney Houston" to nie „house", a Radio Edit to nie klubowy edit
+    assert stores.sklepy(_t("Whitney Houston", "I Will Always Love You"))[0]["id"] == "qobuz"
+    assert stores.sklepy(_t("Anastacia", "I'm Outta Love - Radio Edit"))[0]["id"] == "qobuz"
+
+
+def test_qobuz_prowadzi_wprost_do_wynikow_utworow():
+    """„/search?q=" przekierowywał niekonsekwentnie i bywał 502."""
+    from selekta import stores
+    url = stores.qobuz_search(_t("Bryan Adams", "Summer Of '69"))
+    assert url == "https://www.qobuz.com/us-en/search/tracks/Bryan%20Adams%20Summer%20Of%20%2769"
+
+
+def test_extended_edit_jest_oficjalny():
+    from selekta import stores
+    assert not stores.is_unofficial(_t("Bellini", "Samba De Janeiro (Dimitri Vegas & Like Mike Extended Edit)"))
+    assert stores.is_unofficial(_t("Ktoś", "Cudzy Utwór (DJ X Edit)"))
