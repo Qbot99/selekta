@@ -169,3 +169,23 @@ def test_xml_z_jedna_playlista_bez_pytania(client, tmp_path):
     p.write_text(_RB_XML, encoding="utf-8")
     r = client.post("/api/playlist/local", json={"path": str(p), "playlista": "Warm-up"})
     assert r.status_code == 200 and r.json()["counts"]["total"] == 2
+
+
+def test_wybor_pliku_nie_otwiera_calego_folderu(client, monkeypatch, tmp_path_factory, lib_copy):
+    """Przegląd 0.4.2: wskazanie PLIKU dopuszczało cały folder nadrzędny."""
+    from selekta import folderpick
+    from tests.conftest import fast_copy
+    web._EXTRA_FILES.clear()
+    poza = tmp_path_factory.mktemp("poza_pick")
+    fast_copy(os.path.join(lib_copy, GOOD_FLAC), str(poza / "a.flac"))
+    fast_copy(os.path.join(lib_copy, GOOD_FLAC), str(poza / "b.flac"))
+    (poza / "set.m3u").write_text("#EXTM3U\na.flac\n", encoding="utf-8")
+    monkeypatch.setattr(folderpick, "available", lambda: True)
+    monkeypatch.setattr(folderpick, "choose_file", lambda prompt="": str(poza / "set.m3u"))
+    r = client.post("/api/pick", json={"what": "file"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert web._within_allowed(str(poza / "set.m3u"))
+    assert web._within_allowed(str(poza / "a.flac"))          # utwór z playlisty
+    assert not web._within_allowed(str(poza / "b.flac"))      # reszta folderu nie
+    assert not web._within_allowed(str(poza))
+    web._EXTRA_FILES.clear()

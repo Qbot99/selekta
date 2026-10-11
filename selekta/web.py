@@ -78,6 +78,8 @@ def _folder() -> str:
 # bibliotekę: skoro świadomie je wybrał, może w nich analizować i naprawiać
 # pliki. Żyją tylko do restartu serwera — nic nie zapisujemy na stałe.
 _EXTRA_ROOTS: set[str] = set()
+# pojedyncze pliki wskazane w oknie Findera (playlista i to, na co wskazuje)
+_EXTRA_FILES: set[str] = set()
 
 
 def _allowed_roots() -> list[str]:
@@ -87,6 +89,8 @@ def _allowed_roots() -> list[str]:
 
 def _within_allowed(path: str) -> bool:
     path = os.path.abspath(path)
+    if path in _EXTRA_FILES:
+        return True
     return any(os.path.commonpath([path, r]) == r for r in _allowed_roots())
 
 
@@ -801,7 +805,26 @@ def _obecna_jakosc(path: str) -> dict:
         "format": ext.lstrip(".").upper(),
         "lossless": ext in LOSSLESS_EXT,
         "bitrate": int(getattr(a.info, "bitrate", 0) or 0) // 1000 if a else 0,
+        "channels": int(getattr(a.info, "channels", 0) or 0) if a else 0,
     }
+
+
+# Stratny plik poniżej tego bitrate'u (z nagłówka) jest słabym źródłem,
+# nawet gdy analiza pasma nie ma zastrzeżeń — mono 128 kbps ma pełne
+# pasmo, ale to nadal 128 kbps i jeden kanał.
+NISKI_BITRATE_KBPS = 256
+
+
+def _slabe_wg_naglowka(info: dict) -> str:
+    """Powód wymiany wynikający z nagłówka pliku (pusty, gdy brak)."""
+    if info.get("lossless"):
+        return ""
+    powody = []
+    if info.get("bitrate") and info["bitrate"] < NISKI_BITRATE_KBPS:
+        powody.append(f"{info['bitrate']} kbps")
+    if info.get("channels") == 1:
+        powody.append("mono")
+    return " ".join(powody)
 
 
 @app.post("/api/upgrade/list")
@@ -823,8 +846,14 @@ def api_upgrade_list(payload: dict) -> JSONResponse:
         if not os.path.isfile(path) or not _within_allowed(path):
             continue
         info = _obecna_jakosc(path)
-        if info["grade"] == "ok":
+        naglowek = _slabe_wg_naglowka(info)
+        if info["grade"] == "ok" and not naglowek:
             continue
+        if info["grade"] == "ok":
+            # pasmo w porządku, ale nagłówek mówi „słabe źródło" — dawniej
+            # mono 128 kbps w ogóle nie trafiało na listę
+            info["grade"] = "warn"
+            info["verdict"] = f"słabe źródło: {naglowek} — warto poszukać lepszego"
         artist, title = _tags(path)
         if not (artist and title):
             kand = tagfix.name_candidates(os.path.splitext(os.path.basename(path))[0])
@@ -987,8 +1016,18 @@ def api_pick(payload: dict) -> JSONResponse:
     except folderpick.PickUnavailable as exc:
         raise HTTPException(400, str(exc))
     path = os.path.normpath(path)
-    root = path if os.path.isdir(path) else os.path.dirname(path)
-    _EXTRA_ROOTS.add(os.path.abspath(root))
+    if os.path.isdir(path):
+        _EXTRA_ROOTS.add(os.path.abspath(path))
+    else:
+        # Wskazanie PLIKU nie otwiera już całego folderu nadrzędnego — tylko
+        # ten plik i utwory, na które wskazuje (gdy to playlista).
+        _EXTRA_FILES.add(os.path.abspath(path))
+        if path.lower().endswith(localplaylist.PLAYLIST_EXT):
+            try:
+                parsed = localplaylist.from_file(path)
+                _EXTRA_FILES.update(os.path.abspath(e.path) for e in parsed.entries if e.path)
+            except Exception:  # noqa: BLE001 — wybór pliku nie może paść przez parser
+                pass
     return JSONResponse({"ok": True, "path": path,
                          "name": os.path.basename(path)})
 
