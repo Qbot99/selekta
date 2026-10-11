@@ -138,12 +138,56 @@ def start() -> tuple[bool, str]:
     return True, "slskd uruchomiony"
 
 
-def stop() -> tuple[bool, str]:
-    if not is_running():
-        return True, "slskd nie działa"
+def _procesy_slskd() -> list[tuple[int, str]]:
+    """(pid, ścieżka programu) każdego działającego procesu slskd."""
+    if sys.platform not in ("darwin", "linux"):
+        return []
     try:
-        subprocess.run(["pkill", "-x", "slskd"], capture_output=True, timeout=10)
-    except Exception as exc:  # noqa: BLE001
+        r = subprocess.run(["pgrep", "-x", "slskd"], capture_output=True,
+                           text=True, timeout=5)
+    except Exception:  # noqa: BLE001
+        return []
+    wynik = []
+    for pid in (int(p) for p in r.stdout.split() if p.isdigit()):
+        sciezka = ""
+        try:
+            if sys.platform == "linux":
+                sciezka = os.readlink(f"/proc/{pid}/exe")
+            else:
+                sciezka = subprocess.run(["ps", "-o", "comm=", "-p", str(pid)],
+                                         capture_output=True, text=True,
+                                         timeout=5).stdout.strip()
+        except Exception:  # noqa: BLE001
+            pass
+        wynik.append((pid, sciezka))
+    return wynik
+
+
+def _zabij(pid: int) -> None:
+    import signal
+    os.kill(pid, signal.SIGTERM)
+
+
+def stop() -> tuple[bool, str]:
+    """Zatrzymaj slskd uruchomiony z binarki, którą zna selekta.
+
+    Dawniej `pkill -x slskd` zatrzymywał KAŻDY slskd użytkownika — także
+    taki, którego selekta nie uruchamiała (inna instalacja, inny folder).
+    """
+    procesy = _procesy_slskd()
+    if not procesy:
+        return True, "slskd nie działa"
+    binarka = find_binary()
+    znana = os.path.realpath(binarka) if binarka else ""
+    nasze = [pid for pid, sciezka in procesy
+             if znana and sciezka and os.path.realpath(sciezka) == znana]
+    if not nasze:
+        return False, ("działający slskd nie pochodzi z instalacji, którą zna selekta — "
+                       "zatrzymaj go tam, gdzie go uruchomiłeś")
+    try:
+        for pid in nasze:
+            _zabij(pid)
+    except OSError as exc:
         return False, f"nie udało się zatrzymać: {exc}"
     return True, "slskd zatrzymany"
 
@@ -163,8 +207,9 @@ def status() -> Status:
             st.detail = ("klucz API nie działa — wygeneruj go ponownie"
                          if key else "brak klucza API")
     except requests.RequestException:
-        st.detail = ("slskd nie odpowiada — uruchom go"
-                     if st.binary else "slskd nie jest zainstalowany")
+        st.detail = ("slskd działa, ale nie odpowiada pod adresem z Ustawień" if st.running
+                     else "slskd nie odpowiada — uruchom go" if st.binary
+                     else "slskd nie jest zainstalowany")
         return st
 
     if st.authorized:

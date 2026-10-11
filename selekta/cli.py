@@ -4,16 +4,24 @@
 Komendy:
   organize   dopasuj pliki do playlisty, otaguj, dodaj okładki, zmień nazwy
   verify     raport jakości audio (detektor fałszywych FLAC-ów)
-  match      weryfikacja przez odsłuch: fingerprint pliku vs preview ze Spotify
+  check      pełna weryfikacja pobrań: integralność + tożsamość + jakość
+  match      weryfikacja przez odsłuch: plik vs próbka (Spotify, a bez niej iTunes)
   covers     audyt okładek; --fill dociąga brakujące z iTunes
   icons      pokaż okładki FLAC/WAV w Finderze (macOS)
   analyze    wykryj BPM i tonację, zapisz tagi; --order = kolejność harmoniczna
   health     dashboard biblioteki: duplikaty, braki, uszkodzenia, jakość
-  export     eksport do rekordbox (XML) lub Serato (.crate)
+  export     eksport do rekordbox (XML), Serato (.crate) lub M3U8
   usb        przygotuj płaski folder pod CDJ (nazwy FAT32, WAV→AIFF/FLAC)
   radar      nowe wydania Twoich artystów na Beatport/Bandcamp
   wishlist   lista życzeń + cykliczne szukanie na Soulseeku
   hunt       szukaj brakujących utworów na Soulseeku + linki zakupowe
+  loudness   głośność LUFS + tagi ReplayGain (spójny poziom setu)
+  cues       wykryj intro/outro/drop/pierwsze uderzenie
+  tagfix     napraw uszkodzone tagi (mojibake)
+  dedupe     znajdź duplikaty i przenieś słabsze kopie do kosza selekty
+  uchem      co warto sprawdzić uchem, zanim trafi do setu
+  doctor     sprawdź integracje (Spotify, Beatport, iTunes…) i narzędzia
+  serve      uruchom dashboard w przeglądarce
 """
 from __future__ import annotations
 
@@ -38,6 +46,7 @@ from . import (
     loudness,
     matcher,
     pipeline,
+    poszukiwacz,
     radar,
     spotify,
     stores,
@@ -152,14 +161,29 @@ def cmd_match(args) -> None:
         if not cand:
             continue
         res = verify_match.verify_track(cand.path, t)
+        zrodlo = ""
         if res is None:
-            print(f"— {t.artist} — {t.title}: brak preview do porównania")
+            # Spotify coraz częściej nie daje próbki, a listy tekstowe, Apple
+            # i YouTube nie mają jej wcale — apka ma już próbki z iTunes
+            po_nazwie = verify_match.verify_by_name(cand.path, t.artist, t.title)
+            if po_nazwie:
+                res, zrodlo = po_nazwie
+                # wyszukiwarka iTunes potrafi oddać ten sam tytuł innego wykonawcy
+                # („El Diablo” Franko zamiast Fuego) — taka próbka niczego nie dowodzi
+                wykonawca = set(matcher.normalize(zrodlo.split(" — ")[0]))
+                if not (wykonawca & set(matcher.normalize(t.artist))):
+                    print(f"— {t.artist} — {t.title}: próbka z iTunes jest innego "
+                          f"wykonawcy ({zrodlo}) — nie porównuję")
+                    continue
+        if res is None:
+            print(f"— {t.artist} — {t.title}: brak próbki do porównania (Spotify ani iTunes)")
             continue
         checked += 1
         ok += res.verdict == "match"
         print(f"{VERDICT_ICON[res.verdict]} {t.artist} — {t.title}")
         print(f"    {os.path.basename(cand.path)} — podobieństwo {res.score:.2f} "
-              f"@ {res.offset_s:.0f}s {('· ' + res.note) if res.note else ''}")
+              f"@ {res.offset_s:.0f}s {('· ' + res.note) if res.note else ''}"
+              f"{(' · próbka: ' + zrodlo) if zrodlo else ''}")
     print(f"\n{ok}/{checked} plików potwierdzonych jako właściwy utwór")
 
 
@@ -302,8 +326,16 @@ def cmd_wishlist(args) -> None:
         it = wishlist.add(artist.strip(), title.strip())
         print(f"dodano do listy życzeń: {it['artist']} — {it['title']}")
     elif args.remove:
-        removed = wishlist.remove(args.remove)
-        print(f"usunięto: {removed['artist']} — {removed['title']}" if removed else "nie znaleziono")
+        # lista pokazuje numery od 1 (i id) — tak samo liczymy przy usuwaniu;
+        # dawniej numeracja szła od 0 i nigdzie jej nie było widać
+        cel: str | int = args.remove.strip()
+        if isinstance(cel, str) and cel.isdigit() and len(cel) < 6:
+            cel = int(cel) - 1
+            if cel < 0:
+                sys.exit("numer pozycji zaczyna się od 1 (patrz `selekta wishlist`)")
+        removed = wishlist.remove(cel)
+        print(f"usunięto: {removed['artist']} — {removed['title']}" if removed
+              else "nie znaleziono — sprawdź numer albo id w `selekta wishlist`")
     elif args.check:
         found, nieudane = wishlist.check(SlskdClient())
         if found:
@@ -321,8 +353,14 @@ def cmd_wishlist(args) -> None:
         print(f"wishlist daemon: sprawdzam co {args.interval//60} min (Ctrl+C przerywa)")
         wishlist.daemon(interval_s=args.interval, client=SlskdClient())
     else:
-        for it in wishlist.items():
-            print(f"  · {it['artist']} — {it['title']}")
+        wpisy = wishlist.items()
+        if not wpisy:
+            print("lista życzeń jest pusta")
+        for nr, it in enumerate(wpisy, 1):
+            stan = "  ✓ znalezione" if it.get("found") else ""
+            print(f"  {nr}. {it['artist']} — {it['title']}  [{it.get('id', '')}]{stan}")
+        if wpisy:
+            print("\nusuń: selekta wishlist --remove NUMER (albo id)")
 
 
 def cmd_hunt(args) -> None:
@@ -337,13 +375,25 @@ def cmd_hunt(args) -> None:
             continue
         print(f"♪ {t.artist} — {t.title}")
         if online:
-            hits = slskd.rank(slskd.search(t.query), t.duration_s)[:3]
-            for h in hits:
+            # ta sama drabina zapytań i ranking (artysta + tytuł) co w apce;
+            # dawniej rank() bez artysty i tytułu → wygrywał FLAC innego utworu
+            hits = slskd.search_track(t.artist, t.title, t.duration_s)
+            for h in hits[:3]:
                 kind = "lossless" if h.is_lossless else f"{h.bitrate or '?'} kbps"
-                print(f"    slsk: {os.path.basename(h.filename)} [{kind}, {h.size//1_000_000} MB]")
+                nazwa = os.path.basename(h.filename.replace("\\", "/"))
+                print(f"    slsk: {nazwa} [{kind}, {h.size//1_000_000} MB]")
             if hits and args.download:
-                slskd.download(hits[0])
-                print("    ⬇ zlecono pobieranie najlepszego wyniku")
+                hit, opis, ocena = poszukiwacz.najlepszy(slskd, hits, t.artist, t.title,
+                                                         t.duration_s)
+                if ocena == "pewne":
+                    slskd.download(hit)
+                    print(f"    ⬇ zlecono pobieranie: {opis['filename']}")
+                elif ocena:
+                    print(f"    ? „{opis['filename']}” wygląda dobrze, ale bez zgodnego "
+                          "czasu trwania — nie pobieram w ciemno; potwierdź w aplikacji "
+                          "albo pobierz ręcznie")
+                else:
+                    print("    — żaden wynik nie jest na pewno tym utworem — nic nie pobieram")
             elif not hits:
                 print("    slsk: brak wyników — dodaję do listy życzeń")
                 wishlist.add(t.artist, t.title, t.duration_s)
@@ -482,7 +532,7 @@ def main() -> None:
 
     w = sub.add_parser("wishlist", help="lista życzeń + cykliczne szukanie na Soulseeku")
     w.add_argument("--add", metavar='"Artysta - Tytuł"')
-    w.add_argument("--remove", metavar="ID|INDEX")
+    w.add_argument("--remove", metavar="NUMER|ID", help="numer z listy (od 1) albo id")
     w.add_argument("--check", action="store_true", help="sprawdź teraz na Soulseeku")
     w.add_argument("--daemon", action="store_true", help="pętla w tle")
     w.add_argument("--interval", type=int, default=3600)

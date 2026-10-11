@@ -365,3 +365,17 @@ class TestEndpointyPrzyNietypowymPliku:
         d = _wczytaj(yml)
         assert d["soulseek"]["username"] == "stary"          # konto użytkownika zostaje
         assert d["web"]["authentication"]["api_keys"]["selekta"]["key"]
+
+    def test_konto_przy_cudzym_slskd_nie_restartuje(self, client, tmp_path, monkeypatch):
+        """stop() nie zatrzymuje już cudzego slskd — endpoint mówi to wprost
+        zamiast udawać restart i kazać czekać 25 s na połączenie."""
+        yml = tmp_path / "slskd.yml"
+        wywolania = []
+        monkeypatch.setattr(web.slskd_ctl, "find_config", lambda: str(yml))
+        monkeypatch.setattr(web.slskd_ctl, "stop",
+                            lambda: (False, "działający slskd nie pochodzi z instalacji"))
+        monkeypatch.setattr(web.slskd_ctl, "start", lambda: wywolania.append("start") or (True, ""))
+        monkeypatch.setattr(web.time, "sleep", lambda s: None)
+        r = client.post("/api/setup/konto", json={"login": "dj", "haslo": "h"})
+        assert r.status_code == 200 and r.json()["restart"] is False
+        assert wywolania == [] and _wczytaj(yml)["soulseek"]["password"] == "h"
