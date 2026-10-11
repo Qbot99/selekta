@@ -270,7 +270,13 @@ def cmd_export(args) -> None:
         paths = [c.path for t in pl if (c := matcher.best_match(t, args.folder))]
         tracks = [dj_export.track_from_file(p) for p in paths] or dj_export.collect(args.folder)
     else:
-        tracks = dj_export.collect(args.folder)
+        # bez playlisty: ta sama kolejność harmoniczna co w aplikacji,
+        # nie alfabet (kolekcja to jeszcze nie set)
+        tracks = dj_export.w_kolejnosci_setu(dj_export.collect(args.folder))
+    if not tracks:
+        # pusty plik z rc=0 wyglądał jak sukces — a rekordbox dostawał 0 utworów
+        sys.exit(f"błąd: nie znalazłem żadnych utworów do eksportu w {args.folder} "
+                 "(szukałem też w podfolderach) — nic nie zapisano")
     name = args.name or os.path.basename(os.path.normpath(args.folder))
     if args.target == "rekordbox":
         # to samo wzbogacenie co eksport z aplikacji: siatka, cue i ręczna

@@ -289,13 +289,16 @@ def api_import(payload: dict) -> JSONResponse:
 
 
 def _harmonic_items() -> list[tuple[str, harmonic.TrackAnalysis]]:
-    """(nazwa, analiza) dla przeanalizowanych plików — jedno źródło prawdy
-    dla ekranu „Kolejność setu" i dla eksportu, żeby dawały ten sam set."""
+    """(ścieżka, analiza) dla przeanalizowanych utworów — jedno źródło prawdy
+    dla ekranu „Kolejność setu" i dla eksportu, żeby dawały ten sam set.
+
+    Ten sam indeks co eksport całej biblioteki: każdy utwór raz, kopie
+    z folderów setów się nie dublują (wcześniej 54 pozycje, 53 utwory)."""
     items = []
-    for p in _paths():
+    for p in dj_export.pliki_biblioteki(_folder()):
         h = cache.get(p, "harmonic")
         if h:
-            items.append((os.path.basename(p), harmonic.TrackAnalysis(**h)))
+            items.append((p, harmonic.TrackAnalysis(**h)))
     return items
 
 
@@ -303,9 +306,9 @@ def _harmonic_items() -> list[tuple[str, harmonic.TrackAnalysis]]:
 def api_order() -> JSONResponse:
     ordered = harmonic.order_set(_harmonic_items())
     return JSONResponse({"order": [
-        {"pos": i + 1, "file": name, "camelot": ta.camelot,
-         "bpm": ta.bpm, "note": note}
-        for i, (name, ta, note) in enumerate(ordered)
+        {"pos": i + 1, "file": os.path.basename(path), "path": path,
+         "camelot": ta.camelot, "bpm": ta.bpm, "note": note}
+        for i, (path, ta, note) in enumerate(ordered)
     ]})
 
 
@@ -445,17 +448,24 @@ def _in_set_order(tracks: list[dict]) -> list[dict]:
     Bez tego rekordbox dostaje playlistę alfabetyczną — czyli kolekcję,
     a nie set do zagrania. Utwory bez policzonej analizy lądują na końcu.
     """
-    by_name = {os.path.basename(t["path"]): t for t in tracks}
+    # Po pełnej ścieżce, nie po nazwie: „01 - Intro.flac" z dwóch albumów
+    # to dwa różne utwory.
+    by_path = {os.path.abspath(t["path"]): t for t in tracks}
     # Wejście budujemy dokładnie tak jak /api/order — przy remisach kosztu
     # kolejność wejścia rozstrzyga wybór, więc inne sortowanie dałoby inny
     # (też poprawny) set niż ten pokazany na ekranie.
     items = _harmonic_items()
     if not items:
         return tracks
-    ordered = [by_name[name] for name, _ta, _note in harmonic.order_set(items)
-               if name in by_name]
+    ordered = [by_path[path] for path, _ta, _note in harmonic.order_set(items)
+               if path in by_path]
     seen = {id(t) for t in ordered}
     return ordered + [t for t in tracks if id(t) not in seen]
+
+
+def _nazwa_eksportu(payload: dict | None, domyslna: str) -> str:
+    """Nazwa pliku eksportu bez ścieżek: „../../x" nie wyjdzie z biblioteki."""
+    return playlists.safe_name(_field(payload, "name") or domyslna)
 
 
 @app.post("/api/export")
@@ -463,20 +473,23 @@ def api_export(payload: dict) -> JSONResponse:
     target = _field(payload, "target") or "rekordbox"
     if target not in EXPORT_TARGETS:
         raise HTTPException(400, f"nieznany cel eksportu: {target}")
-    name = _field(payload, "name") or os.path.basename(os.path.normpath(_folder()))
+    name = _nazwa_eksportu(payload, os.path.basename(os.path.normpath(_folder())))
     tracks = dj_export.collect(_folder())
     if not tracks:
         raise HTTPException(400, "biblioteka jest pusta — nie ma czego eksportować")
     if _field(payload, "order") == "set":
         tracks = _in_set_order(tracks)
+    bez_analizy = 0
     if target == "rekordbox":
-        out = dj_export.to_rekordbox_xml(dj_export.wzbogac_o_siatke(tracks), name,
+        tracks = dj_export.wzbogac_o_siatke(tracks, licz_brakujace=False)
+        bez_analizy = sum(1 for t in tracks if t.get("bez_analizy"))
+        out = dj_export.to_rekordbox_xml(tracks, name,
                                          os.path.join(_folder(), f"{name}.xml"))
     elif target == "m3u8":
         out = dj_export.to_m3u8(tracks, os.path.join(_folder(), f"{name}.m3u8"))
     else:
         out = dj_export.install_serato_crate(tracks, os.path.expanduser("~/Music"), name)
-    return JSONResponse({"path": out, "count": len(tracks)})
+    return JSONResponse({"path": out, "count": len(tracks), "bez_analizy": bez_analizy})
 
 
 @app.post("/api/queue")
@@ -2133,16 +2146,22 @@ def api_rekordbox_status() -> JSONResponse:
 @app.post("/api/rekordbox/install")
 def api_rekordbox_install(payload: dict | None = None) -> JSONResponse:
     """Zbuduj playlistę w kolejności setu i podepnij ją do rekordboxa."""
-    name = _field(payload, "name") or "selekta-set"
+    name = _nazwa_eksportu(payload, "selekta-set")
     tracks = _in_set_order(dj_export.collect(_folder()))
     if not tracks:
         raise HTTPException(400, "biblioteka jest pusta — nie ma czego wysłać")
+    # Ta sama ścieżka co eksport setu: siatka, cue i ręczna praca z
+    # rekordboxa. Wcześniej XML szedł bez TEMPO i POSITION_MARK, a wczytane
+    # hot cue przepadały. Z całej biblioteki bierzemy tylko to, co już
+    # policzone — liczenie setek utworów zawiesiłoby zapytanie na godziny.
+    tracks = dj_export.wzbogac_o_siatke(tracks, licz_brakujace=False)
+    bez_analizy = sum(1 for t in tracks if t.get("bez_analizy"))
     xml_path = dj_export.to_rekordbox_xml(
         tracks, name, os.path.join(_folder(), f"{name}.xml"))
     res = rekordbox.install(xml_path)
     return JSONResponse({
         "ok": res.ok, "message": res.message, "path": xml_path,
-        "count": len(tracks), "playlist": name,
+        "count": len(tracks), "playlist": name, "bez_analizy": bez_analizy,
         "previous": res.previous, "running": rekordbox.is_running(),
     })
 

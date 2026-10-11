@@ -156,16 +156,89 @@ def _fill_from_cache(path: str, track: dict) -> None:
         track["key"] = data["camelot"]
 
 
-def collect(folder: str) -> list[dict]:
-    """Track dicts for every audio file directly inside `folder`, sorted by name."""
-    out: list[dict] = []
-    for name in sorted(os.listdir(folder), key=str.lower):
-        if name.startswith("."):
+MANIFEST_SETU = "_selekta.json"     # ten sam plik co playlists.MANIFEST
+
+
+def _w_folderze_setu(path: str, korzen: str) -> bool:
+    """Czy plik leży w folderze setu (katalog z _selekta.json) POD korzeniem.
+
+    Sam korzeń się nie liczy: eksport folderu setu wskazanego wprost
+    (``selekta export --folder speeding``) to eksport tego setu.
+    """
+    katalog = os.path.dirname(os.path.abspath(path))
+    korzen = os.path.abspath(korzen)
+    while katalog != korzen and katalog.startswith(korzen + os.sep):
+        if os.path.isfile(os.path.join(katalog, MANIFEST_SETU)):
+            return True
+        katalog = os.path.dirname(katalog)
+    return False
+
+
+def pliki_biblioteki(folder: str) -> list[str]:
+    """Utwory biblioteki do eksportu — z podfolderami, każdy utwór RAZ.
+
+    Ten sam indeks co reszta apki (``matcher.audio_files``): pobrania z
+    Soulseeka lądują w katalogach albumów, więc czytanie samego folderu
+    głównego widziało bibliotekę jako pustą („0 plików w głównym, 277 w
+    podfolderach").
+
+    Foldery setów (katalog z ``_selekta.json``) trzymają KOPIE utworów
+    z biblioteki — kopia nie jest osobnym utworem, więc w eksporcie całej
+    biblioteki zostaje oryginał spoza setu. Utwór, który istnieje tylko
+    w folderze setu (pobranie prosto do playlisty), zostaje — raz.
+    Kopię poznajemy po tej samej nazwie pliku i tym samym rozmiarze
+    (tak kopiuje ``playlists.collect``).
+
+    Zależność: obszar „porządki” uczy tego samego ``matcher.audio_files``.
+    Ta funkcja jest wtedy po prostu no-opem na już odfiltrowanej liście.
+    """
+    from .matcher import audio_files
+
+    pliki = audio_files(folder)
+    poza, w_setach = [], []
+    for p in pliki:
+        (w_setach if _w_folderze_setu(p, folder) else poza).append(p)
+
+    def podpis(p: str) -> tuple[str, int]:
+        try:
+            return (os.path.basename(p).casefold(), os.path.getsize(p))
+        except OSError:
+            return (os.path.basename(p).casefold(), -1)
+
+    znane = {podpis(p) for p in poza}
+    wynik = list(poza)
+    for p in w_setach:
+        s = podpis(p)
+        if s in znane:
             continue
-        path = os.path.join(folder, name)
-        if os.path.isfile(path) and name.lower().endswith(AUDIO_EXT):
-            out.append(track_from_file(path))
-    return out
+        znane.add(s)
+        wynik.append(p)
+    return sorted(wynik, key=lambda p: (os.path.basename(p).lower(), p))
+
+
+def w_kolejnosci_setu(tracks: list[dict]) -> list[dict]:
+    """Ułóż utwory harmonicznie (to samo `harmonic.order_set` co ekran
+    „Kolejność setu"); utwory bez policzonej analizy idą na koniec."""
+    from . import cache, harmonic
+
+    items, reszta = [], []
+    for t in tracks:
+        try:
+            h = cache.get(t["path"], "harmonic")
+        except OSError:
+            h = None
+        if h:
+            items.append((t["path"], harmonic.TrackAnalysis(**h)))
+        else:
+            reszta.append(t)
+    po_sciezce = {t["path"]: t for t in tracks}
+    return [po_sciezce[p] for p, _ta, _n in harmonic.order_set(items)] + reszta
+
+
+def collect(folder: str) -> list[dict]:
+    """Track dicts for every track of the library (with subfolders, set
+    copies counted once — see `pliki_biblioteki`), sorted by file name."""
+    return [track_from_file(p) for p in pliki_biblioteki(folder)]
 
 
 # --------------------------------------------------------------------------- #
@@ -347,13 +420,19 @@ def install_serato_crate(tracks: list[dict], library_root: str,
     crate_path = os.path.join(library_root, "_Serato_", "Subcrates", safe + ".crate")
     return to_serato_crate(tracks, crate_path)
 
-def wzbogac_o_siatke(tracks: list[dict]) -> list[dict]:
+def wzbogac_o_siatke(tracks: list[dict], licz_brakujace: bool = True) -> list[dict]:
     """Dołóż do eksportu siatkę beatów i punkty cue.
 
     Bez tego rekordbox analizuje utwór po swojemu i sam ustawia kotwicę —
     nasze wyliczenie pierwszego uderzenia przepada, a razem z nim intro,
     drop i outro. Dane bierzemy z pamięci podręcznej; liczymy tylko to,
     czego jeszcze nie ma.
+
+    `licz_brakujace=False` — tylko to, co już policzone (eksport CAŁEJ
+    biblioteki: liczenie cue to ~40 s na utwór, więc setki niepoliczonych
+    utworów zawiesiłyby jedno zapytanie na godziny). Utwór bez analizy
+    dostaje wtedy `bez_analizy=True` i rekordbox policzy mu siatkę sam;
+    ręczna praca z rekordboxa i tak przechodzi.
     """
     from dataclasses import asdict
 
@@ -364,16 +443,22 @@ def wzbogac_o_siatke(tracks: list[dict]) -> list[dict]:
         if not path or not os.path.isfile(path):
             continue
         h = cache.get(path, "harmonic")
-        if h is None:
+        if h is None and licz_brakujace:
             h = asdict(harmonic.analyze(path)); cache.put(path, "harmonic", h)
+        if h is None:
+            h = {}
+            t["bez_analizy"] = True
         if not t.get("bpm") and h.get("bpm"):
             t["bpm"] = h["bpm"]
         if not t.get("key") and h.get("key"):
             t["key"] = h["key"]
         c = cache.get(path, "cues")
-        if c is None:
+        if c is None and licz_brakujace:
             c = asdict(cues.analyze(path, bpm=h.get("bpm")))
             cache.put(path, "cues", c)
+        if c is None:
+            c = {}
+            t["bez_analizy"] = True
         # Kolejność ważności kotwicy: poprawka zrobiona w selekcie (ostatnia
         # świadoma decyzja w tej apce) > to, co przyszło z rekordboxa >
         # nasze wyliczenie.
