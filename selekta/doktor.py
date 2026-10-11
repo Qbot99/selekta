@@ -68,15 +68,21 @@ def _ffmpeg() -> Sonda:
 def _slskd() -> Sonda:
     from . import slskd_ctl
     s = slskd_ctl.status()
-    if not s.binary:
-        return Sonda("slskd", False, "nie zainstalowany — pobieranie z Soulseeka "
-                     "nie zadziała (Ustawienia → krok 1)", krytyczna=False)
-    if not s.running:
-        return Sonda("slskd", False, "zainstalowany, ale nie uruchomiony",
-                     krytyczna=False)
-    if not s.reachable or not s.authorized:
-        return Sonda("slskd", False, "działa, ale apka nie może się z nim "
-                     "dogadać (klucz API?)", krytyczna=False)
+    # Najpierw to, co odpowiada API: slskd uruchomiony spoza znanych folderów
+    # (Docker, inny HOME) działa, choć binarki nie znamy — wcześniej dostawał
+    # „nie zainstalowany”.
+    if s.reachable and not s.authorized:
+        return Sonda("slskd", False, "działa, ale odrzuca klucz API selekty — "
+                     "Ustawienia → Soulseek → „Wykryj automatycznie”", krytyczna=False)
+    if not s.reachable:
+        if not s.binary and not s.running:
+            return Sonda("slskd", False, "nie zainstalowany — pobieranie z Soulseeka "
+                         "nie zadziała (Ustawienia → krok 1)", krytyczna=False)
+        if not s.running:
+            return Sonda("slskd", False, "zainstalowany, ale nie uruchomiony",
+                         krytyczna=False)
+        return Sonda("slskd", False, "proces działa, ale nie odpowiada "
+                     "(sprawdź adres w Ustawieniach)", krytyczna=False)
     if not s.logged_in:
         return Sonda("slskd", False, "działa, ale nie jest zalogowany do sieci "
                      "Soulseek", krytyczna=False)
@@ -104,9 +110,13 @@ def _itunes() -> Sonda:
                  f"okładka {len(hit.data) // 1024} kB dla {ITUNES_PROBA[0]}")
 
 
+# Sondy radaru pytają o PEŁNY katalog (fetch_*), nie o nowości (check_*):
+# pamięć „już widziane” dawała przy każdym kolejnym sprawdzeniu 0 wydań,
+# czyli fałszywy alarm „strona mogła się zmienić”, a do tego dopisywała
+# artystów sond do radaru użytkownika.
 def _beatport() -> Sonda:
     from . import radar
-    w = radar.check_beatport(BEATPORT_ARTYSTA)
+    w = radar.fetch_beatport(BEATPORT_ARTYSTA)
     if not w:
         return Sonda("Beatport (radar)", False, f"0 wydań dla {BEATPORT_ARTYSTA} "
                      "— strona mogła się zmienić, radar milczy", krytyczna=False)
@@ -116,7 +126,7 @@ def _beatport() -> Sonda:
 
 def _bandcamp() -> Sonda:
     from . import radar
-    w = radar.check_bandcamp(BANDCAMP_ARTYSTA)
+    w = radar.fetch_bandcamp(BANDCAMP_ARTYSTA)
     if not w:
         return Sonda("Bandcamp (radar)", False, f"0 wydań dla {BANDCAMP_ARTYSTA} "
                      "— strona mogła się zmienić, radar milczy", krytyczna=False)

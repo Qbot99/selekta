@@ -168,10 +168,12 @@ def test_radar_load_state_fresh_empty():
     assert radar._load_state() == {}
 
 
-def test_radar_register_first_diff_returns_everything():
+def test_radar_register_first_check_only_seeds():
+    """Pierwsze sprawdzenie zapamiętuje katalog, a nie zgłasza go w całości
+    jako „nowości” (regresja 11.10.2026: ABBA z 1997, „424 nowości”)."""
     found = [_rel("a"), _rel("b")]
     new = radar._register("Artist", found)
-    assert [f["id"] for f in new] == ["a", "b"]
+    assert new == []
     state = radar._load_state()
     assert state["Artist"]["seen"] == ["a", "b"]
     assert state["Artist"]["last_check"] is not None
@@ -191,8 +193,10 @@ def test_radar_register_new_id_returns_only_new():
 
 
 def test_radar_register_separate_artists_independent():
-    radar._register("One", [_rel("a")])
-    new = radar._register("Two", [_rel("a")])  # ten sam id, inny artysta
+    radar._register("One", [_rel("x")])
+    radar._register("Two", [_rel("x")])
+    radar._register("One", [_rel("x"), _rel("a")])
+    new = radar._register("Two", [_rel("x"), _rel("a")])  # ten sam id, inny artysta
     assert [f["id"] for f in new] == ["a"]
 
 
