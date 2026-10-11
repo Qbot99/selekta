@@ -205,8 +205,9 @@ def _save_store(kind: str, store: dict) -> None:
 # energia (naprawiona jasność, gęstość z bramką okresowości).
 # cues 3: siatka na stopie (siatka.py) + Battito — stare kotwice były o pół bitu obok
 # 11.10.2026: integrity 2 — porównanie z długością z nagłówka (stare „ok”
-# przepuszczało ucięte MP3)
-WERSJE = {"cues": 3, "harmonic": 2, "tempo": 2, "quality": 2, "energia": 2,
+# przepuszczało ucięte MP3); energia 3 — energia bezwzględna (porównywalna
+# między utworami), frazy liczone przy odczycie z aktualnej siatki
+WERSJE = {"cues": 3, "harmonic": 2, "tempo": 2, "quality": 2, "energia": 3,
           "integrity": 2}
 
 
