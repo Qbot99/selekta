@@ -53,6 +53,7 @@ class Candidate:
     # wersji. Dopiero to wolno pokazać jako „masz" albo jako propozycję
     # „inna wersja"; cudzy utwór nigdy nie trafia do setu.
     same_track: bool = False
+    file_duration: float | None = None   # czas pliku z biblioteki
 
 
 def _tag(audio, keys: tuple[str, ...]) -> str:
@@ -449,6 +450,28 @@ def _judge(want: _Want, path: str, info: dict, duration: float | None) -> int:
     return best
 
 
+def verdict_for_name(track: Track, path: str, duration: float | None) -> int:
+    """Werdykt tożsamości dla pliku znanego tylko z nazwy i ścieżki
+    (wynik z Soulseeka): 2 = ten sam utwór i wersja, 1 = ten sam utwór
+    w innej wersji, 0 = inny utwór.
+
+    Artysta bywa w dowolnym folderze ścieżki („Madonna/Confessions on
+    a Dance Floor/1-01 Hung Up.flac"), więc wszystkie foldery mogą go
+    POTWIERDZIĆ — ten sam ranking tożsamości co dopasowanie do biblioteki.
+    """
+    path = (path or "").replace("\\", "/")
+    chce = _want(track)
+    foldery = {x for part in path.split("/")[:-1] for x in _words(part)
+               if not x.isdigit()}
+    best = 0
+    for v in _views(path, {"title": "", "artist": ""}):
+        v.folder |= foldery
+        best = max(best, _compare(chce, v, duration)[0])
+        if best == 2:
+            break
+    return best
+
+
 def _score_tokens(track: Track, want: list[str], have: list[str],
                   duration: float | None, path: str) -> Candidate:
     overlap = len(set(want) & set(have)) / len(set(want))
@@ -478,7 +501,8 @@ def _score_tokens(track: Track, want: list[str], have: list[str],
 
     return Candidate(path, round(score, 3), delta, f"overlap={overlap:.2f}",
                      identity=round(identity, 3),
-                     same_version=(want_mix == have_mix))
+                     same_version=(want_mix == have_mix),
+                     file_duration=duration)
 
 
 def _with_identity(c: Candidate, verdict: int) -> Candidate:

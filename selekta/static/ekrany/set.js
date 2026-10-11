@@ -390,8 +390,10 @@ function impWiersz(r, i){
     nota = r.zakolejkowane===true ? 'w kolejce — apka sama szuka i pobiera' : `w kolejce pobierania · ${r.zakolejkowane}`;
     akcje = `<button class="btn mini cichy" data-akcja="pobierania">Pobierania →</button>`;
   }else{
-    nota = r.buy ? 'nie ma w bibliotece · Beatport' : 'nie ma w bibliotece';
-    akcje = `<button class="btn mini acc" data-akcja="szukaj">Szukaj na Soulseeku</button>${r.buy ? `<a class="btn mini cichy" href="${esc(r.buy)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center">Kup ↗</a>` : ''}`;
+    // kilka sklepów, od najbardziej prawdopodobnego (dla popu Beatport bywa pusty)
+    const sk = (r.sklepy && r.sklepy.length) ? r.sklepy : (r.buy ? [{name:'Beatport', url:r.buy}] : []);
+    nota = sk.length ? `nie ma w bibliotece · kup: ${sk.slice(0, 3).map(x => x.name).join(', ')}` : 'nie ma w bibliotece';
+    akcje = `<button class="btn mini acc" data-akcja="szukaj">Szukaj na Soulseeku</button>${sk.slice(0, 2).map(x => `<a class="btn mini cichy" href="${esc(x.url)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center">${esc(x.name)} ↗</a>`).join('')}`;
   }
   return `<div class="setWiersz" data-i="${i}" style="display:grid;grid-template-columns:8px minmax(0,1fr) minmax(0,1.3fr) auto;gap:16px;align-items:center;padding:12px 20px;border-bottom:1px solid ${K.line2}">
     ${kropka(kolor)}

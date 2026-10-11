@@ -247,11 +247,48 @@ def api_analyze(file: str = Query(...)) -> JSONResponse:
     return JSONResponse(_track_row(path))
 
 
+def _wiersz_importu(t: spotify.Track, best) -> tuple[str, dict]:
+    """Utwór z playlisty + najlepszy plik biblioteki → (pas, wiersz dla UI).
+
+    Pasy: „auto" — masz TEN SAM utwór w tej samej wersji; „resolve" —
+    masz ten sam utwór, ale w INNEJ wersji (propozycja do decyzji, zawsze
+    other_version); „missing" — do ściągnięcia. Cudzy plik nie trafia do
+    żadnego pasa: dawniej „Beat It" wskazywało „Kick It.wav", kreator
+    wkładał to do „masz", a utwór po cichu znikał z setu.
+    """
+    row = {"artist": t.artist, "title": t.title,
+           "duration": round(t.duration_s) if t.duration_s else None}
+    pas = matcher.lane(best)
+    if pas == "missing":
+        sk = stores.sklepy(t)
+        row["buy"] = sk[0]["url"]
+        row["sklepy"] = sk
+        return "missing", row
+    row["file"] = os.path.basename(best.path)
+    row["score"] = best.score
+    if pas == "version":
+        row["other_version"] = True
+        if best.file_duration:
+            row["file_duration"] = round(best.file_duration)
+        row["sklepy"] = stores.sklepy(t)       # żeby kupić WŁAŚCIWĄ wersję
+        return "resolve", row
+    return "auto", row
+
+
+def _pasy(tracks: list, index) -> tuple[list, list, list]:
+    auto, resolve, missing = [], [], []
+    for t in tracks:
+        pas, row = _wiersz_importu(t, matcher.classify_track(t, index))
+        {"auto": auto, "resolve": resolve, "missing": missing}[pas].append(row)
+    return auto, resolve, missing
+
+
 @app.post("/api/import")
 def api_import(payload: dict) -> JSONResponse:
     """Rozpoznaj playlistę (dowolne źródło) i dopasuj do biblioteki.
 
-    Trzy pasy: auto (>=0.85), do rozstrzygnięcia (0.5–0.85), nie znaleziono.
+    Trzy pasy: auto (ten sam utwór i wersja), resolve (ten sam utwór
+    w innej wersji — do decyzji), missing (do ściągnięcia).
     """
     text = _field(payload, "text")
     if not text:
@@ -263,23 +300,7 @@ def api_import(payload: dict) -> JSONResponse:
     if not tracks:
         raise HTTPException(400, "nie znalazłem utworów w podanym źródle")
 
-    index = matcher.library_index(_folder())
-    auto, resolve, missing = [], [], []
-    for t in tracks:
-        best = matcher.classify_track(t, index)
-        row = {"artist": t.artist, "title": t.title,
-               "duration": round(t.duration_s) if t.duration_s else None}
-        if best and best.score >= 0.85 and best.same_version:
-            row["file"] = os.path.basename(best.path); row["score"] = best.score
-            auto.append(row)
-        elif best and (best.score >= 0.5 or best.identity >= 0.75):
-            # ten sam utwór, ale inna wersja miksu albo słabsze dopasowanie
-            row["file"] = os.path.basename(best.path); row["score"] = best.score
-            row["other_version"] = not best.same_version
-            resolve.append(row)
-        else:
-            row["buy"] = stores.buy_links(t)["beatport"]
-            missing.append(row)
+    auto, resolve, missing = _pasy(tracks, matcher.library_index(_folder()))
     return JSONResponse({
         "origin": origin,
         "counts": {"auto": len(auto), "resolve": len(resolve), "missing": len(missing),
@@ -643,11 +664,16 @@ def api_playlist_collect(payload: dict) -> JSONResponse:
             # Czy ten utwór już jest na playliście — choćby jako INNA kopia?
             # Bez tego playlista z pliku M3U dostawała ten sam kawałek dwa
             # razy: raz ze wskazanej ścieżki, raz z dopasowania biblioteki.
+            # „Już jest" = ten sam utwór w dowolnej wersji (np. inna wersja,
+            # którą użytkownik świadomie wziął w kreatorze).
             juz = matcher.classify_track(trk, matcher.index_paths(paths))
-            if juz and (juz.score >= 0.5 or juz.identity >= 0.75):
+            if juz and juz.same_track:
                 continue
+            # Dociągamy WYŁĄCZNIE ten sam utwór w tej samej wersji. Dawniej
+            # wystarczało score ≥ 0,5 albo identity ≥ 0,75 i brakujący utwór
+            # zastępował cudzy plik („Frozen" → „Like a Prayer").
             best = matcher.classify_track(trk, index)
-            if best and (best.score >= 0.5 or best.identity >= 0.75):
+            if matcher.lane(best) == "auto":
                 if best.path not in seen:
                     seen.add(best.path); paths.append(best.path); late.append(best.path)
 
@@ -715,17 +741,8 @@ def _lanes_from_entries(entries: list, origin: str, name: str) -> dict:
             index = matcher.library_index(_folder())
         trk = spotify.Track(id="", artist=e.artist, title=e.title,
                             duration_s=e.duration_s)
-        best = matcher.classify_track(trk, index)
-        if best and best.score >= 0.85 and best.same_version:
-            row["file"] = os.path.basename(best.path); row["score"] = best.score
-            auto.append(row)
-        elif best and (best.score >= 0.5 or best.identity >= 0.75):
-            row["file"] = os.path.basename(best.path); row["score"] = best.score
-            row["other_version"] = not best.same_version
-            resolve.append(row)
-        else:
-            row["buy"] = stores.buy_links(trk)["beatport"]
-            missing.append(row)
+        pas, row = _wiersz_importu(trk, matcher.classify_track(trk, index))
+        {"auto": auto, "resolve": resolve, "missing": missing}[pas].append(row)
     return {
         "origin": origin, "name": name,
         "counts": {"auto": len(auto), "resolve": len(resolve),

@@ -24,6 +24,8 @@
       prob:{tagi:'NAZWA',okladka:'OKŁADKA',jakosc:'JAKOŚĆ',integralnosc:'PRZESKOKI',tempo:'TEMPO',duplikat:'DUBEL'},
       st:{searching:'szukam…',queued:'w kolejce',downloading:'pobieram',failed:'brak wyniku'},
       notes:{other:'inna wersja',similar:'podobne',ok:'✓'},
+      propTitle:'Masz inną wersję — zdecyduj', propUse:'Użyj mojej', propGet:'Pobierz właściwą', propHas:'masz: {file}', propLen:'{mine} zamiast {want}',
+      propWait:'{n} {utw} z inną wersją czeka na Twoją decyzję — bez niej nie trafią do setu.', buy:'kup', importNote:'Uwaga',
       // --- stany spoza makiety ---
       manual:'TRYB RĘCZNY', slskAmber:'Soulseek: rozłączony', slskRed:'slskd nie działa', slskOff:'brak połączenia z apką',
       justGot:'właśnie pobrane', noneHave:'nic z tej playlisty', allGot:'wszystko ściągnięte',
@@ -57,6 +59,8 @@
       prob:{tagi:'NAME',okladka:'COVER',jakosc:'QUALITY',integralnosc:'DROPOUTS',tempo:'TEMPO',duplikat:'DUPE'},
       st:{searching:'searching…',queued:'queued',downloading:'downloading',failed:'no result'},
       notes:{other:'other version',similar:'similar',ok:'✓'},
+      propTitle:'You have another version — decide', propUse:'Use mine', propGet:'Fetch the right one', propHas:'you have: {file}', propLen:'{mine} instead of {want}',
+      propWait:'{n} {utw} with another version wait for your decision — without it they stay out of the set.', buy:'buy', importNote:'Note',
       manual:'MANUAL MODE', slskAmber:'Soulseek: disconnected', slskRed:'slskd is not running', slskOff:'app not reachable',
       justGot:'just downloaded', noneHave:'nothing from this playlist', allGot:'everything fetched',
       emptyPaste:'Paste a link or upload a file first.', checking:'checking what you already have…', reading:'reading {name}…', readingDisk:'reading from disk…',
@@ -192,6 +196,10 @@
 .kr .stopa .info b{color:var(--txt)}
 .kr .stopa .cta{margin-left:auto}
 .kr .pusto2{padding:22px 20px;color:var(--dim2);font-size:13px}
+.kr .podnag{padding:10px 20px;font:500 10.5px var(--mono);letter-spacing:.1em;border-bottom:1px solid var(--line2);background:var(--bg)}
+.kr .poz2 .a a{color:var(--dim2);text-decoration:none;border-bottom:1px dotted var(--line3)}
+.kr .poz2 .a a:hover{color:var(--acc);border-color:var(--acc)}
+.kr .uwaga-imp{font-size:12.5px;line-height:1.45;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel)}
 /* krok 3 */
 .kr .s3{display:flex;flex-direction:column;gap:28px;max-width:760px;margin:auto 0}
 .kr .nazwa{width:100%;background:transparent;border:0;border-bottom:2px solid var(--acc);color:var(--txt);font-size:40px;font-weight:600;letter-spacing:-.02em;padding:8px 0 14px;border-radius:0}
@@ -537,14 +545,14 @@
   /* ============================================================
      KREATOR — 5 kroków
      ============================================================ */
-  const WIZ = {krok:1, maks:1, tekst:'', imp:null, nazwa:'', pliki:[], pool:[], have:[], folder:'', review:null,
+  const WIZ = {krok:1, maks:1, tekst:'', imp:null, nazwa:'', pliki:[], pool:[], have:[], prop:[], folder:'', review:null,
                fixMsg:{}, wMiejscu:false, done:false, eksport:null, postep:null, analizaTrwa:false, poll:null, host:null,
                sugestie:[], narz:{fixTrwa:false, wymTrwa:false, przerwij:false, prog:'', progKl:''}};
   const HOST = () => WIZ.host;
   const MAIN = () => WIZ.host && WIZ.host.querySelector('main');
 
   function reset(){
-    Object.assign(WIZ, {krok:1, maks:1, tekst:'', imp:null, nazwa:'', pliki:[], pool:[], have:[], folder:'', review:null,
+    Object.assign(WIZ, {krok:1, maks:1, tekst:'', imp:null, nazwa:'', pliki:[], pool:[], have:[], prop:[], folder:'', review:null,
                         fixMsg:{}, wMiejscu:false, done:false, eksport:null, postep:null, analizaTrwa:false, sugestie:[],
                         narz:{fixTrwa:false, wymTrwa:false, przerwij:false, prog:'', progKl:''}});
   }
@@ -635,7 +643,7 @@
   const PLIKI_PLAYLIST = '.m3u,.m3u8,.pls,.xml,.nml,.csv,.txt';
 
   function poImporcie(d, nazwa){
-    WIZ.imp = d; WIZ.have = []; WIZ.pool = []; WIZ.review = null; WIZ.pliki = []; WIZ.wMiejscu = false; WIZ.fixMsg = {};
+    WIZ.imp = d; WIZ.have = []; WIZ.pool = []; WIZ.prop = []; WIZ.review = null; WIZ.pliki = []; WIZ.wMiejscu = false; WIZ.fixMsg = {};
     WIZ.nazwa = nazwa || WIZ.nazwa || '';
     WIZ.sugestie = sugestieNazw(d, nazwa);
     if(!WIZ.nazwa) WIZ.nazwa = WIZ.sugestie[0];
@@ -686,7 +694,7 @@
       if(!pliki.length) throw new Error(S.jezyk.get()==='pl' ? 'nie znalazłem w tym folderze plików audio' : 'no audio files found in this folder');
     }catch(e){ pokazPostep(prog, '✗ '+esc(e.message), 'bad'); return; }
     WIZ.nazwa = nazwa; WIZ.pliki = pliki; WIZ.folder = sciezka; WIZ.wMiejscu = true;
-    WIZ.imp = null; WIZ.have = []; WIZ.pool = []; WIZ.review = null; WIZ.fixMsg = {};
+    WIZ.imp = null; WIZ.have = []; WIZ.pool = []; WIZ.prop = []; WIZ.review = null; WIZ.fixMsg = {};
     WIZ.maks = 4; idz(4);
   }
   function pokazWyborFolderu(host, sciezka, nazwa){
@@ -786,10 +794,16 @@
   function krok2(m){
     const t = T(), d = WIZ.imp;
     if(!d){ idz(1); return; }
-    if(!WIZ.have.length && !WIZ.pool.length){
-      WIZ.have = [...(d.auto||[]).map(x => ({...x, _nota:'ok'})), ...(d.resolve||[]).map(x => ({...x, _nota: x.other_version ? 'other' : 'similar'}))];
+    if(!WIZ.have.length && !WIZ.pool.length && !(WIZ.prop||[]).length){
+      // Do „masz" trafia tylko TEN SAM utwór w tej samej wersji. Inna wersja
+      // to propozycja do decyzji (osobny blok), a nie „podobne" w „masz" —
+      // dawniej cudzy plik z tego pasa zastępował brakujący utwór w secie.
+      WIZ.have = (d.auto||[]).map(x => ({...x, _nota:'ok'}));
+      WIZ.prop = (d.resolve||[]).map(x => ({...x, _nota:'other'}));
       WIZ.pool = (d.missing||[]).map(x => ({...x, st:'wait', file:null, pct:null}));
     }
+    if(!WIZ.prop) WIZ.prop = [];
+    const uwagi = (d.uwagi||[]).map(u => `<div class="uwaga-imp" style="border-color:${K.warn}"><b style="color:${K.warn}">${esc(t.importNote)}:</b> ${esc(u)}</div>`).join('');
     m.innerHTML = `<div class="s2">
       <div class="nag">
         ${naglowekKroku(t.s2kicker, t.s2title, t.s2sub)}
@@ -798,6 +812,7 @@
           <div class="licznik"><div class="n" style="color:${K.acc}" data-n-pool></div><div class="e">${esc(t.toGet)}</div></div>
         </div>
       </div>
+      ${uwagi}
       <div class="kolumny">
         <div class="kol-panel"><div class="kh"><span class="dot ok"></span>${esc(t.haveTitle)}</div><div class="kl" data-have></div></div>
         <div class="kol-panel"><div class="kh"><span class="dot acc"></span>${esc(t.poolTitle)}<button class="b-all" data-all>${esc(t.dlAll)}</button></div><div class="kl" data-pool></div></div>
@@ -812,6 +827,16 @@
       const u = WIZ.pool[+el.dataset.pick];
       wybierzWynik(u, {poZleceniu:(queued) => { u.st = 'queued'; u.file = queued; rysujKolumny(); }});
     });
+    // propozycja „inna wersja": weź moją albo pobierz właściwą
+    on(root, 'click', '[data-prop-use]', (e, el) => {
+      const u = WIZ.prop.splice(+el.dataset.propUse, 1)[0]; if(!u) return;
+      WIZ.have.push(u); rysujKolumny();
+    });
+    on(root, 'click', '[data-prop-get]', (e, el) => {
+      const u = WIZ.prop.splice(+el.dataset.propGet, 1)[0]; if(!u) return;
+      const w = {...u, file:null, _nota:null, st:'wait', pct:null};
+      WIZ.pool.unshift(w); pobierzJeden(w);
+    });
     rysujKolumny();
     startPoll();
   }
@@ -820,8 +845,9 @@
     const t = T();
     const haveEl = m.querySelector('[data-have]'), poolEl = m.querySelector('[data-pool]');
     if(!haveEl) return;
+    const prop = WIZ.prop || [];
     m.querySelector('[data-n-have]').textContent = WIZ.have.length;
-    m.querySelector('[data-n-pool]').textContent = WIZ.pool.length;
+    m.querySelector('[data-n-pool]').textContent = WIZ.pool.length + prop.length;
     const notaHave = u => {
       if(u._justGot) return `<span class="nota" style="color:${K.acc}">${esc(t.justGot)}</span>`;
       const k = u._nota || 'ok';
@@ -832,22 +858,36 @@
       <div class="poz2">${okladka(u.file)}
         <div class="kto"><div class="t">${esc(u.title)}</div><div class="a">${esc(u.artist)}</div></div>
         ${notaHave(u)}</div>`).join('') : `<div class="pusto2">${esc(t.noneHave)}</div>`;
-    poolEl.innerHTML = WIZ.pool.length ? WIZ.pool.map((u, i) => {
+    const kup = u => (u.sklepy||[]).slice(0, 2).map(x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(t.buy)}: ${esc(x.name)} ↗</a>`).join(' · ');
+    const czas = s => s ? fmtTime(s) : '?';
+    const propHtml = prop.length ? `<div class="podnag" style="color:${K.warn}">${esc(t.propTitle)}</div>` + prop.map((u, i) => `
+      <div class="poz2">
+        <span class="dot" style="background:${K.warn}"></span>
+        <div class="kto"><div class="t">${esc(u.title)}</div>
+          <div class="a">${esc(u.artist)} · <span title="${esc(S.nazwaPliku(u.file||''))}">${esc(fmt(t.propHas, {file:S.nazwaPliku(u.file||'')}))}</span>${(u.file_duration && u.duration) ? ' · '+esc(fmt(t.propLen, {mine:czas(u.file_duration), want:czas(u.duration)})) : ''}</div></div>
+        <div class="akcje"><button class="b-pick" data-prop-use="${i}">${esc(t.propUse)}</button><button class="b-dl" data-prop-get="${i}">${esc(t.propGet)}</button></div>
+      </div>`).join('') + (WIZ.pool.length ? `<div class="podnag" style="color:${K.acc}">${esc(t.poolTitle)}</div>` : '') : '';
+    poolEl.innerHTML = propHtml + (WIZ.pool.length ? WIZ.pool.map((u, i) => {
       const st = u.st || 'wait', kol = ST_KOLOR[st] || K.dim;
       const czeka = st === 'wait' || st === 'failed';
       const puls = (st === 'searching' || st === 'downloading') ? 'pulsuje' : '';
       const pct = st === 'downloading' && u.pct != null ? ` ${u.pct}%` : '';
+      const linki = czeka && (u.sklepy||[]).length ? ' · '+kup(u) : '';
       return `<div class="poz2">
         <span class="dot ${puls}" style="background:${kol}"></span>
-        <div class="kto"><div class="t">${esc(u.title)}</div><div class="a">${esc(u.artist)}</div>
+        <div class="kto"><div class="t">${esc(u.title)}</div><div class="a">${esc(u.artist)}${linki}</div>
           ${st === 'downloading' ? `<div class="bar"><i style="width:${u.pct||0}%"></i></div>` : ''}</div>
         ${st === 'failed' ? `<span class="nota" style="color:${kol}" title="${esc(u.detail||'')}">${esc(t.st.failed)}</span>` : ''}
         ${czeka
           ? `<div class="akcje"><button class="b-dl" data-dl="${i}">${esc(t.dl)}</button><button class="b-pick" data-pick="${i}">${esc(t.pick)}</button></div>`
           : `<span class="nota" style="color:${kol}">${esc(t.st[st] || st)}${pct}</span>`}
       </div>`;
-    }).join('') : `<div class="pusto2">${esc(t.allGot)} 🎉</div>`;
+    }).join('') : (prop.length ? '' : `<div class="pusto2">${esc(t.allGot)} 🎉</div>`));
     podepnijOkladki(haveEl);
+    const info = m.querySelector('[data-info]');
+    if(info && !info.classList.contains('warn') && !info.classList.contains('bad')){
+      info.textContent = prop.length ? fmt(t.propWait, {n:prop.length, utw:lm(prop.length, t.utw)}) : t.s2foot;
+    }
     const all = m.querySelector('[data-all]');
     const doPobrania = WIZ.pool.filter(u => u.st === 'wait' || u.st === 'failed').length;
     all.classList.toggle('hide', !doPobrania);
@@ -897,9 +937,10 @@
       const byKey = {};
       (q.jobs||[]).forEach(j => { byKey[(j.artist+'|'+j.title).toLowerCase()] = j; });
       let zmiana = false;
-      for(const u of WIZ.pool){
+      for(const u of [...WIZ.pool]){
         const j = byKey[(u.artist+'|'+u.title).toLowerCase()];
         if(!j) continue;
+        if(j.status === 'done'){ przeniesGotowy(u); zmiana = true; continue; }
         if(j.status === 'failed' && u.st !== 'failed'){ u.st = 'failed'; u.detail = j.detail; zmiana = true; }
         else if(j.status === 'searching' && u.st !== 'searching'){ u.st = 'searching'; zmiana = true; }
         else if(j.status === 'queued' && !u.file){ u.st = 'queued'; u.file = j.file; zmiana = true; }
@@ -994,7 +1035,7 @@
       }else{
         ust({etapy:['run','wait','wait','wait'], biez:t.collecting});
         const files = WIZ.have.map(u => u.file).filter(Boolean);
-        const tracks = [...WIZ.have, ...WIZ.pool].map(u => ({artist:u.artist, title:u.title, duration:u.duration}));
+        const tracks = [...WIZ.have, ...WIZ.pool, ...(WIZ.prop||[])].map(u => ({artist:u.artist, title:u.title, duration:u.duration}));
         const d = await api('/api/playlist/collect', {method:'POST', body:{name:WIZ.nazwa, files, tracks}, cicho:true});
         WIZ.pliki = d.files; WIZ.folder = d.folder;
         ust({etapy:['done','wait','wait','wait'], pct:5, biez:fmt(t.collected, {n:d.count}) + (d.late && d.late.length ? fmt(t.late, {n:d.late.length}) : '')});

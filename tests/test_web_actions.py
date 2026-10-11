@@ -34,7 +34,9 @@ def test_import_text_tracklist_offline(client):
     assert d["counts"]["auto"] + d["counts"]["resolve"] >= 1
     assert d["counts"]["missing"] >= 1
     missing = d["missing"][0]
-    assert missing["buy"].startswith("https://www.beatport.com/search")
+    # kilka sklepów (pop: Qobuz/Apple przodem), „buy" = pierwszy z nich
+    assert missing["buy"] == missing["sklepy"][0]["url"]
+    assert {s["id"] for s in missing["sklepy"]} >= {"beatport", "qobuz", "apple", "bandcamp"}
 
 
 @pytest.mark.network
