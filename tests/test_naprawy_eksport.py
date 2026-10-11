@@ -101,9 +101,9 @@ class TestEksportCalejBiblioteki:
         rbimport._zapisz_stan({os.path.abspath(b): {
             "znaczniki": [{"start_s": 33.3, "num": 3, "typ": "0",
                            "nazwa": "moje", "koniec_s": None, "kolor": ""}]}})
-        zapisane = {}
-        monkeypatch.setattr(rekordbox, "install", lambda p: zapisane.setdefault(
-            "p", p) and rekordbox.InstallResult(True, "ok"))
+        monkeypatch.setattr(rekordbox, "settings_path", lambda: None)
+        monkeypatch.setattr(rekordbox, "install",
+                            lambda p: rekordbox.InstallResult(True, "ok"))
         r = klient.post("/api/rekordbox/install", json={})
         assert r.status_code == 200, r.text
         assert r.json()["count"] == 4
@@ -339,3 +339,62 @@ class TestWymianaZRekordboxem:
         out = str(tmp_path / "x.xml")
         dj_export.to_rekordbox_xml([], "x", out)
         assert ET.parse(out).getroot().find("PRODUCT").get("Name") == "selekta"
+
+
+# ---------------------------------------------------------------------------
+# #120 #108 — ustawienia rekordboxa: bajt w bajt, przywracanie tylko klucza,
+# wszystkie sety naraz
+# ---------------------------------------------------------------------------
+
+USTAWIENIA = ('<?xml version="1.0" encoding="UTF-8"?>\r\n\r\n<PROPERTIES>\r\n'
+              '  <VALUE name="language" val="pl"/>\r\n'
+              '  <VALUE name="bridgeImportedLibraryFileList" val="pułapka &amp; &quot;x&quot;"/>\r\n'
+              '  <VALUE name="bridgeImportedLibraryFile" val="/stary/plik.xml"/>\r\n'
+              '  <VALUE name="colour" val="Łódź"/>\r\n</PROPERTIES>\r\n')
+
+
+@pytest.fixture()
+def ustawienia(tmp_path, monkeypatch):
+    plik = tmp_path / "rekordbox3.settings"
+    plik.write_bytes(USTAWIENIA.encode("utf-8"))
+    monkeypatch.setattr(rekordbox, "settings_path", lambda: str(plik))
+    monkeypatch.setattr(rekordbox, "is_running", lambda: False)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    return plik
+
+
+class TestUstawieniaRekordboxa:
+    def test_install_zmienia_tylko_wartosc_klucza_i_zostawia_crlf(self, ustawienia, tmp_path):
+        xml = tmp_path / "set.xml"; xml.write_text("<DJ_PLAYLISTS/>")
+        assert rekordbox.install(str(xml)).ok
+        po = ustawienia.read_bytes()
+        assert po.count(b"\r\n") == USTAWIENIA.encode().count(b"\r\n")
+        assert po == USTAWIENIA.encode().replace(b"/stary/plik.xml", str(xml).encode())
+
+    def test_przywracanie_nie_cofa_pozniejszych_zmian(self, ustawienia, tmp_path):
+        xml = tmp_path / "set.xml"; xml.write_text("<DJ_PLAYLISTS/>")
+        assert rekordbox.install(str(xml)).ok
+        # użytkownik zmienia język w rekordboksie PO instalacji
+        ustawienia.write_bytes(ustawienia.read_bytes().replace(b'val="pl"', b'val="en"'))
+        res = rekordbox.restore()
+        assert res.ok, res.message
+        assert ustawienia.read_bytes() == USTAWIENIA.encode().replace(b'val="pl"', b'val="en"')
+
+    def test_wszystkie_sety_widoczne_naraz(self, ustawienia, tmp_path, monkeypatch):
+        a, b = _plik(tmp_path / "a.mp3"), _plik(tmp_path / "b.mp3")
+        c = _plik(tmp_path / "c.mp3")
+        x1, x2 = str(tmp_path / "s1.xml"), str(tmp_path / "s2.xml")
+        dj_export.to_rekordbox_xml([{"path": a}, {"path": b}], "piątek", x1)
+        dj_export.to_rekordbox_xml([{"path": b}, {"path": c}], "sobota", x2)
+        assert rekordbox.install_set(x1, "piątek").ok
+        # drugi set przy DZIAŁAJĄCYM rekordboksie: plik już podpięty, nie
+        # trzeba ruszać ustawień — wystarczy odświeżyć panel
+        monkeypatch.setattr(rekordbox, "is_running", lambda: True)
+        res = rekordbox.install_set(x2, "sobota")
+        assert res.ok, res.message
+        assert rekordbox.imported_library() == rekordbox.polaczony_path()
+        root = ET.parse(rekordbox.polaczony_path()).getroot()
+        assert len(root.findall("COLLECTION/TRACK")) == 3        # b raz
+        sety = {n.get("Name"): len(n.findall("TRACK"))
+                for n in root.iter("NODE") if n.get("Type") == "1"}
+        assert sety == {"piątek": 2, "sobota": 2}

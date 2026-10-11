@@ -118,9 +118,12 @@ function zapytaj({kicker, tytul, opis, wartosc='', placeholder='', cta='OK'}){
 }
 // wspólny komunikat po wysyłce do rekordboxa (install / playlist/export)
 function pokazWynikRekordboxa(j){
-  if(j.ok) toast(`✓ ${j.count} ${lm(j.count,'utwór','utwory','utworów')} w rekordboksie jako playlista „${j.playlist}”. Odpal rekordbox — będzie w panelu bocznym pod „rekordbox xml”.`, 'ok', 7000);
-  else toast(`⚠ playlista zapisana (${j.count} utworów), ale nie podpięta: ${j.message||'—'}. Ręcznie: File → Import Collection → ${j.path}`, 'warn', 12000);
-  if(j.running) toast('rekordbox jest uruchomiony — zamknij go i otwórz ponownie, inaczej nadpisze ustawienia przy wyjściu.', 'warn', 8000);
+  const bez = j.bez_analizy ? ` ${j.bez_analizy} ${lm(j.bez_analizy,'utwór nie ma','utwory nie mają','utworów nie ma')} policzonej analizy — rekordbox ustawi im siatkę sam („Analizuj wszystko” w Bibliotece to naprawi).` : '';
+  if(j.ok) toast(`✓ ${j.count} ${lm(j.count,'utwór','utwory','utworów')} jako playlista „${j.playlist}” — ${j.message || 'odpal rekordbox, będzie w panelu bocznym pod „rekordbox xml”'}.${bez}`, 'ok', 9000);
+  else{
+    toast(`⚠ playlista zapisana (${j.count} utworów), ale nie podpięta: ${j.message||'—'}. Ręcznie: File → Import Collection → ${j.path}`, 'warn', 12000);
+    if(j.running) toast('rekordbox jest uruchomiony — zamknij go i kliknij ponownie, inaczej nadpisze ustawienia przy wyjściu.', 'warn', 8000);
+  }
 }
 
 /* ============================================================
@@ -595,6 +598,7 @@ async function rbWczytaj(host, zapytanie){
 async function expRb(host){
   try{ EXP.rb = await api('/api/rekordbox', {cicho:true}); }catch(e){ EXP.rb = null; }
   if(S.biezacy()==='eksport') S.tytul(EXP.rb && EXP.rb.installed ? `Eksport · rekordbox wykryty${EXP.rb.running ? ' · uruchomiony' : ''}` : 'Eksport');
+  const odp = $('#rbOdepnij', host); if(odp) odp.classList.toggle('hide', !(EXP.rb && EXP.rb.linked));
   expRysujCel(host);
 }
 function usbRysuj(host){
@@ -649,6 +653,7 @@ S.ekran('eksport', {
             <div id="expUwaga" class="uwaga hide"></div>
             <button class="btn acc duzy" id="expGo" style="padding:14px 22px;align-self:flex-start">▶ WYŚLIJ DO REKORDBOXA</button>
             <div id="expWynik" class="hide" style="font:500 12px var(--mono);color:${K.dim};line-height:1.5;word-break:break-all"></div>
+            <span class="setLink hide" id="rbOdepnij" style="align-self:flex-start" title="Przywraca w ustawieniach rekordboxa tylko wpis „importowana biblioteka” sprzed pierwszego wysłania z selekty — reszta ustawień zostaje">odepnij sety selekty od rekordboxa</span>
           </div>
           <div style="${PANEL};padding:22px 24px;display:flex;flex-direction:column;gap:12px;flex:1">
             <div style="display:flex;align-items:center;gap:12px"><div style="${ETYK}">WYMIANA Z REKORDBOXEM</div><span id="rbPill" style="margin-left:auto;font:500 11px var(--mono);color:${K.dim2}">…</span></div>
@@ -689,6 +694,9 @@ S.ekran('eksport', {
     $('#rbPlik', host).onchange = e => { const f = e.target.files[0]; if(!f) return; const fd = new FormData(); fd.append('file', f); rbWczytaj(host, () => api('/api/rekordbox/wczytaj', {method:'POST', formData:fd, cicho:true})); e.target.value = ''; };
     $('#rbSciezka', host).onclick = async () => { const p = await zapytaj({kicker:'Wymiana z rekordboxem', tytul:'Ścieżka do XML-a', opis:'File → Export Collection in xml format, potem wskaż zapisany plik.', placeholder:'~/Documents/rekordbox.xml', cta:'Wczytaj'}); if(p) rbWczytaj(host, () => api('/api/rekordbox/wczytaj-sciezke', {method:'POST', body:{path:p}, cicho:true})); };
     $('#rbOdswiez', host).onclick = () => { rbPokazStan(host); expRb(host); };
+    $('#rbOdepnij', host).onclick = async () => { const w = $('#expWynik', host); w.classList.remove('hide');
+      try{ const j = await api('/api/rekordbox/restore', {method:'POST', body:{}}); w.style.color = j.ok ? K.ok : K.warn; w.textContent = (j.ok ? '✓ ' : '⚠ ') + j.message; expRb(host); }
+      catch(e){ w.style.color = K.bad; w.textContent = `✗ ${e.message}`; } };
     $('#rbZapomnij', host).onclick = async e => { e.currentTarget.disabled = true; try{ const j = await api('/api/rekordbox/zapomnij', {method:'POST', body:{}}); $('#rbProg', host).textContent = `zapomniano ${j.usunietych} ${lm(j.usunietych,'utwór','utwory','utworów')}`; rbPokazStan(host); } finally{ e.currentTarget.disabled = false; } };
     on(host, 'click', '#usbKonw span', (e, el) => { EXP.konw = el.dataset.k; S.pref.set('usbKonw', EXP.konw); usbRysuj(host); });
     $('#usbDest', host).onchange = e => S.pref.set('usbDest', e.target.value.trim());

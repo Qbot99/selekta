@@ -2128,7 +2128,7 @@ def api_playlist_export(payload: dict) -> JSONResponse:
         [dj_export.track_from_file(path) for path, _ta, _n in ordered])
     out = os.path.join(playlists.folder_for(name), f"{playlists.safe_name(name)}.xml")
     dj_export.to_rekordbox_xml(tracks, playlists.safe_name(name), out)
-    res = rekordbox.install(out)
+    res = rekordbox.install_set(out, playlists.safe_name(name))
     return JSONResponse({
         "ok": res.ok, "message": res.message, "path": out,
         "count": len(tracks), "playlist": playlists.safe_name(name),
@@ -2164,7 +2164,7 @@ def api_rekordbox_install(payload: dict | None = None) -> JSONResponse:
     bez_analizy = sum(1 for t in tracks if t.get("bez_analizy"))
     xml_path = dj_export.to_rekordbox_xml(
         tracks, name, os.path.join(_folder(), f"{name}.xml"))
-    res = rekordbox.install(xml_path)
+    res = rekordbox.install_set(xml_path, name)
     return JSONResponse({
         "ok": res.ok, "message": res.message, "path": xml_path,
         "count": len(tracks), "playlist": name, "bez_analizy": bez_analizy,
