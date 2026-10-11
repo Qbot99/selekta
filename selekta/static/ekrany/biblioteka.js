@@ -189,9 +189,9 @@
     return `<div class="w${zazn ? ' zazn' : ''}" data-i="${i}">
       <span class="chk${zazn ? ' on' : ''}" data-akcja="zazn"></span>
       ${okladkaHTML(t)}
-      <div style="min-width:0"><div class="t" title="${esc(k)}">${esc(t.title)}</div><div class="a">${esc(t.artist)}</div></div>
+      <div style="min-width:0"><div class="t" title="${esc(k)}${(t.w_setach || []).length ? '\nużyty w setach: ' + esc(t.w_setach.join(', ')) : ''}">${esc(t.title)}</div><div class="a">${esc(t.artist)}${(t.w_setach || []).length ? ` <span style="color:#8f857c" title="ten sam utwór leży też w folderach setów — to kopie, nie osobne utwory">· w setach: ${esc(t.w_setach.join(', '))}</span>` : ''}</div></div>
       ${fmtTag(t.ext)}
-      <span style="font-size:12.5px;color:${qk};white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(t.quality_note || (t.uszkodzony ? 'pliku nie da się odczytać — prawdopodobnie przerwane pobieranie' : ''))}">${q}</span>
+      <span style="font-size:12.5px;color:${qk};white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(t.uwaga || t.quality_note || (t.uszkodzony ? 'pliku nie da się odczytać — prawdopodobnie przerwane pobieranie' : ''))}">${q}</span>
       <span style="font:500 13px var(--mono)">${fmtBpm(t.bpm)}</span>
       <span class="cam" style="background:${camBg};${camSt}" title="${esc(camTyt)}">${esc(t.camelot || '')}</span>
       <span style="font:500 12.5px var(--mono);color:#8f857c">${fmtTime(t.duration)}</span>
@@ -250,7 +250,8 @@
     const m = st.meta || S.stan.tracksMeta || {};
     if(!m.count && !st.tracks.length) return 'Biblioteka';
     const n = m.count ?? st.tracks.length;
-    return `${skrocDom(m.folder || S.stan.folder)} · ${fmtLicz(n)} ${lm(n, ['plik','pliki','plików'])} · ${fmtMB((m.total_mb || 0) * 1e6)}`;
+    const kopie = m.kopii_w_setach ? ` (+ ${fmtLicz(m.kopii_w_setach)} ${lm(m.kopii_w_setach, ['kopia','kopie','kopii'])} w setach)` : '';
+    return `${skrocDom(m.folder || S.stan.folder)} · ${fmtLicz(n)} ${lm(n, ['utwór','utwory','utworów'])}${kopie} · ${fmtMB((m.total_mb || 0) * 1e6)}`;
   }
 
   // ---------- chipy filtrów ----------

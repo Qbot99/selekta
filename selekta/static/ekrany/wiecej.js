@@ -364,10 +364,14 @@
   // CZAS / BPM / TONACJE liczą się z utworów sesji; /api/historia oddaje w lista_sesji
   // tylko nazwę, datę i liczbę — gdy backend doda `sciezki`, kolumny same się wypełnią
   function histMetryki(s){
+    // backend liczy czas/BPM/tonacje sesji także dla utworów spoza biblioteki
+    // (czas_s, bpm_mediana, tonacje_opis) — gdy lokalnej mapy brak, bierzemy je
+    const zSerwera = (s.czas_s || s.bpm_mediana || s.tonacje_opis)
+      ? {czas: s.czas_s || 0, bpm: s.bpm_mediana, tonacje: s.tonacje_opis || '', utwory: []} : null;
     const sc = Array.isArray(s.sciezki) ? s.sciezki : null;
-    if(!sc || !sc.length || !hist.mapa) return null;
+    if(!sc || !sc.length || !hist.mapa) return zSerwera;
     const tr = sc.map(p => utworZMapy(hist.mapa, p)).filter(Boolean);
-    if(!tr.length) return null;
+    if(!tr.length) return zSerwera;
     const czas = tr.reduce((a, t) => a + (+t.duration || 0), 0);
     const bpm = mediana(tr.map(t => +t.bpm).filter(x => x > 0));
     const ton = tr.map(t => t.camelot).filter(Boolean);

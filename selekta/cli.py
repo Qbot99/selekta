@@ -75,22 +75,40 @@ def _audio_paths(folder: str) -> list[str]:
 # --------------------------------------------------------------------------
 
 def cmd_organize(args) -> None:
+    from . import tagger
+    if getattr(args, "cofnij", False):
+        wynik = tagger.cofnij_porzadkowanie()
+        if not wynik:
+            print("nie ma czego cofać")
+        for w in wynik:
+            znak = "↺" if w.get("cofniete") else "⚠"
+            print(f"{znak} {os.path.basename(w['do'])} → {os.path.basename(w['z'])}"
+                  + ("" if w.get("cofniete") else f"  ({w.get('powod', '')})"))
+        return
+    if not args.source:
+        sys.exit("podaj playlistę (link, plik albo tekst) albo --cofnij")
     tracks = _load_tracks(args.source)
     matched, missing = [], []
     for t in tracks:
         cand = matcher.best_match(t, args.folder)
         (matched.append((t, cand)) if cand else missing.append(t))
 
+    import time as _time
+    partia = _time.strftime("%Y-%m-%dT%H:%M:%S")
     for t, cand in matched:
         print(f"✓ {t.artist} — {t.title}")
         print(f"    ← {os.path.basename(cand.path)} (score {cand.score})")
         if args.apply:
             cover = spotify.cover_bytes(t) if t.id else None
-            tag_file(cand.path, t.artist, t.title, cover)
-            new_path = rename_file(cand.path, t.artist, t.title)
-            if cover and not covers.verify(new_path, cover):
-                print("    ⚠ okładka nie zapisała się poprawnie")
-            print(f"    → {os.path.basename(new_path)}")
+            # dopisek wersji zostaje, stare wartości idą do dziennika (--cofnij),
+            # a błąd jednego pliku nie przerywa całej operacji
+            w = tagger.uporzadkuj(cand.path, t.artist, t.title, cover, partia=partia)
+            if w.get("blad"):
+                print(f"    ⚠ pominięto: {w['blad']}")
+                continue
+            if w.get("uwaga"):
+                print(f"    · {w['uwaga']}")
+            print(f"    → {os.path.basename(w['do'])}")
 
     if missing:
         print(f"\nBrakuje {len(missing)} utworów:")
@@ -98,7 +116,8 @@ def cmd_organize(args) -> None:
             print(f"  ✗ {t.artist} — {t.title}")
             print(f"    kup: {stores.buy_links(t)['beatport']}")
     print(f"\n{len(matched)} dopasowanych, {len(missing)} brakujących"
-          + ("" if args.apply else "  (dry-run — dodaj --apply)"))
+          + ("  (cofnięcie: selekta organize --folder … --cofnij)" if args.apply
+             else "  (dry-run — dodaj --apply)"))
 
 
 def cmd_verify(args) -> None:
@@ -171,26 +190,22 @@ def cmd_covers(args) -> None:
         print(f"  ✗ {name}")
         if not args.fill:
             continue
-        artist, _, title = os.path.splitext(name)[0].partition(" - ")
-        hit = covers.from_itunes(artist, title or artist)
-        if hit:
-            tag_file(p, artist, title or artist, hit.data)
-            status = "✓" if covers.verify(p, hit.data) else "⚠ zapis nieudany"
-            print(f"    {status} {hit.description} [{hit.source}]")
-        else:
-            print("    — nie znaleziono w iTunes")
+        # artysta/tytuł z tagów, tylko okładka do pliku, błąd jednego pliku
+        # nie przerywa pętli (wcześniej pierwszy M4A kończył całą komendę)
+        w = covers.uzupelnij(p)
+        znak = {"dodano": "✓", "brak": "—", "jest": "·"}.get(w["status"], "⚠")
+        print(f"    {znak} {w['opis']}")
 
 
 def cmd_icons(args) -> None:
     if not finder_icons.available():
         sys.exit("ta komenda działa tylko na macOS")
-    paths = [
-        os.path.join(args.folder, f)
-        for f in sorted(os.listdir(args.folder))
-        if f.lower().endswith(finder_icons.FINDER_BLIND)
-    ]
+    # wszystkie podfoldery (pobrania z Soulseeka leżą w katalogach albumów),
+    # łącznie z kopiami w setach — Finder pokazuje i te foldery
+    paths = [p for p in matcher.audio_files(args.folder, kopie_w_setach=True)
+             if p.lower().endswith(finder_icons.FINDER_BLIND)]
     if args.clear:
-        print(f"usunięto własne ikony z {finder_icons.clear(paths)} plików")
+        print(f"usunięto ikony postawione przez selektę z {finder_icons.clear(paths)} plików")
         return
     done, skipped = finder_icons.apply(paths)
     print(f"ustawiono ikonę Findera dla {done} plików FLAC/WAV")
@@ -389,9 +404,11 @@ def cmd_dedupe(args) -> None:
     actions = dedupe.plan(args.folder, include_suspect=args.suspect)
     print(dedupe.format_plan(actions))
     if args.apply and actions:
-        trash = args.trash or os.path.join(args.folder, "_selekta_kosz")
-        res = dedupe.apply(actions, trash)
-        print(f"\nprzeniesiono {len(res['przeniesione'])} plików do {trash} "
+        # domyślnie kosz obok każdego pliku — przywrócenie wraca na miejsce
+        # także z podfolderów; pliki z folderów setów nigdy nie są ruszane
+        res = dedupe.apply(actions, args.trash or None, korzen=args.folder)
+        gdzie = args.trash or "_selekta_kosz obok każdego pliku"
+        print(f"\nprzeniesiono {len(res['przeniesione'])} plików do {gdzie} "
               f"(odzyskane {res['odzyskane_MB']:.0f} MB)")
 
 
@@ -422,8 +439,10 @@ def main() -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     o = sub.add_parser("organize", help="dopasuj pliki do playlisty, otaguj, okładki")
-    o.add_argument("source"); o.add_argument("--folder", required=True)
+    o.add_argument("source", nargs="?", default=""); o.add_argument("--folder", required=True)
     o.add_argument("--apply", action="store_true", help="bez tej flagi tylko podgląd")
+    o.add_argument("--cofnij", action="store_true",
+                   help="przywróć tagi i nazwy sprzed ostatniego --apply")
     o.set_defaults(fn=cmd_organize)
 
     v = sub.add_parser("verify", help="raport jakości (detektor fałszywych FLAC-ów)")
