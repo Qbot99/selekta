@@ -578,7 +578,7 @@ async function rbPokazStan(host){
           <div style="font-size:12.5px;color:${K.warn}">⚠ ${d.rozbieznosci_razem} ${lm(d.rozbieznosci_razem,'rozbieżność','rozbieżności','rozbieżności')} między naszą analizą a rekordboxem <span class="dim">— pokazuję, nie poprawiam</span></div>
           ${d.rozbieznosci.slice(0,8).map(r => `<div style="font:500 11px var(--mono);color:${K.dim};${ELIP}" title="${esc(r.file)}">${esc(r.file)} — ${esc(r.pole)}: my <b style="color:${K.txt}">${esc(r.nasze)}</b>, rekordbox <b style="color:${K.txt}">${esc(r.rekordbox)}</b>${r.polowa_lub_podwojenie ? ` <span class="warn">(połowa/podwojenie tempa)</span>` : ''}</div>`).join('')}</div>` : '';
       box.innerHTML = `<div style="display:flex;gap:18px;font-size:12.5px;color:${K.dim}"><span><b style="color:${K.txt}">${d.utworow}</b> utworów</span><span><b style="color:${K.ok}">${d.hot_cue}</b> hot cue</span><span><b style="color:${K.txt}">${d.z_kolorem}</b> z kolorem</span><span><b style="color:${K.txt}">${d.z_ocena}</b> z oceną</span></div>
-        <div style="font-size:12px;color:${K.dim2};margin-top:4px">Ta praca ma pierwszeństwo przed wyliczeniami apki.</div>${roz}`;
+        <div style="font-size:12px;color:${K.dim2};margin-top:4px">Ta praca ma pierwszeństwo przed wyliczeniami apki.</div>${d.zmienne_tempo ? `<div style="font-size:12px;color:${K.warn};margin-top:4px">⚠ ${d.zmienne_tempo} ${lm(d.zmienne_tempo,'utwór ma','utwory mają','utworów ma')} w rekordboksie zmienne tempo — eksport odda tylko pierwszy znacznik siatki; po wysłaniu sprawdź siatkę tych utworów.</div>` : ''}${roz}`;
     }
   }catch(e){ pill.style.color = K.bad; pill.textContent = 'BŁĄD'; box.innerHTML = `<span class="bad" style="font-size:12.5px">✗ ${esc(e.message)}</span>`; }
   expRysujCel(host);
@@ -588,7 +588,7 @@ async function rbWczytaj(host, zapytanie){
   prog.innerHTML = '<span class="spin"></span> czytam XML…'; prog.style.color = K.dim;
   try{
     const d = await zapytanie();
-    prog.innerHTML = `wczytano <b style="color:${K.txt}">${d.dopasowane}</b> z ${d.w_xml} utworów` + (d.z_reczna_praca ? ` · <b style="color:${K.txt}">${d.z_reczna_praca}</b> z ręczną pracą` : '') + (d.nieodnalezionych ? ` · <span class="warn">${d.nieodnalezionych} nie ma w bibliotece</span>` : '');
+    prog.innerHTML = `wczytano <b style="color:${K.txt}">${d.dopasowane}</b> z ${d.w_xml} utworów` + (d.z_reczna_praca ? ` · <b style="color:${K.txt}">${d.z_reczna_praca}</b> z ręczną pracą` : '') + (d.cue_selekty_pominiete ? ` · ${d.cue_selekty_pominiete} cue ${d.plik_selekty ? 'z tego pliku to nasza analiza' : 'to nasze intro/drop/outro'} — nie liczę ich jako Twojej pracy` : '') + (d.nieodnalezionych ? ` · <span class="warn">${d.nieodnalezionych} nie ma w bibliotece</span>` : '');
     rbPokazStan(host);
   }catch(e){ prog.style.color = K.bad; prog.textContent = `✗ ${e.message}`; }
 }

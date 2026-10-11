@@ -231,3 +231,111 @@ class TestTonacja:
         web.set_folder(str(tmp_path / "lib"))
         d = TestClient(web.app).get("/api/rekordbox/stan").json()
         assert [r["file"] for r in d["rozbieznosci"]] == ["c.mp3"]
+
+
+# ---------------------------------------------------------------------------
+# #111 #121 #108 — wymiana z rekordboxem: cue selekty ≠ ręczna praca, NFC, „#"
+# ---------------------------------------------------------------------------
+
+def _xml_rb(path_xml, utwory, product='<PRODUCT Name="rekordbox" Version="7.0.4" Company="AlphaTheta"/>'):
+    """utwory: lista (location_surowe, wnętrze TRACK)."""
+    tracki = "\n".join(
+        f'<TRACK TrackID="{i}" Name="t{i}" Artist="a" Location="{loc}">{wnetrze}</TRACK>'
+        for i, (loc, wnetrze) in enumerate(utwory, 1))
+    path_xml.write_text(f'<?xml version="1.0" encoding="UTF-8"?>\n<DJ_PLAYLISTS Version="1.0.0">'
+                        f'{product}<COLLECTION Entries="{len(utwory)}">{tracki}'
+                        f'</COLLECTION></DJ_PLAYLISTS>', encoding="utf-8")
+    return str(path_xml)
+
+
+def _loc(path):
+    from urllib.parse import quote
+    return "file://localhost" + quote(path, safe="/")
+
+
+class TestWymianaZRekordboxem:
+    def test_wlasny_xml_selekty_nie_zamraza_cue(self, tmp_path):
+        """Wczytanie XML-a selekty liczyło 51/51 utworów z „ręczną pracą"."""
+        lib = tmp_path / "lib"
+        p = _plik(lib / "A - B.mp3")
+        _analiza(p, 128.0, "8A", first_beat=0.5, intro=16.0, drop=48.0, outro=150.0)
+        t = dj_export.wzbogac_o_siatke([dj_export.track_from_file(p)])
+        out = str(tmp_path / "set.xml")
+        dj_export.to_rekordbox_xml(t, "set", out)
+        wynik = rbimport.scal(out, str(lib))
+        assert wynik["dopasowane"] == 1
+        assert wynik["z_reczna_praca"] == 0
+        assert wynik["cue_selekty_pominiete"] == 3
+        stan = rbimport.dla_pliku(p)
+        assert stan["znaczniki"] == [] and stan["first_beat_s"] is None
+        # nowa analiza ma przejść do eksportu, nie stare cue z XML
+        _analiza(p, 128.0, "8A", first_beat=0.5, intro=20.0, drop=52.0, outro=160.0)
+        t = dj_export.wzbogac_o_siatke([dj_export.track_from_file(p)])[0]
+        assert t["znaczniki"] == [] and t["intro_end_s"] == 20.0
+
+    def test_stary_podpis_selekty_tez_jest_rozpoznany(self, tmp_path):
+        lib = tmp_path / "lib"
+        p = _plik(lib / "A - B.mp3")
+        xml = _xml_rb(tmp_path / "x.xml", [(_loc(p),
+            '<TEMPO Inizio="0.500" Bpm="128.00" Metro="4/4" Battito="1"/>'
+            '<POSITION_MARK Name="intro" Type="0" Start="16.000" Num="0"/>'
+            '<POSITION_MARK Name="drop" Type="0" Start="48.000" Num="1"/>')],
+            product='<PRODUCT Name="rekordbox" Version="6.0.0" Company="AlphaTheta"/>')
+        assert rbimport.scal(xml, str(lib))["z_reczna_praca"] == 0
+
+    def test_w_kolekcji_rekordboxa_przesuniete_cue_to_praca_dja(self, tmp_path):
+        lib = tmp_path / "lib"
+        p = _plik(lib / "A - B.mp3")
+        _analiza(p, 128.0, "8A", intro=16.0, drop=48.0, outro=150.0)
+        xml = _xml_rb(tmp_path / "x.xml", [(_loc(p),
+            '<POSITION_MARK Name="intro" Type="0" Start="16.000" Num="0" Red="40" Green="226" Blue="20"/>'
+            '<POSITION_MARK Name="drop" Type="0" Start="49.250" Num="1"/>'
+            '<POSITION_MARK Name="outro" Type="0" Start="150.000" Num="2"/>'
+            '<POSITION_MARK Name="moj" Type="0" Start="70.000" Num="3"/>')])
+        wynik = rbimport.scal(xml, str(lib))
+        assert wynik["z_reczna_praca"] == 1
+        nazwy = [z["nazwa"] for z in rbimport.dla_pliku(p)["znaczniki"]]
+        assert nazwy == ["drop", "moj"], "przesunięty drop i własne cue zostają"
+
+    def test_stan_sprzed_naprawy_jest_czyszczony_przy_odczycie(self, tmp_path):
+        p = _plik(tmp_path / "lib" / "A - B.mp3")
+        _analiza(p, 128.0, "8A", intro=16.0, drop=48.0, outro=150.0)
+        rbimport._zapisz_stan({p: {"znaczniki": [
+            {"start_s": 16.0, "num": 0, "typ": "0", "nazwa": "intro", "koniec_s": None, "kolor": ""},
+            {"start_s": 99.0, "num": 4, "typ": "0", "nazwa": "x", "koniec_s": None, "kolor": ""}]}})
+        assert [z["nazwa"] for z in rbimport.dla_pliku(p)["znaczniki"]] == ["x"]
+
+    def test_plik_nfd_z_location_w_nfc(self, tmp_path):
+        import unicodedata
+        lib = tmp_path / "lib"
+        nfd = unicodedata.normalize("NFD", "Zażółć - Jaźń.mp3")
+        p = _plik(lib / nfd)
+        xml = _xml_rb(tmp_path / "x.xml", [(_loc(unicodedata.normalize("NFC", p)),
+            '<POSITION_MARK Name="wejście" Type="0" Start="7.000" Num="0"/>')])
+        assert rbimport.scal(xml, str(lib))["dopasowane"] == 1
+        t = dj_export.wzbogac_o_siatke([{"path": p}], licz_brakujace=False)[0]
+        assert [z["nazwa"] for z in t["znaczniki"]] == ["wejście"]
+
+    def test_niezakodowany_krzyzyk_w_location(self, tmp_path):
+        lib = tmp_path / "lib"
+        p = _plik(lib / "Ktoś - Hit #1.mp3")
+        loc = "file://localhost" + p.replace(" ", "%20")       # „#" bez %23
+        xml = _xml_rb(tmp_path / "x.xml", [(loc,
+            '<POSITION_MARK Name="a" Type="0" Start="1.000" Num="0"/>')])
+        assert rbimport.scal(xml, str(lib))["dopasowane"] == 1
+
+    def test_zmienne_tempo_jest_zapamietane(self, tmp_path):
+        lib = tmp_path / "lib"
+        p = _plik(lib / "A - B.mp3")
+        xml = _xml_rb(tmp_path / "x.xml", [(_loc(p),
+            '<TEMPO Inizio="0.050" Bpm="137.00" Metro="4/4" Battito="1"/>'
+            '<TEMPO Inizio="100.050" Bpm="138.00" Metro="4/4" Battito="1"/>')])
+        rbimport.scal(xml, str(lib))
+        assert [t["bpm"] for t in rbimport.dla_pliku(p)["tempa"]] == [137.0, 138.0]
+        web.set_folder(str(lib))
+        assert TestClient(web.app).get("/api/rekordbox/stan").json()["zmienne_tempo"] == 1
+
+    def test_xml_selekty_podpisany_jako_selekta(self, tmp_path):
+        out = str(tmp_path / "x.xml")
+        dj_export.to_rekordbox_xml([], "x", out)
+        assert ET.parse(out).getroot().find("PRODUCT").get("Name") == "selekta"

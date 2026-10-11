@@ -374,8 +374,14 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
     Track order in COLLECTION and in the playlist NODE follows `tracks`.
     AverageBpm/Tonality are emitted only when the dict provides bpm/key.
     """
+    from . import __version__
+
     root = ET.Element("DJ_PLAYLISTS", Version="1.0.0")
-    ET.SubElement(root, "PRODUCT", Name="rekordbox", Version="6.0.0", Company="AlphaTheta")
+    # Podpisujemy się jako selekta, nie jako rekordbox: po wczytaniu tego
+    # XML-a z powrotem (rbimport) wiadomo, że intro/drop/outro i siatka to
+    # nasza analiza, a nie ręczna praca w rekordboksie.
+    ET.SubElement(root, "PRODUCT", Name="selekta", Version=__version__, Company="selekta")
+    wyslane: dict[str, dict[str, float]] = {}
 
     collection = ET.SubElement(root, "COLLECTION", Entries=str(len(tracks)))
     for i, track in enumerate(tracks, start=1):
@@ -453,6 +459,7 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
                     continue
                 ET.SubElement(el, "POSITION_MARK", Name=nazwa, Type="0",
                               Start=f"{czas:.3f}", Num=str(numer))
+                wyslane.setdefault(path, {})[nazwa] = round(czas, 3)
 
     playlists = ET.SubElement(root, "PLAYLISTS")
     node_root = ET.SubElement(playlists, "NODE", Type="0", Name="ROOT", Count="1")
@@ -468,6 +475,9 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
     parent = os.path.dirname(os.path.abspath(out_path))
     os.makedirs(parent, exist_ok=True)
     tree.write(out_path, encoding="UTF-8", xml_declaration=True)
+    # znacznik źródła: zapamiętaj, które cue postawiła selekta
+    from . import rbimport
+    rbimport.zapamietaj_wyslane(wyslane)
     return out_path
 
 

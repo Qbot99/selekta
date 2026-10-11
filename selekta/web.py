@@ -1319,8 +1319,8 @@ def api_rekordbox_wczytaj_sciezke(payload: dict) -> JSONResponse:
 @app.get("/api/rekordbox/stan")
 def api_rekordbox_stan() -> JSONResponse:
     """Ile utworów ma zapamiętaną pracę z rekordboxa i jaką."""
-    stan = rbimport._wczytaj_stan()
-    utworow, hot, kolorow, ocen = 0, 0, 0, 0
+    stan = rbimport.wszystkie()
+    utworow, hot, kolorow, ocen, zmienne = 0, 0, 0, 0, 0
     rozbieznosci = []
     for path, dane in stan.items():
         if not os.path.isfile(path):
@@ -1331,6 +1331,8 @@ def api_rekordbox_stan() -> JSONResponse:
             kolorow += 1
         if dane.get("ocena"):
             ocen += 1
+        if len(dane.get("tempa") or []) > 1:
+            zmienne += 1
         # rozbieżności między naszą analizą a rekordboxem — informacyjnie,
         # niczego nie poprawiamy automatycznie
         h = cache.get(path, "harmonic") or {}
@@ -1353,7 +1355,8 @@ def api_rekordbox_stan() -> JSONResponse:
                 "polowa_lub_podwojenie": False})
     return JSONResponse(_clean({
         "utworow": utworow, "hot_cue": hot, "z_kolorem": kolorow,
-        "z_ocena": ocen, "rozbieznosci": rozbieznosci[:40],
+        "z_ocena": ocen, "zmienne_tempo": zmienne,
+        "rozbieznosci": rozbieznosci[:40],
         "rozbieznosci_razem": len(rozbieznosci),
     }))
 

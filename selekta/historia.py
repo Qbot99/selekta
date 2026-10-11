@@ -39,11 +39,9 @@ class Sesja:
 
 
 def _sciezka_z_location(value: str) -> str:
-    if not value:
-        return ""
-    if value.startswith("file:"):
-        return urllib.parse.unquote(urllib.parse.urlparse(value).path)
-    return urllib.parse.unquote(value)
+    # ta sama funkcja co przy wymianie z rekordboxem — bez obcinania na „#"
+    from .rbimport import _sciezka_z_location as z_rekordboxa
+    return z_rekordboxa(value)
 
 
 def rozpoznaj_date(nazwa: str) -> str:
