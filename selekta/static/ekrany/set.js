@@ -151,13 +151,25 @@ function bezKopii(lista, peak){
   });
   return {us, peak:nowyPeak, pominiete};
 }
-// te same reguły co energia.luk_setu — używane tylko, gdy po odrzuceniu kopii
+// te same reguły co energia.luk_setu (energia bezwzględna; kulminacja = najmocniejszy
+// odcinek setu, nie pojedynczy utwór) — używane tylko, gdy po odrzuceniu kopii
 // pozycje z serwera przestają się zgadzać z listą
+function wygladz(e, w){
+  if(e.length < 3) return e.slice();
+  w = Math.min(w, e.length % 2 ? e.length : e.length - 1); const h = w >> 1;
+  return e.map((_, i) => { let s = 0; for(let k=i-h; k<=i+h; k++) s += e[Math.min(e.length-1, Math.max(0, k))]; return s / w; });
+}
+function kulminacja(e){
+  if(!e.length) return null; const s = wygladz(e, 5), m = Math.max(...s);
+  for(let i=s.length-1; i>=0; i--) if(s[i] >= m - 1e-9) return i;
+  return 0;
+}
 function lukUwagi(us, peak){
-  const e = us.map(u => u.energia||0), n = e.length, uw = [];
-  if(n >= 5 && peak < n*0.4) uw.push({typ:'wczesna-kulminacja', opis:`najmocniejszy utwór jest na pozycji ${peak+1} z ${n} — po nim zostaje długi zjazd`});
-  for(let i=1;i<n-1;i++){ const spadek = e[i-1]-e[i]; if(spadek > 0.22 && e[i+1] > e[i]+0.15) uw.push({typ:'dziura', opis:`„${us[i].title||us[i].file}” siada o ${Math.round(spadek*100)}% względem poprzedniego i zaraz wracasz w górę`}); }
-  if(n >= 6 && (Math.max(...e)-Math.min(...e)) < 0.18) uw.push({typ:'plaski', opis:'energia prawie się nie zmienia przez cały set — brakuje narastania'});
+  const e = us.map(u => u.energia||0), n = e.length, uw = [], g = Math.ceil(n*0.4);
+  if(n >= 5 && peak < n*0.4 && Math.max(...e.slice(0, g)) - Math.max(...e.slice(g)) >= 0.05) uw.push({typ:'wczesna-kulminacja', opis:`najmocniejszy fragment setu jest na pozycji ${peak+1} z ${n} — po nim zostaje długi zjazd`});
+  for(let i=1;i<n-1;i++){ const spadek = e[i-1]-e[i]; if(spadek > 0.10 && e[i+1] > e[i]+0.08) uw.push({typ:'dziura', opis:`„${us[i].title||us[i].file}” siada o ${Math.round(spadek*100)} pkt energii względem poprzedniego i zaraz wracasz w górę`}); }
+  const w3 = wygladz(e, 3);
+  if(n >= 6 && (Math.max(...w3)-Math.min(...w3)) < 0.08) uw.push({typ:'plaski', opis:'energia prawie się nie zmienia przez cały set — brakuje narastania'});
   return uw;
 }
 // jeden model dla obu źródeł: /api/energia (pełny) albo /api/order (tylko kolejność)
@@ -167,7 +179,7 @@ function kolModel(){
     let {us, peak, pominiete} = bezKopii((d.utwory||[]).map(u => ({file:u.file, path:u.path, title:u.title || rozbijNazwe(u.file).title, artist:u.artist || rozbijNazwe(u.file).artist,
       bpm:u.bpm, camelot:u.camelot, faza:u.faza||'', energia:u.srednia, duration:u.czas_s, intro:u.intro_typ})), d.kulminacja);
     let uwagi = d.uwagi||[];
-    if(pominiete && us.length){ peak = us.reduce((b,u,i,a) => (u.energia||0) > (a[b].energia||0) ? i : b, 0); uwagi = lukUwagi(us, peak); }
+    if(pominiete && us.length){ peak = kulminacja(us.map(u => u.energia||0)); uwagi = lukUwagi(us, peak); }
     return {us, peak, pominiete, opis:d.zakres, uwagi, pelny:true};
   }
   if(KOL.order){

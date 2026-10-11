@@ -372,12 +372,40 @@ def _faza(s: Struktura) -> str:
 # poziom setu
 # --------------------------------------------------------------------------
 
+# progi łuku na skali bezwzględnej (różnica klub–pop w medianie ≈ 0,16)
+LUK_WYGLADZANIE = 5           # kulminacja = najmocniejszy ODCINEK setu, nie pojedynczy utwór
+LUK_PRZEWAGA = 0.05           # o tyle wczesny szczyt musi przewyższać resztę setu
+DZIURA_SPADEK = 0.10
+DZIURA_POWROT = 0.08
+PLASKI_ZAKRES = 0.08
+
+
+def _wygladz(e: np.ndarray, w: int) -> np.ndarray:
+    if e.size < 3 or w <= 1:
+        return e
+    w = min(w, e.size if e.size % 2 else e.size - 1)
+    k = np.ones(w) / w
+    return np.convolve(np.pad(e, (w // 2, w // 2), mode="edge"), k, mode="valid")
+
+
+def kulminacja(energie: list[float]) -> int:
+    """Pozycja kulminacji: środek najmocniejszego odcinka (średnia z 5
+    sąsiadów), przy remisie — późniejsza. Pojedynczy utwór o 0,01 mocniejszy
+    od reszty nie jest kulminacją setu."""
+    e = np.asarray(energie, dtype=float)
+    if e.size == 0:
+        return 0
+    s = _wygladz(e, LUK_WYGLADZANIE)
+    return int(len(s) - 1 - np.argmax(s[::-1] >= s.max() - 1e-9))
+
+
 def luk_setu(utwory: list[dict]) -> dict:
     """Oceń łuk energii całego setu w podanej kolejności.
 
-    Szukamy dwóch rzeczy, które psują set mimo poprawnego doboru tonacji:
-    dziury (nagły spadek w środku) i przedwczesnej kulminacji. Energie są
-    bezwzględne, więc porównanie sąsiadów ma sens.
+    Szukamy rzeczy, które psują set mimo poprawnego doboru tonacji: dziury
+    (nagły spadek w środku), przedwczesnej kulminacji i braku dramaturgii.
+    Energie są bezwzględne (porównywalne między utworami), więc progi są
+    w tych samych jednostkach dla każdego setu.
     """
     if not utwory:
         return {"punkty": [], "uwagi": [], "kulminacja": None}
@@ -390,28 +418,32 @@ def luk_setu(utwory: list[dict]) -> dict:
 
     energie = [p["energia"] for p in punkty]
     n = len(energie)
-    szczyt = int(np.argmax(energie)) if n else 0
+    szczyt = kulminacja(energie)
     uwagi = []
 
-    # kulminacja za wcześnie — zostaje długa zjazdowa końcówka
-    if n >= 5 and szczyt < n * 0.4:
+    # kulminacja za wcześnie — zostaje długa zjazdowa końcówka; tylko gdy
+    # wczesny szczyt naprawdę przewyższa wszystko, co gra później
+    granica = int(np.ceil(n * 0.4))
+    if (n >= 5 and szczyt < n * 0.4
+            and max(energie[:granica]) - max(energie[granica:]) >= LUK_PRZEWAGA):
         uwagi.append({
             "typ": "wczesna-kulminacja", "pozycja": szczyt,
-            "opis": f"najmocniejszy utwór jest na pozycji {szczyt + 1} z {n} — "
+            "opis": f"najmocniejszy fragment setu jest na pozycji {szczyt + 1} z {n} — "
                     f"po nim zostaje długi zjazd"})
 
     # dziura: wyraźny spadek między sąsiadami w środku setu
     for i in range(1, n - 1):
         spadek = energie[i - 1] - energie[i]
-        if spadek > 0.22 and energie[i + 1] > energie[i] + 0.15:
+        if spadek > DZIURA_SPADEK and energie[i + 1] > energie[i] + DZIURA_POWROT:
             uwagi.append({
                 "typ": "dziura", "pozycja": i,
                 "opis": f"„{punkty[i]['title'] or punkty[i]['file']}” siada "
-                        f"o {round(spadek * 100)}% względem poprzedniego "
+                        f"o {round(spadek * 100)} pkt energii względem poprzedniego "
                         f"i zaraz wracasz w górę"})
 
     # cały set na jednym poziomie — brak dramaturgii
-    if n >= 6 and (max(energie) - min(energie)) < 0.18:
+    wygl = _wygladz(np.asarray(energie, dtype=float), 3)
+    if n >= 6 and float(wygl.max() - wygl.min()) < PLASKI_ZAKRES:
         uwagi.append({
             "typ": "plaski", "pozycja": None,
             "opis": "energia prawie się nie zmienia przez cały set — "
