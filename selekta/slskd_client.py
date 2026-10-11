@@ -574,14 +574,17 @@ class SlskdClient:
                     row["user"] = row["user"] or user.get("username", "")
                     rows.append(row)
         rows.sort(key=lambda x: (x["status"] != "active",
-                                 _neg_iso(str(x.get("requested") or ""))))
+                                 _neg_iso(str(x.get("requested_at") or ""))))
         return rows
 
     def cancel_download(self, username: str, file_id: str) -> bool:
         """Przerwij jedno pobieranie (i usuń je z listy slskd)."""
         try:
+            # Soulseek dopuszcza ?, #, / i spacje w nazwach użytkowników
+            from urllib.parse import quote
             r = requests.delete(
-                f"{self.base}/api/v0/transfers/downloads/{username}/{file_id}",
+                f"{self.base}/api/v0/transfers/downloads/"
+                f"{quote(str(username), safe='')}/{quote(str(file_id), safe='')}",
                 headers=self.headers, timeout=10)
             return r.status_code < 400
         except requests.RequestException:

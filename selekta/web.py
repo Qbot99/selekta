@@ -1230,7 +1230,12 @@ def api_setup_konto(payload: dict) -> JSONResponse:
     config.save({"slskd_api_key": klucz})
 
     # slskd czyta konfigurację przy starcie — bez restartu nic się nie zmieni
-    slskd_ctl.stop()
+    zatrzymany, komunikat_stop = slskd_ctl.stop()
+    if not zatrzymany:
+        # działa slskd spoza instalacji znanej selekcie — nie zatrzymujemy cudzego
+        return JSONResponse({"ok": True, "login": login, "restart": False,
+                             "message": f"zapisano; {komunikat_stop} — dane zadziałają "
+                                        "po jego ponownym uruchomieniu"})
     time.sleep(1.5)
     uruchomione, komunikat = slskd_ctl.start()
     if not uruchomione:
@@ -2245,7 +2250,17 @@ def api_radar_sprawdz(payload: dict | None = None) -> JSONResponse:
 
 @app.get("/api/cache")
 def api_cache() -> JSONResponse:
-    return JSONResponse(cache.stats())
+    """Statystyki pamięci analiz + ile utworów BIEŻĄCEJ biblioteki ma wynik.
+
+    Surowe liczniki obejmują też wpisy usuniętych plików i stare wersje —
+    Ustawienia pokazywały „450 utworów z BPM” przy 277-utworowej bibliotece.
+    """
+    d = cache.stats()
+    sciezki = _paths()
+    d["w_bibliotece"] = {k: sum(1 for p in sciezki if cache.get(p, k) is not None)
+                         for k in ("harmonic", "quality", "cues")}
+    d["utworow"] = len(sciezki)
+    return JSONResponse(d)
 
 
 @app.post("/api/cache/wyczysc")
@@ -2324,9 +2339,12 @@ def api_transfers_cancel(payload: dict) -> JSONResponse:
     if not (user and fid):
         raise HTTPException(400, "brak wskazania pobrania")
     try:
-        client.cancel_download(user, fid)
+        ok = client.cancel_download(user, fid)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, f"nie udało się anulować: {exc}")
+    if not ok:
+        # wcześniej zawsze {"ok": true} — UI pokazywało anulowanie, którego nie było
+        raise HTTPException(502, "slskd nie potwierdził anulowania — sprawdź, czy działa")
     return JSONResponse({"ok": True})
 
 
@@ -2392,7 +2410,11 @@ def serve(folder: str, host: str = "127.0.0.1", port: int = 8756) -> None:
     set_folder(folder)
     # Kolejka pobierania przeżywa zamknięcie apki: wklejasz playlistę,
     # zamykasz laptopa, po ponownym uruchomieniu ściąganie idzie dalej.
-    wznowione = dlqueue.QUEUE.wczytaj()
+    try:
+        wznowione = dlqueue.QUEUE.wczytaj()
+    except Exception as exc:  # noqa: BLE001 — zepsuta kolejka nie może zablokować startu
+        print(f"  uwaga: nie udało się wczytać kolejki pobierania ({exc}) — startuję z pustą")
+        wznowione = 0
     # nowe pliki mają analizować się same — po pobraniu w tle nie ma sensu
     # wymagać, żeby użytkownik wracał i klikał „Analizuj wszystko"
     obserwator.OBSERWATOR.start(folder)
