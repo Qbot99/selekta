@@ -147,7 +147,7 @@ def test_scan_flags_corrupt_flac(tmp_path, real_lib):
     assert len(report.corrupt) == 1
     path, reason = report.corrupt[0]
     assert os.path.basename(path) == CORRUPT_FLAC
-    assert reason.startswith("ffmpeg:")
+    assert "ucięty" in reason or "uszkodzon" in reason or "błędy dekodowania" in reason
     # jedynym problemem jest uszkodzenie (plik ma tagi i okładkę)
     assert report.missing_tags == []
     assert report.missing_covers == []

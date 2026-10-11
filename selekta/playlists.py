@@ -93,6 +93,37 @@ def fast_copy(src: str, dst: str) -> None:
     shutil.copy2(src, dst)
 
 
+def przenies_analizy(src: str, dst: str) -> int:
+    """Skopiuj policzone analizy (BPM, tonacja, siatka, głośność, cue…) na kopię.
+
+    Pamięć analiz jest kluczowana ścieżką pliku, więc kopia w folderze setu
+    zaczynała od zera: eksport 6 utworów liczył wszystko od nowa (424 s).
+    Kopia z ``cp -c`` ma ten sam dźwięk co oryginał — wyniki są te same.
+    Ręczna korekta siatki też idzie za utworem.
+    """
+    from . import cache
+    from .tagger import _rodzaje_cache
+    n = 0
+    for kind in _rodzaje_cache():
+        try:
+            if cache.get(dst, kind) is not None:
+                continue
+            d = cache.get(src, kind)
+            if d is not None:
+                cache.put(dst, kind, d)
+                n += 1
+        except (OSError, TypeError, ValueError):
+            continue
+    try:
+        from . import waveform
+        w = waveform.wczytaj_siatke(src)
+        if w and w.get("first_beat_s") is not None and not waveform.wczytaj_siatke(dst):
+            waveform.zapisz_siatke(dst, w["first_beat_s"], w.get("bpm"), w.get("battito"))
+    except Exception:                          # noqa: BLE001
+        pass
+    return n
+
+
 def collect(name: str, files: list[str]) -> dict:
     """Skopiuj utwory playlisty do jej folderu (samodzielna kopia setu).
 
@@ -109,6 +140,7 @@ def collect(name: str, files: list[str]) -> dict:
         target = os.path.join(dest, os.path.basename(src))
         if os.path.isfile(target) and os.path.getsize(target) == os.path.getsize(src):
             reused.append(target)          # już skopiowany wcześniej
+            przenies_analizy(src, target)
             continue
         stem, ext = os.path.splitext(target)
         n = 2
@@ -120,6 +152,8 @@ def collect(name: str, files: list[str]) -> dict:
             copied.append(target)
         except OSError:
             missing.append(src)
+            continue
+        przenies_analizy(src, target)
     return {"copied": copied, "reused": reused, "missing": missing,
             "files": copied + reused, "folder": dest}
 

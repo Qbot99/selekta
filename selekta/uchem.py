@@ -28,7 +28,7 @@ PROG_TEMPA = 0.25
 PROG_TONACJI = 0.4
 
 # waga: 3 = nie graj bez sprawdzenia, 2 = sprawdź przy okazji, 1 = drobiazg
-WAGI = {"tempo_niepewne": 3, "transkod": 3, "tempo_zmienne": 2,
+WAGI = {"tempo_niepewne": 3, "transkod": 3, "bpm_inne_niz_w_tagu": 3, "tempo_zmienne": 2,
         "bpm_nietrafione": 2, "siatka_niepewna": 2, "takt_niepewny": 1,
         "tonacja_niepewna": 1, "jakosc_do_oceny": 1}
 PROG_SIATKI = 0.25       # spójność kicków z siatką (siatka.PROG_PEWNOSCI)
@@ -55,17 +55,54 @@ class DoSprawdzenia:
         return max((p.waga for p in self.powody), default=0)
 
 
+def bpm_z_tagu(path: str) -> float | None:
+    """BPM zapisany w pliku przez sklep/rekordbox (TBPM, BPM, tmpo) — albo None."""
+    try:
+        from mutagen import File as MutagenFile
+        a = MutagenFile(path)
+        tags = getattr(a, "tags", None)
+        if tags is None:
+            return None
+        for klucz in ("TBPM", "BPM", "bpm", "tmpo"):
+            try:
+                v = tags.get(klucz)
+            except Exception:                  # noqa: BLE001
+                v = None
+            if not v:
+                continue
+            v = getattr(v, "text", v)
+            v = v[0] if isinstance(v, (list, tuple)) else v
+            liczba = float(str(v).replace(",", "."))
+            if 40 <= liczba <= 250:
+                return liczba
+    except Exception:                          # noqa: BLE001
+        return None
+    return None
+
+
+def _ta_sama_oktawa(a: float, b: float) -> bool:
+    return any(abs(a * k - b) <= 2.0 for k in (1.0, 0.5, 2.0))
+
+
 def _powody(h: dict, tempo: dict | None, q: dict | None,
-            c: dict | None = None) -> list[Powod]:
+            c: dict | None = None, bpm_tag: float | None = None) -> list[Powod]:
     out: list[Powod] = []
     bpm = h.get("bpm")
     conf_bpm = h.get("confidence_bpm")
-    if bpm and conf_bpm is not None and conf_bpm < PROG_TEMPA:
+    if bpm and bpm_tag and not _ta_sama_oktawa(bpm, bpm_tag):
+        # tag ze sklepu (Beatport) to najlepsza podpowiedź, jaką mamy —
+        # pomyłka nie musi być podwojeniem: Asia ma 98, a apka liczyła 139
+        out.append(Powod(
+            "bpm_inne_niz_w_tagu",
+            f"apka liczy {bpm:.0f} BPM, a w tagu pliku jest {bpm_tag:.0f} — "
+            f"posłuchaj, które jest prawdziwe", WAGI["bpm_inne_niz_w_tagu"]))
+    elif bpm and conf_bpm is not None and conf_bpm < PROG_TEMPA:
         out.append(Powod(
             "tempo_niepewne",
-            f"tempo {bpm:.0f} BPM z pewnością {conf_bpm:.2f} — możliwe "
-            f"podwojenie lub połowienie (czy to nie {bpm / 2:.0f} albo "
-            f"{bpm * 2:.0f}?)", WAGI["tempo_niepewne"]))
+            f"tempo {bpm:.0f} BPM z pewnością {conf_bpm:.2f} — apka nie jest "
+            f"go pewna; najczęstsza pomyłka to połowa lub podwójne tempo "
+            f"({bpm / 2:.0f} / {bpm * 2:.0f}), ale bywa też zupełnie inne — "
+            f"posłuchaj", WAGI["tempo_niepewne"]))
     conf_key = h.get("confidence_key")
     if h.get("key") and conf_key is not None and conf_key < PROG_TONACJI:
         out.append(Powod(
@@ -119,30 +156,46 @@ def sprawdz(folder: str) -> dict:
     Zwraca słownik gotowy do wysłania jako JSON: listę utworów (najpilniejsze
     najpierw), liczbę sprawdzonych i liczbę bez analizy.
     """
+    from .uklad import odcisk_pliku
     pliki = matcher.audio_files(folder)
     utwory: list[DoSprawdzenia] = []
-    bez_analizy = 0
+    bez_analizy = bez_tempa = 0
+    widziane: dict[str, DoSprawdzenia] = {}
+    kopie: dict[str, int] = {}
     for p in pliki:
         h = cache.get(p, "harmonic")
         if h is None:
             bez_analizy += 1
             continue
-        powody = _powody(h, cache.get(p, "tempo"), cache.get(p, "quality"),
-                         cache.get(p, "cues"))
+        # ten sam plik w dwóch miejscach biblioteki to JEDEN utwór do odsłuchu
+        odc = odcisk_pliku(p)
+        if odc in widziane:
+            kopie[odc] = kopie.get(odc, 1) + 1
+            continue
+        t = cache.get(p, "tempo")
+        if t is None:
+            bez_tempa += 1
+        powody = _powody(h, t, cache.get(p, "quality"),
+                         cache.get(p, "cues"), bpm_tag=bpm_z_tagu(p))
+        u = DoSprawdzenia(p, h.get("bpm"), h.get("camelot"), h.get("key"), powody)
+        widziane[odc] = u
         if powody:
             powody.sort(key=lambda x: -x.waga)
-            utwory.append(DoSprawdzenia(p, h.get("bpm"), h.get("camelot"),
-                                        h.get("key"), powody))
+            utwory.append(u)
     utwory.sort(key=lambda u: (-u.waga, u.file.lower()))
+    kopii_dla = {id(u): kopie.get(o, 1) for o, u in widziane.items()}
     return {
         "utwory": [{
             "file": u.file, "bpm": u.bpm, "camelot": u.camelot, "key": u.key,
-            "waga": u.waga,
+            "waga": u.waga, "kopii": kopii_dla.get(id(u), 1),
             "powody": [{"kod": p.kod, "opis": p.opis, "waga": p.waga}
                        for p in u.powody],
         } for u in utwory],
-        "sprawdzonych": len(pliki) - bez_analizy,
+        "sprawdzonych": len(widziane),
         "bez_analizy": bez_analizy,
+        # stabilność tempa liczy się osobno (POST /api/tempo) — bez niej
+        # powody „tempo zmienne” i „BPM nietrafione” nie mają skąd się wziąć
+        "bez_sprawdzenia_tempa": bez_tempa,
         "progi": {"tempo": PROG_TEMPA, "tonacja": PROG_TONACJI},
     }
 
@@ -165,4 +218,8 @@ def format_report(wynik: dict) -> str:
     if wynik["bez_analizy"]:
         linie.append(f"{wynik['bez_analizy']} utworów bez analizy — "
                      f"uruchom „Analizuj”, żeby je ocenić")
+    if wynik.get("bez_sprawdzenia_tempa"):
+        linie.append(f"{wynik['bez_sprawdzenia_tempa']} utworów bez sprawdzenia "
+                     f"stabilności tempa — zmienne tempo i nietrafione BPM wyjdą "
+                     f"dopiero po „Sprawdź tempo” w aplikacji")
     return "\n".join(linie)

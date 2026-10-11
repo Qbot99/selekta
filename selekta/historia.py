@@ -198,7 +198,15 @@ def podsumowanie(folder: str) -> dict:
 
     w_bibliotece = matcher.audio_files(folder)
     grane = {p for p in licznik if os.path.isfile(p)}
-    martwe = [p for p in w_bibliotece if p not in grane]
+    # rekordbox gra zwykle KOPIĘ z folderu setu — to ten sam utwór co jego
+    # oryginał na liście biblioteki, więc oryginał nie jest „martwym balastem”
+    from .uklad import wczytaj
+    try:
+        uk = wczytaj(folder)
+        grane_utwory = grane | {uk.kanoniczny(p) for p in grane}
+    except OSError:
+        grane_utwory = grane
+    martwe = [p for p in w_bibliotece if p not in grane_utwory]
 
     def opis(p: str) -> dict:
         return {"file": os.path.basename(p), "path": p,

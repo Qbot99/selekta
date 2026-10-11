@@ -122,25 +122,27 @@ def format_rank(path: str) -> int:
             ".m4a": 3, ".mp3": 4}.get(ext, 5)
 
 
-def audio_files(folder: str) -> list[str]:
-    """Wszystkie pliki audio biblioteki — RÓWNIEŻ w podfolderach.
+def audio_files(folder: str, kopie_w_setach: bool = False) -> list[str]:
+    """Utwory biblioteki — RÓWNIEŻ w podfolderach, ale bez kopii z setów.
 
     Soulseek i Nicotine+ zapisują pobrania do katalogów albumów
     (``downloads/Nazwa albumu/01 utwor.flac``), więc płaskie listowanie
     gubiło większość świeżo pobranych utworów: nie było ich ani w
     bibliotece, ani w dopasowaniu, ani w eksporcie. Pomijamy katalogi
     ukryte i kosz.
+
+    Foldery setów (katalog z ``_selekta.json``) trzymają KOPIE utworów
+    z biblioteki. Liczone osobno zawyżały bibliotekę (277 plików przy
+    ~79 utworach), dublowały listę i kolejność, a „Usuń duplikaty” chciało
+    je wyrzucić do kosza. Każdy utwór występuje tu raz; utwór, który leży
+    tylko w setach, reprezentuje jedna jego kopia (szczegóły: ``uklad``).
+    ``kopie_w_setach=True`` zwraca wszystkie pliki, łącznie z kopiami.
     """
     if not os.path.isdir(folder):
         raise FileNotFoundError(f"nie ma folderu: {folder}")
-    out: list[str] = []
-    for root, dirs, names in os.walk(folder):
-        dirs[:] = sorted(d for d in dirs
-                         if not d.startswith(".") and d not in SKIP_DIRS)
-        for n in sorted(names):
-            if n.lower().endswith(AUDIO_EXT) and not n.startswith("."):
-                out.append(os.path.join(root, n))
-    return sorted(out)
+    from .uklad import wczytaj
+    u = wczytaj(folder)
+    return list(u.wszystkie if kopie_w_setach else u.utwory)
 
 
 def resolve_in_library(folder: str, name: str) -> str | None:
@@ -152,6 +154,9 @@ def resolve_in_library(folder: str, name: str) -> str | None:
     if os.path.isfile(direct):
         return direct
     for p in audio_files(folder):
+        if os.path.basename(p) == base:
+            return p
+    for p in audio_files(folder, kopie_w_setach=True):   # kopia w secie
         if os.path.basename(p) == base:
             return p
     return None
