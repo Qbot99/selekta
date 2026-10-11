@@ -434,7 +434,7 @@
       const zyc = body.querySelector('[data-zyczenie]');
       if(zyc) zyc.onclick = async () => {
         zyc.disabled = true;
-        try{ await api('/api/wishlist', {method:'POST', body:{artist, title}}); zyc.textContent = t.wished; }
+        try{ await api('/api/wishlist', {method:'POST', body:{artist, title, duration}}); zyc.textContent = t.wished; }
         catch(e){ zyc.disabled = false; }
       };
       $$('[data-pobierz]', body).forEach(b => b.onclick = async () => {

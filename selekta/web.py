@@ -450,10 +450,27 @@ def api_covers_fill(file: str = Query(...)) -> JSONResponse:
 
 @app.post("/api/redownload")
 def api_redownload(payload: dict) -> JSONResponse:
-    name = os.path.splitext(_field(payload, "file"))[0]
-    artist, _, title = name.partition(" - ")
-    wishlist.add(artist.strip(), (title or name).strip())
-    return JSONResponse({"queued": name})
+    """Dopisz plik z biblioteki do listy życzeń (do ponownego pobrania).
+
+    Artysta i tytuł najpierw z tagów pliku; z nazwy dopiero awaryjnie i bez
+    numeru ścieżki — „01 - Hung Up.flac" dawało artystę „01".
+    """
+    plik = _field(payload, "file")
+    name = os.path.splitext(os.path.basename(plik))[0]
+    artist = title = ""
+    dur = None
+    path = matcher.resolve_in_library(_folder(), plik) if plik else None
+    if path and _within_allowed(path):
+        artist, title = _tags(path)
+        try:
+            dur = MutagenFile(path).info.length or None
+        except Exception:  # noqa: BLE001
+            dur = None
+    if not (artist and title):
+        a2, t2 = matcher._split_stem(name)
+        artist, title = artist or a2, title or t2 or name
+    wishlist.add(artist.strip(), title.strip(), dur)
+    return JSONResponse({"queued": name, "artist": artist, "title": title})
 
 
 # --------------------------------------------------------------------------
@@ -2243,8 +2260,12 @@ def api_wishlist() -> JSONResponse:
 @app.post("/api/wishlist")
 def api_wishlist_add(payload: dict) -> JSONResponse:
     a = _field(payload, "artist"); t = _field(payload, "title")
+    try:
+        dur = float((payload or {}).get("duration") or 0) or None
+    except (TypeError, ValueError):
+        dur = None
     if a or t:
-        wishlist.add(a.strip(), t.strip())
+        wishlist.add(a.strip(), t.strip(), dur)
     return JSONResponse({"items": wishlist.items()})
 
 
