@@ -1342,8 +1342,11 @@ def api_rekordbox_stan() -> JSONResponse:
                 "file": os.path.basename(path), "pole": "BPM",
                 "nasze": round(nasze_bpm, 1), "rekordbox": round(ich_bpm, 1),
                 "polowa_lub_podwojenie": podwojone})
+        # porównujemy TONACJĘ, nie napis: rekordbox zapisuje „F" albo „Am",
+        # my „7B"/„8A" — to te same tonacje (wcześniej fałszywe alarmy)
+        ich_cam = dj_export.tonacja_camelot(dane.get("tonality"))
         if (h.get("camelot") and dane.get("tonality")
-                and h["camelot"] != dane["tonality"]):
+                and dj_export.tonacja_camelot(h["camelot"]) != ich_cam):
             rozbieznosci.append({
                 "file": os.path.basename(path), "pole": "tonacja",
                 "nasze": h["camelot"], "rekordbox": dane["tonality"],

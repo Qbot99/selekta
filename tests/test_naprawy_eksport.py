@@ -152,3 +152,82 @@ class TestCliEksport:
         assert r.returncode == 0, r.stderr
         linie = [l for l in out.read_text().splitlines() if not l.startswith("#")]
         assert sorted(linie) == sorted(biblioteka["pliki"])
+
+
+# ---------------------------------------------------------------------------
+# #109 #186 #122 — tonacja w XML: jeden zapis, bez śmieci z tagów
+# ---------------------------------------------------------------------------
+
+MIK_8B = "eyJrZXkiOiI4QiIsInNvdXJjZSI6Im1peGVkaW5rZXkiLCJhbGdvcml0aG0iOjk0fQ=="
+
+
+def _flac(path, **tagi) -> str:
+    from mutagen.flac import FLAC
+    from tests import probka
+    wav = str(path) + ".wav"
+    probka.ton(wav, 440.0, sekund=1.0)
+    probka.do_flac(wav, str(path))
+    os.remove(wav)
+    f = FLAC(str(path))
+    for k, v in tagi.items():
+        f[k] = v
+    f.save()
+    return str(path)
+
+
+class TestTonacja:
+    @pytest.mark.parametrize("surowa,camelot,rb", [
+        ("8A", "8A", "Am"), ("08a", "8A", "Am"), ("10m", "5A", "Cm"),
+        ("1d", "8B", "C"), ("C Minor", "5A", "Cm"), ("B Minor", "10A", "Bm"),
+        ("F", "7B", "F"), ("A minor", "8A", "Am"), ("F#m", "11A", "F#m"),
+        ("Gbm", "11A", "F#m"), ("Bbm", "3A", "A#m"), ("Db Major", "3B", "C#"),
+        (MIK_8B, "8B", "C"), ("8A/Am", "8A", "Am"),
+        ("?", None, None), ("", None, None), ("13A", None, None),
+        ("eyJub3BlIjoxfQ==", None, None), ("Off key", None, None),
+    ])
+    def test_normalizacja(self, surowa, camelot, rb):
+        assert dj_export.tonacja_camelot(surowa) == camelot
+        assert dj_export.tonacja_rekordbox(surowa) == rb
+
+    def test_blob_mixed_in_key_nie_trafia_do_rekordboxa(self, tmp_path):
+        p = _flac(tmp_path / "blk. - Enter.flac", KEY=MIK_8B)
+        t = dj_export.track_from_file(p)
+        assert t["key"] == "8B"
+        out = str(tmp_path / "x.xml")
+        dj_export.to_rekordbox_xml([t], "x", out)
+        assert ET.parse(out).getroot().find("COLLECTION/TRACK").get("Tonality") == "C"
+
+    def test_jeden_zapis_w_calym_xml(self, tmp_path):
+        pliki = [_flac(tmp_path / "a.flac", INITIALKEY="F"),
+                 _flac(tmp_path / "b.flac", INITIALKEY="C Minor"),
+                 _flac(tmp_path / "c.flac", INITIALKEY="10m"),
+                 _flac(tmp_path / "d.flac", INITIALKEY="9A"),
+                 _flac(tmp_path / "e.flac", INITIALKEY="śmieć")]
+        out = str(tmp_path / "x.xml")
+        dj_export.to_rekordbox_xml([dj_export.track_from_file(p) for p in pliki],
+                                   "x", out)
+        ton = [t.get("Tonality") for t in ET.parse(out).getroot().findall("COLLECTION/TRACK")]
+        assert ton == ["F", "Cm", "Cm", "Em", None]
+
+    def test_analiza_selekty_wygrywa_z_tagiem(self, tmp_path):
+        """Apka pokazuje analizę (8A) — rekordbox ma dostać to samo, nie tag „F"."""
+        p = _flac(tmp_path / "a.flac", INITIALKEY="F")
+        cache.put(p, "harmonic", {"bpm": 128.0, "key": "A minor", "camelot": "8A",
+                                  "confidence_bpm": 0.9, "confidence_key": 0.9})
+        assert dj_export.track_from_file(p)["key"] == "8A"
+        t = dj_export.wzbogac_o_siatke([{"path": p, "key": "F", "bpm": 128.0}],
+                                       licz_brakujace=False)[0]
+        assert dj_export.tonacja_rekordbox(t["key"]) == "Am"
+
+    def test_stan_nie_zglasza_tej_samej_tonacji_w_innym_zapisie(self, tmp_path):
+        a = _plik(tmp_path / "lib" / "a.mp3")
+        b = _plik(tmp_path / "lib" / "b.mp3")
+        c = _plik(tmp_path / "lib" / "c.mp3")
+        for p, cam in ((a, "7B"), (b, "8A"), (c, "9A")):
+            cache.put(p, "harmonic", {"bpm": 128.0, "key": "", "camelot": cam,
+                                      "confidence_bpm": 1, "confidence_key": 1})
+        rbimport._zapisz_stan({a: {"tonality": "F"}, b: {"tonality": "Am"},
+                               c: {"tonality": "Am"}})
+        web.set_folder(str(tmp_path / "lib"))
+        d = TestClient(web.app).get("/api/rekordbox/stan").json()
+        assert [r["file"] for r in d["rozbieznosci"]] == ["c.mp3"]
