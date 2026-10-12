@@ -100,23 +100,34 @@ class Queue:
         if not isinstance(dane, list):
             return 0
         wznowione = 0
+        pominiete = 0
         with self._lock:
             self._jobs = []
             for d in dane:
                 if not isinstance(d, dict):
                     continue
-                job = Job(artist=str(d.get("artist", "")),
-                          title=str(d.get("title", "")),
-                          duration=d.get("duration"),
-                          status=str(d.get("status", "waiting")),
-                          file=str(d.get("file", "")),
-                          detail=str(d.get("detail", "")),
-                          attempts=int(d.get("attempts", 0)))
+                # Jedna uszkodzona pozycja (attempts null/„2x”) rzucała wyjątek
+                # i apka nie wstawała wcale — pomijamy ją z ostrzeżeniem.
+                try:
+                    czas = d.get("duration")
+                    job = Job(artist=str(d.get("artist", "")),
+                              title=str(d.get("title", "")),
+                              duration=float(czas) if isinstance(czas, (int, float)) else None,
+                              status=str(d.get("status", "waiting")),
+                              file=str(d.get("file", "")),
+                              detail=str(d.get("detail", "")),
+                              attempts=int(d.get("attempts", 0)))
+                except (TypeError, ValueError):
+                    pominiete += 1
+                    continue
                 if job.status == "searching":
                     job.status, job.detail = "waiting", "wznowione po restarcie"
                 if job.status == "waiting":
                     wznowione += 1
                 self._jobs.append(job)
+        if pominiete:
+            self._note = (f"pominięto {pominiete} uszkodzonych pozycji z zapisanej kolejki")
+            print(f"  uwaga: {self._note}")
         if wznowione:
             self._ensure_worker()
         return wznowione

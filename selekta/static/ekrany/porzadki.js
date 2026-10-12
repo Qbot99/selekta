@@ -691,6 +691,7 @@ const rd = {
   okres: pref.get('radar.okres', 30),
   pamiec: {ostatnio: null, nowe: 0, pozycje: [], sprawdzono: null, artystow: null},
   zyczenia: null,
+  poszukiwacz: null,      // stan szukania listy życzeń w tle (/api/wishlist)
 };
 const kluczUtworu = (a, t) => `${String(a || '').trim().toLowerCase()}|${String(t || '').trim().toLowerCase()}`;
 const SKLEP = {beatport: 'Beatport', bandcamp: 'Bandcamp'};
@@ -729,16 +730,29 @@ function rdRysuj(host){
     ? `<div class="rd-pusto">Jeszcze nic tu nie ma. „Sprawdź teraz” odpyta Beatport i Bandcamp o nowe wydania artystów z Twojej biblioteki — pierwsze sprawdzenie zapamiętuje, co już jest, kolejne pokazują tylko nowości.<br><span class="dim2">Sprawdzenie chwilę trwa: apka czyta strony sklepu, artysta po artyście.</span></div>`
     : (!poz.length ? `<div class="rd-pusto">Nic z ostatnich ${rd.okres} dni — przełącz na „Wszystko”, żeby zobaczyć ${wszystkie.length} ${odmiana(wszystkie.length, ['zapamiętane wydanie', 'zapamiętane wydania', 'zapamiętanych wydań'])}.</div>` : '');
 
+  // stan pozycji z poszukiwania w tle: pewny plik apka pobiera sama, niepewny pokazuje do potwierdzenia
+  const zyczTag = z => {
+    if(z.found) return `<span class="tag ok" title="${esc(z.opis || `znaleziono ${dataKrotka(z.found_at)} u ${(z.found_hit || {}).username || ''}`)}">${z.stan === 'zlecone' ? 'pobieram' : 'jest'}</span>`;
+    if(z.stan === 'do-potwierdzenia') return `<button class="rd-btn" data-zpobierz="${esc(z.id)}" title="${esc(z.opis || '')}">Pobierz?</button>`;
+    const kiedy = z.szukano_at ? `sprawdzone ${dataKrotka(z.szukano_at)} ${godzina(Date.parse(z.szukano_at))}` : 'jeszcze nie sprawdzane';
+    return `<span class="tag dim" title="${esc((z.opis ? z.opis + ' · ' : '') + kiedy)} — apka szuka w Soulseeku w tle">szukam</span>`;
+  };
   const zyczHtml = rd.zyczenia === null ? '<div class="zd-pusto"><span class="spin"></span></div>'
     : (zycz.length ? `<div class="wiersze">${[...zycz].reverse().map(z => `
-        <div class="rd-zycz"><span class="t" title="${esc(z.artist)} — ${esc(z.title)}">${esc(z.artist)} <span>— ${esc(z.title)}</span></span>
-          <span class="tag ${z.found ? 'ok' : 'dim'}" title="${z.found ? `znaleziono ${dataKrotka(z.found_at)} u ${esc((z.found_hit || {}).username || '')}` : 'apka szuka w Soulseeku w tle'}">${z.found ? 'jest' : 'szukam'}</span>
+        <div class="rd-zycz"><span class="t" title="${esc(z.artist)} — ${esc(z.title)}${z.opis ? ' · ' + esc(z.opis) : ''}">${esc(z.artist)} <span>— ${esc(z.title)}</span></span>
+          ${zyczTag(z)}
           <span class="data">${dataKrotka(z.added_at)}</span></div>`).join('')}</div>`
       : '<div class="zd-pusto">lista pusta — „+ Lista życzeń” przy wydaniu albo „Pobierz ponownie” przy uszkodzonym pliku dopisują tu utwory</div>');
   const znal = zycz.filter(z => z.found).length;
+  const doPotw = zycz.filter(z => !z.found && z.stan === 'do-potwierdzenia').length;
+  const ps = rd.poszukiwacz || {};
+  const tlo = ps.w_toku ? `szukam teraz: ${esc(ps.w_toku)}`
+    : ps.notka ? esc(ps.notka)
+    : ps.dziala ? `szukane w Soulseeku w tle${ps.nastepny_za_s != null ? ` · następne sprawdzenie za ${Math.max(1, Math.round(ps.nastepny_za_s / 60))} min` : ''}`
+    : 'szukane w Soulseeku w tle, gdy apka działa';
 
   $('#rdSiatka', host).innerHTML = karty.join('') + pusto + `
-    <div class="rd-zyczenia"><div class="glowa"><span class="etyk">LISTA ŻYCZEŃ</span><span class="n">${zycz.length} ${odmiana(zycz.length, ['utwór', 'utwory', 'utworów'])}${znal ? ` · ${znal} ${odmiana(znal, ['znaleziony', 'znalezione', 'znalezionych'])}` : ''} · szukane w Soulseeku w tle</span></div>${zyczHtml}</div>`;
+    <div class="rd-zyczenia"><div class="glowa"><span class="etyk">LISTA ŻYCZEŃ</span><span class="n">${zycz.length} ${odmiana(zycz.length, ['utwór', 'utwory', 'utworów'])}${znal ? ` · ${znal} ${odmiana(znal, ['znaleziony', 'znalezione', 'znalezionych'])}` : ''}${doPotw ? ` · ${doPotw} do potwierdzenia` : ''} · ${tlo}</span>${zycz.some(z => !z.found) ? '<button class="rd-btn cichy" data-zszukaj style="margin-left:auto" title="sprawdź listę teraz — apka i tak pilnuje tempa, żeby Soulseek nie odciął połączenia">Szukaj teraz</button>' : ''}</div>${zyczHtml}</div>`;
 
   if(S.biezacy() === 'radar') S.tytul(`radar · ${p.artystow != null ? `${p.artystow} artystów · ` : ''}${p.ostatnio ? `sprawdzono ${dzisiaj(p.ostatnio) ? 'dziś ' + godzina(p.ostatnio) : dataKrotka(p.ostatnio)}` : 'jeszcze nie sprawdzano'}`);
 }
@@ -780,15 +794,27 @@ S.ekran('radar', {
     on(host, 'click', '[data-wszyscy]', (e) => { e.preventDefault(); bezpiecznie(() => rdSprawdz(host, $('#rdSprawdz', host), rd.pamiec.artystow || 10)); });
     on(host, 'click', '[data-wish]', (e, el) => bezpiecznie(() => zajety(el, '…', async () => {
       const r = await api('/api/wishlist', {method: 'POST', body: {artist: el.dataset.artist, title: el.dataset.title}});
-      rd.zyczenia = r.items || [];
+      rd.zyczenia = r.items || []; rd.poszukiwacz = r.poszukiwacz || rd.poszukiwacz;
       toast(`„${el.dataset.artist} — ${el.dataset.title}” na liście życzeń`, 'ok');
+      rdRysuj(host);
+    })));
+    on(host, 'click', '[data-zpobierz]', (e, el) => bezpiecznie(() => zajety(el, '…', async () => {
+      const r = await api('/api/wishlist/pobierz', {method: 'POST', body: {id: el.dataset.zpobierz}});
+      rd.zyczenia = r.items || rd.zyczenia;
+      toast('pobieranie zlecone — zobaczysz je w Pobieraniach', 'ok');
+      rdRysuj(host);
+    })));
+    on(host, 'click', '[data-zszukaj]', (e, el) => bezpiecznie(() => zajety(el, '…', async () => {
+      const r = await api('/api/wishlist/szukaj', {method: 'POST'});
+      rd.poszukiwacz = r.poszukiwacz || rd.poszukiwacz;
+      toast('sprawdzam listę życzeń — wyniki pojawią się tu za kilka minut', 'info');
       rdRysuj(host);
     })));
   },
   load(host){
     rdRysuj(host);
     api('/api/radar', {cicho: true}).then(d => { rdZSerwera(d); rdRysuj(host); }).catch(() => {});
-    api('/api/wishlist', {cicho: true}).then(w => { rd.zyczenia = w.items || []; }).catch(() => { rd.zyczenia = []; }).finally(() => rdRysuj(host));
+    api('/api/wishlist', {cicho: true}).then(w => { rd.zyczenia = w.items || []; rd.poszukiwacz = w.poszukiwacz || null; }).catch(() => { rd.zyczenia = []; }).finally(() => rdRysuj(host));
   },
 });
 })();

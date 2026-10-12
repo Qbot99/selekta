@@ -280,6 +280,24 @@ class SlskdClient:
         except requests.RequestException:
             return False
 
+    def stan_api(self) -> str:
+        """Dlaczego API (nie) działa: "ok" | "klucz" | "brak" | "blad".
+
+        available() zlewa w jedno „nie działa” dwie różne sytuacje: slskd
+        wyłączony i slskd działający, ale odrzucający nasz klucz (401/403).
+        Użytkownik dostawał wtedy „Uruchom slskd” i szukał problemu w złym
+        miejscu — dokładnie po nadpisaniu slskd.yml innym kluczem.
+        """
+        try:
+            r = requests.get(f"{self.base}/api/v0/session", headers=self.headers, timeout=5)
+        except requests.RequestException:
+            return "brak"
+        if r.ok:
+            return "ok"
+        if r.status_code in (401, 403):
+            return "klucz"
+        return "blad"
+
     def logged_in(self) -> bool:
         """Czy slskd jest zalogowany do sieci Soulseek."""
         try:
@@ -556,14 +574,17 @@ class SlskdClient:
                     row["user"] = row["user"] or user.get("username", "")
                     rows.append(row)
         rows.sort(key=lambda x: (x["status"] != "active",
-                                 _neg_iso(str(x.get("requested") or ""))))
+                                 _neg_iso(str(x.get("requested_at") or ""))))
         return rows
 
     def cancel_download(self, username: str, file_id: str) -> bool:
         """Przerwij jedno pobieranie (i usuń je z listy slskd)."""
         try:
+            # Soulseek dopuszcza ?, #, / i spacje w nazwach użytkowników
+            from urllib.parse import quote
             r = requests.delete(
-                f"{self.base}/api/v0/transfers/downloads/{username}/{file_id}",
+                f"{self.base}/api/v0/transfers/downloads/"
+                f"{quote(str(username), safe='')}/{quote(str(file_id), safe='')}",
                 headers=self.headers, timeout=10)
             return r.status_code < 400
         except requests.RequestException:

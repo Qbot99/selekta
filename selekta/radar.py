@@ -12,8 +12,16 @@ when readable and otherwise Bandcamp's own public autocomplete JSON API.
 
 Scraping is strictly best-effort: every network or parsing problem is
 logged and swallowed — a page redesign must degrade to "no news",
-never to a crash. First check of an artist seeds `seen`, so everything
-currently listed is reported as new exactly once.
+never to a crash.
+
+Pierwsze sprawdzenie artysty w danym sklepie tylko ZAPAMIĘTUJE jego katalog
+(zgłasza wyłącznie wydania z datą z ostatnich NOWE_DNI dni) — wcześniej
+zgłaszało cały katalog jako „nowości” (ABBA z 1997, „424 nowości”). Kolejne
+sprawdzenia zgłaszają to, czego jeszcze nie widziano.
+
+Bandcamp: stronę artysty bierzemy TYLKO przy dokładnej i jednoznacznej
+zgodności nazwy — wcześniej przy braku trafienia brana była pierwsza
+podpowiedź wyszukiwarki i radar meldował cudzą dyskografię jako nowości.
 """
 from __future__ import annotations
 
@@ -24,7 +32,8 @@ import os
 import re
 import subprocess
 import time
-from datetime import datetime
+import unicodedata
+from datetime import date, datetime, timedelta
 from urllib.parse import quote_plus
 
 import requests
@@ -38,6 +47,7 @@ STATE_DIR = os.path.expanduser("~/.selekta")
 STATE_PATH = os.path.join(STATE_DIR, "radar.json")
 WYNIKI_PATH = os.path.join(STATE_DIR, "radar-wyniki.json")   # ostatnie znaleziska dla dashboardu
 MAX_WYNIKOW = 500
+NOWE_DNI = 90      # przy pierwszym sprawdzeniu: tylko wydania młodsze niż tyle dni
 
 UA_STRING = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
 UA = {"User-Agent": UA_STRING}
@@ -118,6 +128,22 @@ def wyniki() -> dict:
             "last": d.get("last") or {}}
 
 
+def _zapamietaj(nowe: list[dict], kiedy: str, sprawdzonych: int, offset: int,
+                artystow: int) -> None:
+    """Dopisz znaleziska do radar-wyniki.json — to czyta ekran Radar."""
+    stare = _load_results().get("items", [])
+    klucze = {x.get("id") or x.get("url") for x in nowe}
+    polaczone = nowe + [x for x in stare if (x.get("id") or x.get("url")) not in klucze]
+    _save_results({"checked_at": kiedy, "items": polaczone[:MAX_WYNIKOW],
+                   "last": {"checked": sprawdzonych, "offset": offset, "new": len(nowe),
+                            "total_artists": artystow}})
+
+
+def _sprawdz_artyste(artist: str, kiedy: str) -> list[dict]:
+    return [{**it, "artist": artist, "store": it.get("source"), "znalezione": kiedy}
+            for it in check_bandcamp(artist) + check_beatport(artist)]
+
+
 def sprawdz(folder: str, limit: int = 10, offset: int = 0,
             notify_new: bool = False) -> dict:
     """Sprawdź wycinek artystów w OBU sklepach i dopisz nowości do pamięci.
@@ -127,22 +153,13 @@ def sprawdz(folder: str, limit: int = 10, offset: int = 0,
     zapamiętany w radar-wyniki.json razem z datą, żeby kolejne wejście
     pokazywało listę bez czekania na sieć.
     """
-    import time
     artists = sorted(artists_from_library(folder))
     porcja = artists[offset:offset + limit]
     kiedy = time.strftime("%Y-%m-%dT%H:%M:%S")
     nowe: list[dict] = []
     for artist in porcja:
-        for it in check_bandcamp(artist) + check_beatport(artist):
-            nowe.append({**it, "artist": artist, "store": it.get("source"),
-                         "znalezione": kiedy})
-    stare = _load_results().get("items", [])
-    klucze = {x.get("id") or x.get("url") for x in nowe}
-    polaczone = nowe + [x for x in stare if (x.get("id") or x.get("url")) not in klucze]
-    d = {"checked_at": kiedy, "items": polaczone[:MAX_WYNIKOW],
-         "last": {"checked": len(porcja), "offset": offset, "new": len(nowe),
-                  "total_artists": len(artists)}}
-    _save_results(d)
+        nowe += _sprawdz_artyste(artist, kiedy)
+    _zapamietaj(nowe, kiedy, len(porcja), offset, len(artists))
     if nowe and notify_new:
         notify(f"{len(nowe)} nowości u {len({x['artist'] for x in nowe})} artystów",
                title="selekta radar")
@@ -151,13 +168,39 @@ def sprawdz(folder: str, limit: int = 10, offset: int = 0,
             "next_offset": offset + len(porcja) if offset + len(porcja) < len(artists) else None}
 
 
-def _register(artist: str, found: list[dict]) -> list[dict]:
-    """Diff `found` against state[artist].seen; persist and return the new."""
+def _swieze(item: dict, granica: str) -> bool:
+    d = item.get("date")
+    return bool(d) and str(d)[:10] >= granica
+
+
+def _register(artist: str, found: list[dict], zrodlo: str | None = None) -> list[dict]:
+    """Porównaj `found` z pamięcią artysty; zapisz i zwróć NOWOŚCI.
+
+    Pierwsze sprawdzenie w danym sklepie tylko zapamiętuje katalog (zgłasza
+    jedynie wydania z datą z ostatnich NOWE_DNI dni). Później: wszystko,
+    czego nie widziano — poza wydaniami ze starą datą, które wyszukiwarka
+    sklepu po prostu podsunęła dopiero teraz.
+    """
+    zrodlo = zrodlo or next((f.get("source") for f in found if f.get("source")), "")
     state = _load_state()
     rec = state.setdefault(artist, {"last_check": None, "seen": []})
     seen = set(rec.get("seen") or [])
-    new = [f for f in found if f["id"] not in seen]
+    znane = set(rec.get("zrodla") or [])
+    if "zrodla" not in rec and seen:       # pamięć sprzed tej zmiany
+        if any(str(x).startswith("beatport:") for x in seen):
+            znane.add("beatport")
+        if any("bandcamp.com" in str(x) for x in seen):
+            znane.add("bandcamp")
+    granica = (date.today() - timedelta(days=NOWE_DNI)).isoformat()
+    niewidziane = [f for f in found if f["id"] not in seen]
+    if zrodlo not in znane:
+        new = [f for f in niewidziane if _swieze(f, granica)]
+    else:
+        new = [f for f in niewidziane if not f.get("date") or _swieze(f, granica)]
     rec["seen"] = sorted(seen | {f["id"] for f in found})
+    if found and zrodlo:
+        znane.add(zrodlo)                  # pusta odpowiedź (awaria, brak strony) nie zasiewa
+    rec["zrodla"] = sorted(znane)
     rec["last_check"] = datetime.now().isoformat(timespec="seconds")
     _save_state(state)
     return new
@@ -265,21 +308,52 @@ _BC_TITLE_RE = re.compile(r'<p class="title">\s*(.*?)\s*</p>', re.S)
 _BC_CLIENT_ITEMS_RE = re.compile(r'data-client-items="([^"]*)"')
 
 
+def _norm_nazwa(s: str) -> str:
+    """Nazwa artysty do porównań: bez wielkości liter, akcentów i interpunkcji.
+
+    Granice słów zostają: „Boney M.” → „boney m”, a „boneyM” → „boneym”,
+    więc podróbka z doklejonymi literami nie przechodzi.
+    """
+    s = unicodedata.normalize("NFKD", str(s or ""))
+    s = "".join(c for c in s if not unicodedata.combining(c)).casefold()
+    s = s.replace("&", " and ")
+    s = re.sub(r"[\W_]+", " ", s)
+    return " ".join(s.split())
+
+
+def _jedyna_zgodna(artist: str, kandydaci: list[tuple[str, str]]) -> str | None:
+    """Adres strony, gdy DOKŁADNIE jedna pozycja ma dokładnie tę nazwę.
+
+    Dwie strony o tej samej nazwie (np. „Asia” z Włoch i „ASIA” z Francji,
+    dwie różne „ABBA”) to niejednoznaczność — nie zgadujemy.
+    """
+    cel = _norm_nazwa(artist)
+    zgodne = {url.rstrip("/") for name, url in kandydaci
+              if url and _norm_nazwa(name) == cel}
+    if len(zgodne) == 1:
+        return zgodne.pop()
+    if len(zgodne) > 1:
+        log.info("radar: kilka stron Bandcamp o nazwie '%s' — pomijam", artist)
+    return None
+
+
 def _bandcamp_artist_page(artist: str) -> str | None:
     """Resolve an artist name to their bandcamp.com subdomain URL.
 
     Plan A parses the HTML search page; when that page is bot-walled or
     redesigned, plan B asks the site's own public autocomplete API.
+    Bez dokładnej, jednoznacznej zgodności nazwy — brak strony (None).
     """
+    if not _norm_nazwa(artist):
+        return None
     page = _get(f"https://bandcamp.com/search?q={quote_plus(artist)}&item_type=b")
     if page:
         urls = _BC_RESULT_RE.findall(page)
         names = [_strip_tags(h) for h in _BC_HEADING_RE.findall(page)]
-        for url, name in zip(urls, names):
-            if _norm(name) == _norm(artist):
-                return url
-        if urls:
-            return urls[0]  # best guess: first band result
+        pary = list(zip(names, urls))
+        trafienie = _jedyna_zgodna(artist, pary)
+        if trafienie or any(_norm_nazwa(n) == _norm_nazwa(artist) for n, _ in pary):
+            return trafienie                  # jedna zgodna albo niejednoznaczność
 
     data = _post_json(
         "https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic",
@@ -287,22 +361,24 @@ def _bandcamp_artist_page(artist: str) -> str | None:
          "full_page": False, "fan_id": None},
     )
     results = ((data or {}).get("auto") or {}).get("results") or []
-    first = None
-    for it in results:
-        if it.get("type") == "b" and it.get("item_url_root"):
-            if _norm(it.get("name", "")) == _norm(artist):
-                return it["item_url_root"]
-            first = first or it["item_url_root"]
-    return first
+    return _jedyna_zgodna(artist, [(it.get("name", ""), it.get("item_url_root", ""))
+                                   for it in results if it.get("type") == "b"])
 
 
 def check_bandcamp(artist: str) -> list[dict]:
-    """Return the artist's Bandcamp releases not seen before.
+    """Return the artist's Bandcamp releases not seen before (pamięć radaru)."""
+    return _register(artist, fetch_bandcamp(artist), "bandcamp")
+
+
+def fetch_bandcamp(artist: str) -> list[dict]:
+    """WSZYSTKIE wydania artysty z Bandcampu — bez pamięci radaru.
 
     Scans the /music page for /album/ and /track/ release links (many
     electronic artists publish singles as /track/), including overflow
     items hidden in the data-client-items JSON attribute. Each item:
     {id, title, url, source}. Empty list on any failure.
+    Doktor używa tej funkcji, bo sprawdza działanie integracji, a nie
+    „czy jest coś nowego” — z pamięcią każde kolejne sprawdzenie dawało 0.
     """
     base = _bandcamp_artist_page(artist)
     if not base:
@@ -348,7 +424,7 @@ def check_bandcamp(artist: str) -> list[dict]:
     for path in _BC_RELEASE_HREF_RE.findall(page):
         add(path, None)
 
-    return _register(artist, found)
+    return found
 
 
 # ---------------------------------------------------------------- beatport
@@ -391,7 +467,12 @@ def _slug(name: str) -> str:
 
 
 def check_beatport(artist: str) -> list[dict]:
-    """Return unseen Beatport releases for `artist` from the search page.
+    """Return unseen Beatport releases for `artist` (pamięć radaru)."""
+    return _register(artist, fetch_beatport(artist), "beatport")
+
+
+def fetch_beatport(artist: str) -> list[dict]:
+    """WSZYSTKIE wydania artysty z wyszukiwarki Beatportu — bez pamięci radaru.
 
     Reads the embedded __NEXT_DATA__ JSON and walks it for release-shaped
     records, so minor reshuffles of the query tree still work. When the
@@ -441,7 +522,7 @@ def check_beatport(artist: str) -> list[dict]:
         log.warning(
             "radar: struktura wyników Beatportu nieczytelna dla '%s'", artist
         )
-    return _register(artist, found)
+    return found
 
 
 # ---------------------------------------------------------------- all
@@ -454,14 +535,20 @@ def check_all(folder: str, notify_new: bool = True) -> dict[str, list[dict]]:
     """
     news: dict[str, list[dict]] = {}
     artists = sorted(artists_from_library(folder))
+    kiedy = time.strftime("%Y-%m-%dT%H:%M:%S")
     print(f"radar: {len(artists)} artystów w bibliotece")
+    wszystkie: list[dict] = []
     for artist in artists:
         print(f"· sprawdzam {artist}")
-        fresh = check_bandcamp(artist) + check_beatport(artist)
+        fresh = _sprawdz_artyste(artist, kiedy)
         if fresh:
             news[artist] = fresh
+            wszystkie += fresh
             for item in fresh:
                 print(f"    ★ {item['title']}  {item['url']}")
+    # te same znaleziska ma zobaczyć ekran Radar — wcześniej terminal
+    # oznaczał je jako widziane, a dashboard nigdy ich nie pokazywał
+    _zapamietaj(wszystkie, kiedy, len(artists), 0, len(artists))
     total = sum(len(v) for v in news.values())
     if news and notify_new:
         first = next(iter(news))

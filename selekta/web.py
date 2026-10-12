@@ -31,7 +31,7 @@ from . import (
     uchem,
     cache, config, covers, cues, decyzje, dedupe, dj_export, harmonic, health,
     instalator, obserwator,
-    importers, loudness, matcher, pipeline, quality, siatka, radar, rekordbox,
+    importers, loudness, matcher, pipeline, poszukiwacz, quality, siatka, radar, rekordbox,
     dlqueue, folderpick, localplaylist, playlists, slskd_client, slskd_ctl,
     spotify,
     stores, tagfix,
@@ -432,6 +432,7 @@ def api_redownload(payload: dict) -> JSONResponse:
     name = os.path.splitext(_field(payload, "file"))[0]
     artist, _, title = name.partition(" - ")
     wishlist.add(artist.strip(), (title or name).strip())
+    poszukiwacz.POSZUKIWACZ.obudz()        # lista życzeń jest naprawdę szukana w tle
     return JSONResponse({"queued": name})
 
 
@@ -510,7 +511,13 @@ def api_queue_cancel() -> JSONResponse:
 def api_status() -> JSONResponse:
     """Lekki stan połączenia — pod kropkę w rogu, odpytywany co kilka sekund."""
     client = SlskdClient()
-    if not client.available():
+    stan = client.stan_api()
+    if stan == "klucz":
+        return JSONResponse({"level": "red", "label": "slskd: zły klucz API",
+                             "hint": "slskd działa, ale nie przyjmuje klucza selekty. "
+                                     "Ustawienia → Soulseek → „Wykryj automatycznie”.",
+                             "wersja": _wersja_pakietu()})
+    if stan != "ok":
         return JSONResponse({"level": "red", "label": "slskd nie działa",
                              "hint": "Uruchom slskd w zakładce Ustawienia.",
                              "wersja": _wersja_pakietu()})
@@ -835,7 +842,21 @@ def api_upgrade_find(payload: dict) -> JSONResponse:
         raise HTTPException(400, "podaj artystę albo tytuł")
     duration = (payload or {}).get("duration")
     mam_lossless = bool((payload or {}).get("lossless"))
-    mam_bitrate = int((payload or {}).get("bitrate") or 0)
+    try:
+        mam_bitrate = int(float((payload or {}).get("bitrate") or 0))
+    except (TypeError, ValueError):
+        mam_bitrate = 0
+    plik = _field(payload, "file")
+    if plik and not mam_bitrate:
+        # Ekran szczegółów wysyłał bitrate:0 — dla zdrowego MP3 320 apka
+        # proponowała jako „lepsze” inne MP3 320. Bierzemy go z samego pliku.
+        sciezka = _safe(plik)
+        try:
+            a = MutagenFile(sciezka)
+            mam_bitrate = int(getattr(getattr(a, "info", None), "bitrate", 0) or 0) // 1000
+        except Exception:                      # noqa: BLE001 — uszkodzony plik = nie wiemy
+            mam_bitrate = 0
+        mam_lossless = mam_lossless or os.path.splitext(sciezka)[1].lower() in LOSSLESS_EXT
     # Nagłówek MP3 potrafi kłamać: plik przekodowany ze 128 kbps do 320
     # deklaruje 320, choć pasmo urywa się na 16 kHz. Gdy analiza uznała
     # jakość za złą, nie ufamy tej liczbie — inaczej odrzucalibyśmy
@@ -1070,12 +1091,18 @@ def api_setup_stan() -> JSONResponse:
     utworow = len(matcher.audio_files(folder)) if ma_folder else 0
 
     binarka = slskd_ctl.find_binary()
-    dziala = slskd_ctl.is_running()
     klucz = bool(config.get("slskd_api_key"))
     yml = slskd_ctl.find_config()
     konto = instalator.konto_ustawione(yml) if yml else False
     client = SlskdClient()
-    polaczony = client.logged_in() if (dziala and klucz) else False
+    # O stanie decyduje to, co odpowiada API, a nie tylko znane ścieżki
+    # i pgrep: slskd w Dockerze, z innego HOME albo z kontem wpisanym
+    # w jego panelu też działa — kreator nie może wtedy proponować
+    # pobrania 55 MB ani pisać „połączony” przy niezrobionym kroku.
+    api = client.stan_api()
+    dziala = api != "brak" or slskd_ctl.is_running()
+    zly_klucz = api == "klucz"
+    polaczony = client.logged_in() if api == "ok" else False
 
     kroki = [
         {"id": "folder", "tytul": "Folder z muzyką",
@@ -1084,28 +1111,31 @@ def api_setup_stan() -> JSONResponse:
                   else "wskaż katalog, w którym trzymasz muzykę"),
          "akcja": "wybierz-folder"},
         {"id": "slskd", "tytul": "Program do pobierania (slskd)",
-         "gotowe": bool(binarka),
-         "opis": (f"zainstalowany" if binarka
+         "gotowe": bool(binarka) or dziala,
+         "opis": ("zainstalowany" if binarka
+                  else "działa (zainstalowany poza folderami, które znam)" if dziala
                   else "pobiorę go automatycznie, ok. 55 MB"),
-         "akcja": None if binarka else "instaluj-slskd"},
+         "akcja": None if (binarka or dziala) else "instaluj-slskd"},
         {"id": "konfiguracja", "tytul": "Konfiguracja i klucz dostępu",
-         "gotowe": klucz,
-         "opis": ("gotowa" if klucz
+         "gotowe": klucz and not zly_klucz,
+         "opis": ("slskd działa, ale odrzuca zapisany klucz — ustawię go ponownie"
+                  if klucz and zly_klucz else "gotowa" if klucz
                   else "wygeneruję klucz i ustawię katalogi pobierania"),
-         "akcja": None if klucz else "konfiguruj"},
+         "akcja": None if (klucz and not zly_klucz) else "konfiguruj"},
         {"id": "konto", "tytul": "Konto Soulseek",
-         "gotowe": konto and polaczony,
+         # zalogowany slskd = konto działa, niezależnie od tego, gdzie je wpisano
+         "gotowe": polaczony,
          "opis": ("połączony z siecią Soulseek" if polaczony
                   else "zapisane, ale bez połączenia — sprawdź dane"
                   if konto else
                   "podaj swój login i hasło; nie ma rejestracji — konto "
                   "powstaje przy pierwszym logowaniu"),
-         "akcja": None if (konto and polaczony) else "podaj-konto"},
+         "akcja": None if polaczony else "podaj-konto"},
         {"id": "uruchomiony", "tytul": "Wszystko działa",
-         "gotowe": dziala and polaczony,
-         "opis": ("slskd działa i jest połączony" if (dziala and polaczony)
+         "gotowe": polaczony,
+         "opis": ("slskd działa i jest połączony" if polaczony
                   else "uruchomię i sprawdzę połączenie"),
-         "akcja": None if (dziala and polaczony) else "uruchom-slskd"},
+         "akcja": None if polaczony else "uruchom-slskd"},
     ]
     zostalo = [k for k in kroki if not k["gotowe"]]
     return JSONResponse(_clean({
@@ -1113,7 +1143,20 @@ def api_setup_stan() -> JSONResponse:
         "krokow": len(kroki), "zrobionych": len(kroki) - len(zostalo),
         "nastepny": zostalo[0]["id"] if zostalo else None,
         "kroki": kroki,
+        "pominiety": bool(config.load().get("kreator_pominiety")),
     }))
+
+
+@app.post("/api/setup/pomin")
+def api_setup_pomin(payload: dict | None = None) -> JSONResponse:
+    """Zapamiętaj „Pomiń konfigurację” — kreator nie wraca przy każdym starcie.
+
+    Pamiętamy w config.json, nie w przeglądarce: apka wybiera wolny port,
+    więc pamięć karty (localStorage) potrafi zniknąć między uruchomieniami.
+    """
+    pominiety = bool((payload or {}).get("pominiety", True))
+    config.save({"kreator_pominiety": pominiety})
+    return JSONResponse({"ok": True, "pominiety": pominiety})
 
 
 @app.post("/api/setup/instaluj")
@@ -1137,7 +1180,18 @@ def api_setup_konfiguruj(payload: dict | None = None) -> JSONResponse:
     nic wspólnego z hasłem do Soulseeka i nigdzie nie wychodzi.
     """
     yml = slskd_ctl.config_write_path()
-    klucz = config.get("slskd_api_key") or instalator.wygeneruj_klucz()
+    zapisany = config.get("slskd_api_key") or ""
+    odrzucony = bool(zapisany) and SlskdClient().stan_api() == "klucz"
+    if odrzucony:
+        # slskd działa i odrzuca nasz klucz — zwykle ma w konfiguracji inny,
+        # działający (np. po ręcznej zmianie). Weź go, zamiast dopisywać
+        # klucz, którego działający slskd i tak nie zna do restartu.
+        wykryty = slskd_ctl.api_key_from_slskd_config()
+        if wykryty and wykryty != zapisany and SlskdClient(api_key=wykryty).stan_api() == "ok":
+            config.save({"slskd_api_key": wykryty})
+            return JSONResponse({"ok": True, "plik": yml, "udostepnianie": False,
+                                 "message": "znalazłem działający klucz w konfiguracji slskd"})
+    klucz = zapisany or instalator.wygeneruj_klucz()
     udostepniane = None
     if (payload or {}).get("udostepniaj"):
         udostepniane = [_folder()]
@@ -1146,12 +1200,16 @@ def api_setup_konfiguruj(payload: dict | None = None) -> JSONResponse:
             yml, klucz_api=klucz, katalog_pobran=_folder(),
             katalog_niepelnych=os.path.join(os.path.dirname(yml), "incomplete"),
             udostepniane=udostepniane)
+    except ValueError as exc:             # nietypowy zapis w slskd.yml — plik nietknięty
+        raise HTTPException(409, str(exc))
     except OSError as exc:
         raise HTTPException(500, f"nie udało się zapisać konfiguracji: {exc}")
     config.save({"slskd_api_key": klucz})
     return JSONResponse({"ok": True, "plik": yml,
                          "udostepnianie": bool(udostepniane),
-                         "message": "konfiguracja zapisana"})
+                         "message": ("konfiguracja zapisana — działający slskd przyjmie klucz "
+                                     "po ponownym uruchomieniu" if odrzucony
+                                     else "konfiguracja zapisana")})
 
 
 @app.post("/api/setup/konto")
@@ -1176,12 +1234,21 @@ def api_setup_konto(payload: dict) -> JSONResponse:
             yml, klucz_api=klucz, katalog_pobran=_folder(),
             katalog_niepelnych=os.path.join(os.path.dirname(yml), "incomplete"),
             login=login, haslo=haslo)
+    except instalator.NietypowyZapis as exc:   # plik nietknięty, slskd nie restartujemy
+        raise HTTPException(409, str(exc))
+    except ValueError:
+        raise HTTPException(400, "login lub hasło zawiera niedozwolony znak")
     except OSError as exc:
         raise HTTPException(500, f"nie udało się zapisać konfiguracji: {exc}")
     config.save({"slskd_api_key": klucz})
 
     # slskd czyta konfigurację przy starcie — bez restartu nic się nie zmieni
-    slskd_ctl.stop()
+    zatrzymany, komunikat_stop = slskd_ctl.stop()
+    if not zatrzymany:
+        # działa slskd spoza instalacji znanej selekcie — nie zatrzymujemy cudzego
+        return JSONResponse({"ok": True, "login": login, "restart": False,
+                             "message": f"zapisano; {komunikat_stop} — dane zadziałają "
+                                        "po jego ponownym uruchomieniu"})
     time.sleep(1.5)
     uruchomione, komunikat = slskd_ctl.start()
     if not uruchomione:
@@ -1194,7 +1261,12 @@ def api_setup_konto(payload: dict) -> JSONResponse:
 def api_setup_polaczenie() -> JSONResponse:
     """Czy slskd zalogował się do sieci Soulseek."""
     client = SlskdClient()
-    if not client.available():
+    stan = client.stan_api()
+    if stan == "klucz":
+        return JSONResponse({"stan": "zly-klucz",
+                             "opis": "slskd działa, ale odrzuca klucz API selekty — "
+                                     "Ustawienia → Soulseek → „Wykryj automatycznie”"})
+    if stan != "ok":
         return JSONResponse({"stan": "brak-slskd",
                              "opis": "slskd nie odpowiada"})
     if client.logged_in():
@@ -2191,7 +2263,17 @@ def api_radar_sprawdz(payload: dict | None = None) -> JSONResponse:
 
 @app.get("/api/cache")
 def api_cache() -> JSONResponse:
-    return JSONResponse(cache.stats())
+    """Statystyki pamięci analiz + ile utworów BIEŻĄCEJ biblioteki ma wynik.
+
+    Surowe liczniki obejmują też wpisy usuniętych plików i stare wersje —
+    Ustawienia pokazywały „450 utworów z BPM” przy 277-utworowej bibliotece.
+    """
+    d = cache.stats()
+    sciezki = _paths()
+    d["w_bibliotece"] = {k: sum(1 for p in sciezki if cache.get(p, k) is not None)
+                         for k in ("harmonic", "quality", "cues")}
+    d["utworow"] = len(sciezki)
+    return JSONResponse(d)
 
 
 @app.post("/api/cache/wyczysc")
@@ -2206,7 +2288,8 @@ def api_cache_wyczysc(payload: dict | None = None) -> JSONResponse:
 
 @app.get("/api/wishlist")
 def api_wishlist() -> JSONResponse:
-    return JSONResponse({"items": wishlist.items()})
+    return JSONResponse({"items": wishlist.items(),
+                         "poszukiwacz": poszukiwacz.POSZUKIWACZ.stan()})
 
 
 @app.post("/api/wishlist")
@@ -2214,7 +2297,34 @@ def api_wishlist_add(payload: dict) -> JSONResponse:
     a = _field(payload, "artist"); t = _field(payload, "title")
     if a or t:
         wishlist.add(a.strip(), t.strip())
-    return JSONResponse({"items": wishlist.items()})
+        poszukiwacz.POSZUKIWACZ.obudz()
+    return JSONResponse({"items": wishlist.items(),
+                         "poszukiwacz": poszukiwacz.POSZUKIWACZ.stan()})
+
+
+@app.post("/api/wishlist/szukaj")
+def api_wishlist_szukaj() -> JSONResponse:
+    """„Szukaj teraz” — następny cykl od razu (tempo Soulseeka nadal pilnowane)."""
+    poszukiwacz.POSZUKIWACZ.obudz()
+    return JSONResponse({"poszukiwacz": poszukiwacz.POSZUKIWACZ.stan()})
+
+
+@app.post("/api/wishlist/pobierz")
+def api_wishlist_pobierz(payload: dict) -> JSONResponse:
+    """Użytkownik potwierdził znaleziony plik („do potwierdzenia”) — pobierz go."""
+    ident = _field(payload, "id")
+    if not ident:
+        raise HTTPException(400, "brak wskazania pozycji")
+    client = SlskdClient()
+    if not client.available():
+        raise HTTPException(503, "slskd niepodłączony — sprawdź Ustawienia")
+    try:
+        wpis = poszukiwacz.pobierz_kandydata(ident, client)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"nie udało się zlecić pobierania: {exc}")
+    return JSONResponse({"ok": True, "item": wpis, "items": wishlist.items()})
 
 
 @app.get("/api/slskd")
@@ -2242,9 +2352,12 @@ def api_transfers_cancel(payload: dict) -> JSONResponse:
     if not (user and fid):
         raise HTTPException(400, "brak wskazania pobrania")
     try:
-        client.cancel_download(user, fid)
+        ok = client.cancel_download(user, fid)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, f"nie udało się anulować: {exc}")
+    if not ok:
+        # wcześniej zawsze {"ok": true} — UI pokazywało anulowanie, którego nie było
+        raise HTTPException(502, "slskd nie potwierdził anulowania — sprawdź, czy działa")
     return JSONResponse({"ok": True})
 
 
@@ -2310,10 +2423,16 @@ def serve(folder: str, host: str = "127.0.0.1", port: int = 8756) -> None:
     set_folder(folder)
     # Kolejka pobierania przeżywa zamknięcie apki: wklejasz playlistę,
     # zamykasz laptopa, po ponownym uruchomieniu ściąganie idzie dalej.
-    wznowione = dlqueue.QUEUE.wczytaj()
+    try:
+        wznowione = dlqueue.QUEUE.wczytaj()
+    except Exception as exc:  # noqa: BLE001 — zepsuta kolejka nie może zablokować startu
+        print(f"  uwaga: nie udało się wczytać kolejki pobierania ({exc}) — startuję z pustą")
+        wznowione = 0
     # nowe pliki mają analizować się same — po pobraniu w tle nie ma sensu
     # wymagać, żeby użytkownik wracał i klikał „Analizuj wszystko"
     obserwator.OBSERWATOR.start(folder)
+    # lista życzeń szukana w tle (wcześniej tylko w terminalu: wishlist --daemon)
+    poszukiwacz.POSZUKIWACZ.start()
     print(f"selekta — dashboard: http://{host}:{port}  (folder: {_folder()})")
     if wznowione:
         print(f"  wznawiam pobieranie: {wznowione} utworów czeka w kolejce")

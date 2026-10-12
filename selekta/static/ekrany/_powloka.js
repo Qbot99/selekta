@@ -230,7 +230,9 @@ window.S = (() => {
 
     const hash = location.hash.slice(1);
     let gotowe = true;
-    try{ const d = await api('/api/setup/stan', {cicho:true}); gotowe = !!d.gotowe; stan.setup = d; }catch(e){}
+    // „Pomiń konfigurację” jest pamiętane po stronie serwera (config.json) —
+    // bez tego kreator wracał przy każdym starcie, np. przy chwilowym rozłączeniu
+    try{ const d = await api('/api/setup/stan', {cicho:true}); gotowe = !!d.gotowe || !!d.pominiety; stan.setup = d; }catch(e){}
     if(!gotowe && EKRANY.zanim){ pokaz('zanim'); return; }
     // pierwsze uruchomienie z gotową konfiguracją: raz pokaż wprowadzenie
     const widzial = pref.get('onboardingWidziany', false) || (()=>{ try{ return !!localStorage.getItem('selekta_tutorial'); }catch(e){ return false; } })();
