@@ -613,6 +613,29 @@ def _stale_tempo(okna: list[tuple[int, float]]) -> bool:
     return True
 
 
+ODSTAJE_OKNO_S = 0.015      # okno „obok stóp”
+ODSTAJE_SERIA = 6           # tyle okien z rzędu (≈ 12 taktów) obok = sekcja nie trzyma siatki
+
+
+def _sekcja_obok(okna: list[tuple[int, float]], a: float, okres: float) -> float | None:
+    """Czas [s] początku najdłuższej serii ≥ 6 okien leżących > 15 ms obok siatki (ten sam znak).
+
+    Sklejony edit (Juaan — Carasho: pierwsze 2 minuty 38–51 ms obok reszty)
+    albo zmiana tempa, której model nie złapał. Pojedyncza sekcja z filtrowaną
+    stopą (Laherte — Speeding: 4 okna po 20 ms) jest krótsza i nie alarmuje.
+    """
+    najl, start, dl, znak = None, None, 0, 0
+    for s, v in okna:
+        z = int(np.sign(v)) if abs(v) > ODSTAJE_OKNO_S else 0
+        if z and z == znak:
+            dl += 1
+        else:
+            znak, dl, start = z, (1 if z else 0), (s if z else None)
+        if dl >= ODSTAJE_SERIA and (najl is None or dl > najl[1]):
+            najl = (start, dl)
+    return None if najl is None else float(a + najl[0] * okres)
+
+
 def _zapis_bpm(bpm_dokl: float) -> float:
     """BPM do XML-a: całkowite/połówkowe, gdy pomiar leży tuż obok, inaczej 0,01."""
     for kand in (round(bpm_dokl), round(bpm_dokl * 2) / 2.0):
@@ -649,7 +672,8 @@ def _model_v3(t: np.ndarray, w: np.ndarray, bpm: float, dl_s: float) -> dict | N
     if _stale_tempo(okna):
         zn = _znaczniki_odcinka(cala["a"], cala["okres"], cala["n_min"], cala["n_max"])
         return {**wynik, "tryb": "stała", "znaczniki": zn, "udzial_na_linii": round(cala["udzial"], 2),
-                "odchylka_ms": round(1000 * float(np.median([abs(v) for _, v in okna])), 1) if okna else None}
+                "odchylka_ms": round(1000 * float(np.median([abs(v) for _, v in okna])), 1) if okna else None,
+                "zle_okno_s": _sekcja_obok(okna, cala["a"], cala["okres"])}
 
     # 2. odcinki stałego tempa: dziel rekurencyjnie tam, gdzie siatka przestaje trzymać
     def podziel(t_od: float, t_do: float, glebokosc: int) -> list[dict] | None:
@@ -958,9 +982,10 @@ def oszacuj(x: np.ndarray, sr: int, bpm_hint: float | None = None,
             flaga = flaga or ("stopa złożona (klik i korpus osobno) — siatka ustawiona na klik, "
                               "sprawdź uchem, czy trafia")
     del e_hi
-    if model["tryb"] == "dynamiczna" and model.get("zle_okno_s") is not None:
-        m, s_ = divmod(int(model["zle_okno_s"]), 60)
-        flaga = flaga or f"siatka nie trzyma się stóp ok. {m}:{s_:02d} — sprawdź uchem"
+    if model.get("zle_okno_s") is not None:
+        m, s_ = divmod(int(max(0.0, model["zle_okno_s"])), 60)
+        flaga = flaga or (f"siatka nie trzyma się stóp ok. {m}:{s_:02d} — sprawdź uchem"
+                          + ("" if model["tryb"] == "dynamiczna" else " (sklejony edit albo zmiana tempa?)"))
 
     # Kotwicą jest PIERWSZY słyszalny bit na tej siatce po początku muzyki —
     # także w filtrowanym intrze, gdzie stopa nie ma jeszcze basu (Odymel —
