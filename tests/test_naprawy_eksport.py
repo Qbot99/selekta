@@ -18,10 +18,12 @@ from fastapi.testclient import TestClient
 from selekta import cache, dj_export, rbimport, rekordbox, web
 
 
-def _plik(path, tresc: bytes = b"\x00" * 64) -> str:
+def _plik(path, tresc: bytes | None = None) -> str:
+    # pamięć podręczna rozpoznaje pliki po TREŚCI — atrapy muszą się różnić,
+    # inaczej trzy „różne” utwory dzieliłyby jedną analizę
     os.makedirs(os.path.dirname(str(path)), exist_ok=True)
     with open(path, "wb") as fh:
-        fh.write(tresc)
+        fh.write(tresc if tresc is not None else os.fsencode(str(path)).ljust(64, b"\x00"))
     return str(path)
 
 
@@ -427,7 +429,7 @@ def _mp3(path) -> str:
     from tests import probka
     os.makedirs(os.path.dirname(str(path)), exist_ok=True)
     wav = str(path) + ".wav"
-    probka.ton(wav, 330.0, sekund=1.0)
+    probka.ton(wav, 330.0 + sum(os.fsencode(str(path))) % 60, sekund=1.0)   # różna treść
     probka.do_mp3(wav, str(path))
     os.remove(wav)
     return str(path)
