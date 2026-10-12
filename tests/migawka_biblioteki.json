@@ -1,7 +1,7 @@
 {
  "101 Wavey.flac": {
   "bpm": 145.0,
-  "camelot": "6B",
+  "camelot": "3A",
   "cutoff_hz": 24100.0,
   "first_beat_s": 1.978,
   "grade": "ok",
@@ -10,7 +10,7 @@
  },
  "15. Aquagen - Hard To Say I'm Sorry.flac": {
   "bpm": 140.0,
-  "camelot": "12B",
+  "camelot": "12A",
   "cutoff_hz": 22000.0,
   "first_beat_s": 2.798,
   "grade": "ok",
@@ -64,7 +64,7 @@
  },
  "DJ HEARTSTRING - Will You Remember Me When I'm Gone.flac": {
   "bpm": 150.0,
-  "camelot": "2B",
+  "camelot": "1A",
   "cutoff_hz": 22000.0,
   "first_beat_s": 13.278,
   "grade": "ok",
@@ -82,7 +82,7 @@
  },
  "Dimitri Vegas & Like Mike, Marlon Hoffstadt, DJ Konik - Makina Time (Extended Mix).flac": {
   "bpm": 165.0,
-  "camelot": "5A",
+  "camelot": "4A",
   "cutoff_hz": 22000.0,
   "first_beat_s": 0.002,
   "grade": "ok",
@@ -91,7 +91,7 @@
  },
  "Dimitri Vegas, Sylver, Pat B - Turn The Tide (ft. Sylver).flac": {
   "bpm": 155.0,
-  "camelot": "3A",
+  "camelot": "2B",
   "cutoff_hz": 22000.0,
   "first_beat_s": 0.77,
   "grade": "ok",

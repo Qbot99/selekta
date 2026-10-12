@@ -111,7 +111,9 @@ def _save_store(kind: str, store: dict) -> None:
 # tempo (liczone z BPM), quality (dyskryminator transkodu, bitrate),
 # energia (naprawiona jasność, gęstość z bramką okresowości).
 # cues 3: siatka na stopie (siatka.py) + Battito — stare kotwice były o pół bitu obok
-WERSJE = {"cues": 3, "harmonic": 2, "tempo": 2, "quality": 2, "energia": 2}
+# harmonic 3 (11.10.2026): tonacja v3 — cały utwór, strojenie, transkrypcja nut,
+# reguła tercji; stare wyniki dawały dur dla mollowych utworów klubowych.
+WERSJE = {"cues": 3, "harmonic": 3, "tempo": 2, "quality": 2, "energia": 2}
 
 
 def wersja(kind: str) -> int:

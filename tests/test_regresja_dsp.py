@@ -253,33 +253,34 @@ class TestTonacja:
     def test_korelacja_z_profilem_jest_pilnowana(self, tmp_path):
         """Sam werdykt to za mało — pilnujemy LICZBY, która za nim stoi.
 
-        Odkryte przy budowie tego wzorca: stała FIFTH_DISCOUNT (odejmowanie
-        przecieku trzeciej harmonicznej) przesuwa korelację, ale NIE zmienia
-        zwycięskiej tonacji. Test patrzący tylko na .camelot przepuszcza taką
-        zmianę bez szmeru, choć realnie przestraja detektor.
+        Odkryte przy budowie tego wzorca: stałe toru chromy przesuwają
+        korelację, ale NIE zmieniają zwycięskiej tonacji. Test patrzący
+        tylko na .camelot przepuszcza taką zmianę bez szmeru, choć realnie
+        przestraja detektor.
 
-        Zmierzone dla C-dur, składowa G w chromagramie i korelacja:
-            0.0 → G=12.41, r=0.8888
-            0.3 → G= 7.02, r=0.8468   (wartość obecna)
-            1.0 → G= 0.00, r=0.7219
-        Pasmo ±0,02 rozdziela te przypadki z zapasem.
+        Tonacja v3 (październik 2026, transkrypcja nut + wybielanie) —
+        zmierzone dla C-dur, korelacja zwycięzcy:
+            K_ALIKW_S 0.5 → 0.8337, 0.7 → 0.8466 (obecna), 0.9 → 0.8676
+            K_WYBIEL 12 → 0.8515, 18 → 0.8466 (obecna), 24 → 0.8410
+        Pasmo ±0,008 rozdziela te przypadki. (Poprzednia metoda: 0.8468
+        przy FIFTH_DISCOUNT 0.3 — zbieżność przypadkowa.)
 
         UWAGA przy ręcznym sprawdzaniu: podmiana stałej na wartość o tej
-        samej długości (0.3 → 1.0) nie zmienia rozmiaru pliku, więc Python
-        potrafi wczytać zbuforowany bajtkod i pokazać STARY wynik. Trzeba
+        samej długości nie zmienia rozmiaru pliku, więc Python potrafi
+        wczytać zbuforowany bajtkod i pokazać STARY wynik. Trzeba
         uruchamiać z -B albo kasować __pycache__ — inaczej wyjdzie fałszywy
         wniosek, że stała nic nie robi.
         """
         plik = probka.akord_tonalny(str(tmp_path / "k.wav"), "C", "dur",
                                     sekund=12.0)
-        x = harmonic._decode(plik, harmonic.SR, 0, 12.0)
-        chroma = harmonic._chroma_from_signal(x)
+        x = harmonic._decode(plik, harmonic.K_SR, 0, 12.0)
+        chroma = harmonic._chroma_from_signal(x, harmonic.K_SR)
         tonika, tryb, r_najlepsze, _r_drugie = harmonic._best_key(chroma)
 
         assert harmonic.NOTE_NAMES[tonika] == "C" and tryb == "major"
-        assert abs(r_najlepsze - 0.8468) < 0.02, (
-            f"korelacja {r_najlepsze:.4f} zamiast ~0.8468 — coś przestroiło "
-            f"tor chromagramu (FIFTH_DISCOUNT? pasmo? strojenie?), "
+        assert abs(r_najlepsze - 0.8466) < 0.008, (
+            f"korelacja {r_najlepsze:.4f} zamiast ~0.8466 — coś przestroiło "
+            f"tor chromy (K_ALIKW_S? K_WYBIEL? pasma? strojenie?), "
             f"mimo że wykryta tonacja się nie zmieniła")
 
     def test_tonacja_jest_powtarzalna(self, tmp_path):
