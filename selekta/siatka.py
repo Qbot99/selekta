@@ -19,8 +19,8 @@ się po tym, że po transjencie ROŚNIE energia pasma 40–160 Hz. Dlatego:
 3. z tak ważonego pociągu impulsów liczymy BPM (prążek widma z zoomem,
    rozdzielczość ~0,003 BPM na 5 minutach) i fazę (średnia kołowa),
 4. kotwica = pierwszy MOCNY kick leżący na siatce — nigdy w ciszy intra,
-5. jedynkę taktu wskazują crashe, skoki energii na granicach sekcji
-   i powrót stopy po fillu; rekordbox dostaje ją jako Battito.
+5. jedynkę taktu wskazują skoki energii na granicach sekcji (w górę
+   i w dół) i powrót stopy po fillu; rekordbox dostaje ją jako Battito.
 
 Wszystko na numpy + sygnale, który cues.py i tak już zdekodował.
 
@@ -258,9 +258,9 @@ def _jedynka(x: np.ndarray, sr: int, kotwica: float, okres: float,
              e_low: np.ndarray, fps: float, e_szer: np.ndarray | None = None) -> tuple[int, float]:
     """Który z czterech bitów jest jedynką taktu.
 
-    Dowody, każdy jako głos na klasę bitu mod 4: crash (skok góry pasma
-    wyróżniający się nad ±8 bitami), stopień energii — bas, RMS i góra —
-    czyli pierwszy bit nowej sekcji. Głos dostaje premię, gdy leży też na
+    Dowody, każdy jako głos na klasę bitu mod 4: stopień energii — bas, RMS
+    i góra — czyli pierwszy bit nowej sekcji, oraz spadek basu/RMS na
+    początku przejścia. Głos dostaje premię, gdy leży też na
     granicy frazy (8/16/32 bity): sekcje w muzyce klubowej zaczynają się
     na jedynce frazy, a to najbardziej odporny dowód, jaki mamy bez ucha.
     Zwraca (b, pewnosc): jedynki leżą na liniach o indeksie ≡ b (mod 4).
@@ -281,17 +281,24 @@ def _jedynka(x: np.ndarray, sr: int, kotwica: float, okres: float,
     lb = np.log10(np.array([seg(e_low, i).max() for i in range(n_b)]) + 1e-6)
     lr = np.log10(np.array([np.sqrt(np.mean(seg(e_all, i) ** 2)) for i in range(n_b)]) + 1e-6)
     lh = np.log10(np.array([seg(e_hi, i).max() for i in range(n_b)]) + 1e-6)
+    # Dowody tylko ze STOPNI energii — sekcja zaczyna się (i kończy) na jedynce.
+    # Crash jako osobny dowód psuł wynik: szczyt góry pasma wypada często na
+    # „4”, na końcu narastającego risera przed nową frazą (zmierzone na 163
+    # siatkach rekordboxa: z crashem 128 zgodnych jedynek, bez 147, ze stopniami
+    # w górę i w dół 150).
     dowody: list[tuple[int, float]] = []
-    for n in range(8, n_b - 8):
-        med = np.median(np.concatenate([lh[n - 8:n], lh[n + 1:n + 9]]))
-        if lh[n] - med >= 0.2 and lh[n] >= lh[n - 3:n + 4].max():
-            dowody.append((n, min(lh[n] - med, 0.6) * 2.5))          # crash
     for v, prog in ((lb, 0.25), (lr, 0.2), (lh, 0.3)):
         for n in range(2, n_b - 2):
             skok = v[n] - v[n - 2:n].max()
             trzyma = v[n + 1:n + 3].min() - v[n - 2:n].max()
             if skok >= prog and trzyma >= 0.5 * prog:
-                dowody.append((n, min(skok, 0.8)))                     # stopień: nowa sekcja
+                dowody.append((n, min(skok, 0.8)))                     # stopień w górę: nowa sekcja
+    for v, prog in ((lb, 0.25), (lr, 0.2)):
+        for n in range(2, n_b - 2):
+            spad = v[n - 2:n].min() - v[n]
+            trzyma = v[n - 2:n].min() - v[n + 1:n + 3].max()
+            if spad >= prog and trzyma >= 0.5 * prog:
+                dowody.append((n, min(spad, 0.8)))                     # stopień w dół: przejście/breakdown
     if not dowody:
         return 0, 0.0
     glosy = np.zeros(4)
@@ -594,6 +601,23 @@ def _stale_tempo(okna: list[tuple[int, float]]) -> bool:
     if len(okna) < 4:
         return True
     n = np.array([s for s, _ in okna], float); v = np.array([x for _, x in okna])
+    # Poziomy: sekcje z inną stopą to PŁASKOWYŻE na kilku poziomach (0 i +22 ms —
+    # G&G — Paper Cuts, Dee Dee — Forever), a przejście między nimi wygląda
+    # jak rampa, bo okna zachodzą na siebie. Jeśli najczęstszy poziom (±3 ms)
+    # obejmuje ≥ 30 % okien i wraca w pierwszej i ostatniej tercji utworu,
+    # tempo jest stałe. Falujące tempo nie ma takiego poziomu (rozmywa się
+    # w ciągłość), a zła liczba BPM przesuwa poziom z czasem (trend niżej).
+    kosz = np.round(v / 0.003)
+    wart, ile = np.unique(kosz, return_counts=True)
+    sasiedzi = np.array([ile[np.abs(wart - k) <= 1].sum() for k in wart])
+    poziom = wart[int(np.argmax(sasiedzi))]
+    na_poziomie = np.abs(kosz - poziom) <= 1
+    lo, hi = n.min(), n.max()
+    if (na_poziomie.sum() >= 0.3 * len(v)
+            and na_poziomie[n <= lo + (hi - lo) / 3].any() and na_poziomie[n >= lo + 2 * (hi - lo) / 3].any()):
+        nachylenie = np.polyfit(n[na_poziomie], v[na_poziomie], 1)[0] if np.ptp(n[na_poziomie]) > 0 else 0.0
+        if abs(nachylenie) * (hi - lo) <= DRYF_MAX_S:
+            return True
     kroki = np.diff(v)
     seria: list[float] = []
     for k in kroki:
