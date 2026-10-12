@@ -78,6 +78,8 @@ def _folder() -> str:
 # bibliotekę: skoro świadomie je wybrał, może w nich analizować i naprawiać
 # pliki. Żyją tylko do restartu serwera — nic nie zapisujemy na stałe.
 _EXTRA_ROOTS: set[str] = set()
+# pojedyncze pliki wskazane w oknie Findera (playlista i to, na co wskazuje)
+_EXTRA_FILES: set[str] = set()
 
 
 def _allowed_roots() -> list[str]:
@@ -87,6 +89,8 @@ def _allowed_roots() -> list[str]:
 
 def _within_allowed(path: str) -> bool:
     path = os.path.abspath(path)
+    if path in _EXTRA_FILES:
+        return True
     return any(os.path.commonpath([path, r]) == r for r in _allowed_roots())
 
 
@@ -247,11 +251,48 @@ def api_analyze(file: str = Query(...)) -> JSONResponse:
     return JSONResponse(_track_row(path))
 
 
+def _wiersz_importu(t: spotify.Track, best) -> tuple[str, dict]:
+    """Utwór z playlisty + najlepszy plik biblioteki → (pas, wiersz dla UI).
+
+    Pasy: „auto" — masz TEN SAM utwór w tej samej wersji; „resolve" —
+    masz ten sam utwór, ale w INNEJ wersji (propozycja do decyzji, zawsze
+    other_version); „missing" — do ściągnięcia. Cudzy plik nie trafia do
+    żadnego pasa: dawniej „Beat It" wskazywało „Kick It.wav", kreator
+    wkładał to do „masz", a utwór po cichu znikał z setu.
+    """
+    row = {"artist": t.artist, "title": t.title,
+           "duration": round(t.duration_s) if t.duration_s else None}
+    pas = matcher.lane(best)
+    if pas == "missing":
+        sk = stores.sklepy(t)
+        row["buy"] = sk[0]["url"]
+        row["sklepy"] = sk
+        return "missing", row
+    row["file"] = os.path.basename(best.path)
+    row["score"] = best.score
+    if pas == "version":
+        row["other_version"] = True
+        if best.file_duration:
+            row["file_duration"] = round(best.file_duration)
+        row["sklepy"] = stores.sklepy(t)       # żeby kupić WŁAŚCIWĄ wersję
+        return "resolve", row
+    return "auto", row
+
+
+def _pasy(tracks: list, index) -> tuple[list, list, list]:
+    auto, resolve, missing = [], [], []
+    for t in tracks:
+        pas, row = _wiersz_importu(t, matcher.classify_track(t, index))
+        {"auto": auto, "resolve": resolve, "missing": missing}[pas].append(row)
+    return auto, resolve, missing
+
+
 @app.post("/api/import")
 def api_import(payload: dict) -> JSONResponse:
     """Rozpoznaj playlistę (dowolne źródło) i dopasuj do biblioteki.
 
-    Trzy pasy: auto (>=0.85), do rozstrzygnięcia (0.5–0.85), nie znaleziono.
+    Trzy pasy: auto (ten sam utwór i wersja), resolve (ten sam utwór
+    w innej wersji — do decyzji), missing (do ściągnięcia).
     """
     text = _field(payload, "text")
     if not text:
@@ -263,27 +304,15 @@ def api_import(payload: dict) -> JSONResponse:
     if not tracks:
         raise HTTPException(400, "nie znalazłem utworów w podanym źródle")
 
-    index = matcher.library_index(_folder())
-    auto, resolve, missing = [], [], []
-    for t in tracks:
-        best = matcher.classify_track(t, index)
-        row = {"artist": t.artist, "title": t.title,
-               "duration": round(t.duration_s) if t.duration_s else None}
-        if best and best.score >= 0.85 and best.same_version:
-            row["file"] = os.path.basename(best.path); row["score"] = best.score
-            auto.append(row)
-        elif best and (best.score >= 0.5 or best.identity >= 0.75):
-            # ten sam utwór, ale inna wersja miksu albo słabsze dopasowanie
-            row["file"] = os.path.basename(best.path); row["score"] = best.score
-            row["other_version"] = not best.same_version
-            resolve.append(row)
-        else:
-            row["buy"] = stores.buy_links(t)["beatport"]
-            missing.append(row)
+    auto, resolve, missing = _pasy(tracks, matcher.library_index(_folder()))
     return JSONResponse({
         "origin": origin,
         "counts": {"auto": len(auto), "resolve": len(resolve), "missing": len(missing),
-                   "total": len(tracks)},
+                   "total": len(tracks),
+                   # ile utworów ma źródło, gdy wiadomo (lista bywa ucięta)
+                   "zrodlo": getattr(tracks, "zrodlo_total", None) or len(tracks)},
+        # zdania dla użytkownika: ucięta lista, pominięte linie/linki
+        "uwagi": list(getattr(tracks, "uwagi", []) or []),
         "auto": auto, "resolve": resolve, "missing": missing,
     })
 
@@ -429,11 +458,28 @@ def api_covers_fill(file: str = Query(...)) -> JSONResponse:
 
 @app.post("/api/redownload")
 def api_redownload(payload: dict) -> JSONResponse:
-    name = os.path.splitext(_field(payload, "file"))[0]
-    artist, _, title = name.partition(" - ")
-    wishlist.add(artist.strip(), (title or name).strip())
+    """Dopisz plik z biblioteki do listy życzeń (do ponownego pobrania).
+
+    Artysta i tytuł najpierw z tagów pliku; z nazwy dopiero awaryjnie i bez
+    numeru ścieżki — „01 - Hung Up.flac" dawało artystę „01".
+    """
+    plik = _field(payload, "file")
+    name = os.path.splitext(os.path.basename(plik))[0]
+    artist = title = ""
+    dur = None
+    path = matcher.resolve_in_library(_folder(), plik) if plik else None
+    if path and _within_allowed(path):
+        artist, title = _tags(path)
+        try:
+            dur = MutagenFile(path).info.length or None
+        except Exception:  # noqa: BLE001
+            dur = None
+    if not (artist and title):
+        a2, t2 = matcher._split_stem(name)
+        artist, title = artist or a2, title or t2 or name
+    wishlist.add(artist.strip(), title.strip(), dur)
     poszukiwacz.POSZUKIWACZ.obudz()        # lista życzeń jest naprawdę szukana w tle
-    return JSONResponse({"queued": name})
+    return JSONResponse({"queued": name, "artist": artist, "title": title})
 
 
 # --------------------------------------------------------------------------
@@ -486,17 +532,31 @@ def api_queue_add(payload: dict) -> JSONResponse:
     items = (payload or {}).get("items") or []
     if not isinstance(items, list) or not items:
         raise HTTPException(400, "brak utworów do dodania")
+    _uzgodnij_kolejke()       # nieudane „zlecone" nie mogą blokować ponownego dodania
     added = dlqueue.QUEUE.add([i for i in items if isinstance(i, dict)])
     return JSONResponse({"added": added, **dlqueue.QUEUE.state()})
 
 
+def _uzgodnij_kolejke() -> None:
+    """Zlecone zadania kolejki → „pobrane"/„nieudane" wg transferów slskd
+    i plików na dysku (inaczej wisiały jako „zlecone" na zawsze)."""
+    if not dlqueue.QUEUE.state()["counts"].get("queued"):
+        return
+    client = SlskdClient()
+    rows = client.downloads_or_none() if client.available() else None
+    pobrania = os.path.expanduser(config.get("downloads_root") or "")
+    dlqueue.QUEUE.uzgodnij(rows, [pobrania, _folder()])
+
+
 @app.get("/api/queue")
 def api_queue_state() -> JSONResponse:
+    _uzgodnij_kolejke()
     return JSONResponse(dlqueue.QUEUE.state())
 
 
 @app.post("/api/queue/clear")
 def api_queue_clear() -> JSONResponse:
+    _uzgodnij_kolejke()
     return JSONResponse({"removed": dlqueue.QUEUE.clear_finished(),
                          **dlqueue.QUEUE.state()})
 
@@ -650,11 +710,16 @@ def api_playlist_collect(payload: dict) -> JSONResponse:
             # Czy ten utwór już jest na playliście — choćby jako INNA kopia?
             # Bez tego playlista z pliku M3U dostawała ten sam kawałek dwa
             # razy: raz ze wskazanej ścieżki, raz z dopasowania biblioteki.
+            # „Już jest" = ten sam utwór w dowolnej wersji (np. inna wersja,
+            # którą użytkownik świadomie wziął w kreatorze).
             juz = matcher.classify_track(trk, matcher.index_paths(paths))
-            if juz and (juz.score >= 0.5 or juz.identity >= 0.75):
+            if juz and juz.same_track:
                 continue
+            # Dociągamy WYŁĄCZNIE ten sam utwór w tej samej wersji. Dawniej
+            # wystarczało score ≥ 0,5 albo identity ≥ 0,75 i brakujący utwór
+            # zastępował cudzy plik („Frozen" → „Like a Prayer").
             best = matcher.classify_track(trk, index)
-            if best and (best.score >= 0.5 or best.identity >= 0.75):
+            if matcher.lane(best) == "auto":
                 if best.path not in seen:
                     seen.add(best.path); paths.append(best.path); late.append(best.path)
 
@@ -722,17 +787,8 @@ def _lanes_from_entries(entries: list, origin: str, name: str) -> dict:
             index = matcher.library_index(_folder())
         trk = spotify.Track(id="", artist=e.artist, title=e.title,
                             duration_s=e.duration_s)
-        best = matcher.classify_track(trk, index)
-        if best and best.score >= 0.85 and best.same_version:
-            row["file"] = os.path.basename(best.path); row["score"] = best.score
-            auto.append(row)
-        elif best and (best.score >= 0.5 or best.identity >= 0.75):
-            row["file"] = os.path.basename(best.path); row["score"] = best.score
-            row["other_version"] = not best.same_version
-            resolve.append(row)
-        else:
-            row["buy"] = stores.buy_links(trk)["beatport"]
-            missing.append(row)
+        pas, row = _wiersz_importu(trk, matcher.classify_track(trk, index))
+        {"auto": auto, "resolve": resolve, "missing": missing}[pas].append(row)
     return {
         "origin": origin, "name": name,
         "counts": {"auto": len(auto), "resolve": len(resolve),
@@ -756,7 +812,26 @@ def _obecna_jakosc(path: str) -> dict:
         "format": ext.lstrip(".").upper(),
         "lossless": ext in LOSSLESS_EXT,
         "bitrate": int(getattr(a.info, "bitrate", 0) or 0) // 1000 if a else 0,
+        "channels": int(getattr(a.info, "channels", 0) or 0) if a else 0,
     }
+
+
+# Stratny plik poniżej tego bitrate'u (z nagłówka) jest słabym źródłem,
+# nawet gdy analiza pasma nie ma zastrzeżeń — mono 128 kbps ma pełne
+# pasmo, ale to nadal 128 kbps i jeden kanał.
+NISKI_BITRATE_KBPS = 256
+
+
+def _slabe_wg_naglowka(info: dict) -> str:
+    """Powód wymiany wynikający z nagłówka pliku (pusty, gdy brak)."""
+    if info.get("lossless"):
+        return ""
+    powody = []
+    if info.get("bitrate") and info["bitrate"] < NISKI_BITRATE_KBPS:
+        powody.append(f"{info['bitrate']} kbps")
+    if info.get("channels") == 1:
+        powody.append("mono")
+    return " ".join(powody)
 
 
 @app.post("/api/upgrade/list")
@@ -778,8 +853,14 @@ def api_upgrade_list(payload: dict) -> JSONResponse:
         if not os.path.isfile(path) or not _within_allowed(path):
             continue
         info = _obecna_jakosc(path)
-        if info["grade"] == "ok":
+        naglowek = _slabe_wg_naglowka(info)
+        if info["grade"] == "ok" and not naglowek:
             continue
+        if info["grade"] == "ok":
+            # pasmo w porządku, ale nagłówek mówi „słabe źródło" — dawniej
+            # mono 128 kbps w ogóle nie trafiało na listę
+            info["grade"] = "warn"
+            info["verdict"] = f"słabe źródło: {naglowek} — warto poszukać lepszego"
         artist, title = _tags(path)
         if not (artist and title):
             kand = tagfix.name_candidates(os.path.splitext(os.path.basename(path))[0])
@@ -956,28 +1037,52 @@ def api_pick(payload: dict) -> JSONResponse:
     except folderpick.PickUnavailable as exc:
         raise HTTPException(400, str(exc))
     path = os.path.normpath(path)
-    root = path if os.path.isdir(path) else os.path.dirname(path)
-    _EXTRA_ROOTS.add(os.path.abspath(root))
+    if os.path.isdir(path):
+        _EXTRA_ROOTS.add(os.path.abspath(path))
+    else:
+        # Wskazanie PLIKU nie otwiera już całego folderu nadrzędnego — tylko
+        # ten plik i utwory, na które wskazuje (gdy to playlista).
+        _EXTRA_FILES.add(os.path.abspath(path))
+        if path.lower().endswith(localplaylist.PLAYLIST_EXT):
+            try:
+                parsed = localplaylist.from_file(path)
+                _EXTRA_FILES.update(os.path.abspath(e.path) for e in parsed.entries if e.path)
+            except Exception:  # noqa: BLE001 — wybór pliku nie może paść przez parser
+                pass
     return JSONResponse({"ok": True, "path": path,
                          "name": os.path.basename(path)})
 
 
+def _wybor_playlisty(exc: "localplaylist.WyborPlaylisty", nazwa: str) -> JSONResponse:
+    """Plik ma kilka playlist (pełny XML rekordboxa) — oddaj listę do wyboru."""
+    return JSONResponse({"name": nazwa, "wybor_playlisty": exc.playlisty,
+                         "komunikat": "Ten plik rekordboxa zawiera kilka playlist — "
+                                      "wybierz, którą wczytać."})
+
+
 @app.post("/api/playlist/upload")
-async def api_playlist_upload(file: UploadFile = File(...)) -> JSONResponse:
+async def api_playlist_upload(file: UploadFile = File(...),
+                              playlista: str = Query("")) -> JSONResponse:
     """Playlista wgrana z komputera: M3U/M3U8, PLS, XML rekordboxa,
-    NML Traktora, CSV z Serato albo zwykła tracklista."""
+    NML Traktora, CSV z Serato, eksport .txt z rekordboxa albo zwykła
+    tracklista. Przy pełnym XML rekordboxa bez `playlista` zwraca listę
+    playlist do wyboru (`wybor_playlisty`)."""
     raw = await file.read(MAX_PLAYLIST_BYTES + 1)
     if len(raw) > MAX_PLAYLIST_BYTES:
         raise HTTPException(400, "plik playlisty jest za duży (limit 8 MB)")
-    if not raw.strip():
+    if not raw.strip(b" \t\r\n\x00\xff\xfe\xef\xbb\xbf"):
         raise HTTPException(400, "plik playlisty jest pusty")
-    text = raw.decode("utf-8", errors="replace")
+    text = localplaylist.decode(raw)
     nazwa = os.path.splitext(os.path.basename(file.filename or "playlista"))[0]
     kind = localplaylist.sniff(text, file.filename or "")
     try:
-        entries = localplaylist.parse_text(text, kind)
+        entries = localplaylist.parse_text(text, kind, playlista=playlista or None)
+    except localplaylist.WyborPlaylisty as exc:
+        return _wybor_playlisty(exc, nazwa)
     except Exception as exc:  # noqa: BLE001 — komunikat trafia do interfejsu
         raise HTTPException(400, f"nie udało się odczytać playlisty ({kind}): {exc}")
+    if playlista:
+        nazwa = playlista.split(" / ")[-1]
     if not entries:
         raise HTTPException(400, "nie znalazłem utworów w tym pliku")
     return JSONResponse(_clean(_lanes_from_entries(entries, f"plik:{kind}", nazwa)))
@@ -995,17 +1100,22 @@ def api_playlist_local(payload: dict) -> JSONResponse:
     if not path:
         raise HTTPException(400, "podaj ścieżkę do playlisty albo folderu")
     path = os.path.abspath(path)
+    wybor = _field(payload, "playlista") or None
     try:
         if os.path.isdir(path):
             parsed = localplaylist.from_folder(path)
         elif os.path.isfile(path):
             if os.path.getsize(path) > MAX_PLAYLIST_BYTES:
                 raise HTTPException(400, "plik playlisty jest za duży (limit 8 MB)")
-            parsed = localplaylist.from_file(path)
+            parsed = localplaylist.from_file(path, playlista=wybor)
+            if wybor:
+                parsed.name = wybor.split(" / ")[-1]
         else:
             raise HTTPException(404, f"nie ma takiej ścieżki: {path}")
     except HTTPException:
         raise
+    except localplaylist.WyborPlaylisty as exc:
+        return _wybor_playlisty(exc, os.path.splitext(os.path.basename(path))[0])
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(400, f"nie udało się odczytać playlisty: {exc}")
     if not parsed.entries:
@@ -2295,8 +2405,12 @@ def api_wishlist() -> JSONResponse:
 @app.post("/api/wishlist")
 def api_wishlist_add(payload: dict) -> JSONResponse:
     a = _field(payload, "artist"); t = _field(payload, "title")
+    try:
+        dur = float((payload or {}).get("duration") or 0) or None
+    except (TypeError, ValueError):
+        dur = None
     if a or t:
-        wishlist.add(a.strip(), t.strip())
+        wishlist.add(a.strip(), t.strip(), dur)
         poszukiwacz.POSZUKIWACZ.obudz()
     return JSONResponse({"items": wishlist.items(),
                          "poszukiwacz": poszukiwacz.POSZUKIWACZ.stan()})

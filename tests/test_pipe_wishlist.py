@@ -32,15 +32,24 @@ def test_add_returns_full_entry():
     assert wishlist.items() == [e]
 
 
-def test_add_duplicate_appends_second_entry():
-    """Faktyczne zachowanie: duplikat (ten sam artysta/tytuł) NIE jest
-    scalany — powstaje drugi wpis z własnym id."""
+def test_add_duplicate_returns_existing_entry():
+    """Przegląd 0.4.2: ten sam utwór dodany dwa razy dawał dwa wpisy.
+    Teraz drugi raz zwraca istniejący wpis (i uzupełnia brakujący czas)."""
     a = wishlist.add("Odymel", "Gucci")
-    b = wishlist.add("Odymel", "Gucci")
-    assert a["id"] != b["id"]
+    b = wishlist.add(" odymel ", "GUCCI", duration_s=274)
+    assert a["id"] == b["id"]
     entries = wishlist.items()
-    assert len(entries) == 2
-    assert [e["artist"] for e in entries] == ["Odymel", "Odymel"]
+    assert len(entries) == 1
+    assert entries[0]["duration_s"] == 274
+
+
+def test_add_found_again_goes_back_to_search():
+    a = wishlist.add("Odymel", "Gucci")
+    entries = wishlist.items()
+    entries[0].update(found=True, found_hit={"filename": "x"})
+    wishlist._save(entries)
+    b = wishlist.add("Odymel", "Gucci")
+    assert b["id"] == a["id"] and b["found"] is False and "found_hit" not in b
 
 
 def test_add_unicode_and_persistence():
@@ -89,26 +98,23 @@ def test_remove_nonexistent_returns_none():
 # ---------------------------------------------------------------- wishlist: check
 
 class _StubClient:
-    """Udaje SlskdClient: search zwraca przygotowane wyniki, rank prawdziwy."""
+    """Udaje SlskdClient: search_track zwraca przygotowane wyniki
+    uszeregowane prawdziwym rank(), bramka tożsamości jest prawdziwa."""
 
     def __init__(self, hits):
         self._hits = hits
         self.queries = []
 
-    def search(self, query):
-        self.queries.append(query)
-        return list(self._hits)
+    def search_track(self, artist, title, duration_s=None):
+        self.queries.append(f"{artist} {title}")
+        return SlskdClient().rank(list(self._hits), duration_s, artist, title)
 
-    def rank(self, hits, want_duration_s):
-        return SlskdClient().rank(hits, want_duration_s)
+    pewny_wynik = SlskdClient.pewny_wynik
 
 
 class _DeadClient:
-    def search(self, query):
+    def search_track(self, artist, title, duration_s=None):
         raise requests.ConnectionError("slskd padł")
-
-    def rank(self, hits, want):  # pragma: no cover — nieosiągalne
-        return hits
 
 
 def test_check_marks_found_and_records_best_hit():
@@ -138,6 +144,31 @@ def test_check_network_error_is_skipped_not_fatal():
         "błąd sieci ma być POLICZONY — zlewanie go z 'nic nowego' "
         "ukrywało martwego slskd miesiącami")
     assert wishlist.items()[0]["found"] is False
+
+
+def test_check_nie_zglasza_cudzego_pliku():
+    """Przegląd 0.4.2: atrapa z FLAC-iem Ricka Astleya i MP3 właściwego
+    utworu — wszystkie wpisy dostawały ★ „znaleziono" z plikiem Astleya
+    (rank bez artysty i tytułu: wygrywał największy FLAC)."""
+    wishlist.add("Madonna", "Hung Up", duration_s=337.7)
+    wishlist.add("Bryan Adams", "Summer Of '69")
+    astley = SearchHit("u1", "Rick Astley\\Never Gonna Give You Up.flac",
+                       40_000_000, None, 213, True, True)
+    hung_up = SearchHit("u2", "Madonna\\Confessions\\01 Hung Up.mp3",
+                        9_000_000, 320, 337, False, True)
+    finds, nieudane = wishlist.check(_StubClient([astley, hung_up]))
+    assert nieudane == 0
+    assert [f["title"] for f in finds] == ["Hung Up"]
+    wpisy = {e["title"]: e for e in wishlist.items()}
+    assert wpisy["Hung Up"]["found_hit"]["username"] == "u2"
+    assert wpisy["Summer Of '69"]["found"] is False   # szukamy dalej
+
+
+def test_check_inna_wersja_to_nie_znalezisko():
+    wishlist.add("Savage Garden", "To the Moon & Back", duration_s=339.4)
+    remiks = SearchHit("u", "Savage Garden\\To the Moon & Back (Hex Hector Remix).flac",
+                       40_000_000, None, 520, True, True)
+    assert wishlist.check(_StubClient([remiks])) == ([], 0)
 
 
 def test_check_no_hits_leaves_entry_pending():

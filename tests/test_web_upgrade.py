@@ -205,3 +205,30 @@ class TestNieTenUtwor:
         d = self._find(client, monkeypatch, [k],
                        artist="Jeckyll & Hyde", title="Freefall")
         assert d["count"] == 0
+
+
+class TestNiskiBitrateWNaglowku:
+    """Przegląd 0.4.2: MP3 128 kbps MONO z pełnym pasmem → „ok", poza listą."""
+
+    def _mp3(self, lib_copy, nazwa, kanaly):
+        import subprocess
+        from selekta.narzedzia import ffmpeg_path
+        p = os.path.join(lib_copy, nazwa)
+        subprocess.run([ffmpeg_path(), "-v", "error", "-y", "-f", "lavfi", "-i",
+                        "anoisesrc=d=4:c=white:a=0.3", "-ac", str(kanaly), "-b:a", "128k", p],
+                       check=True)
+        from selekta import cache
+        cache.put(p, "quality", {"grade": "ok", "verdict": "pełne pasmo", "cutoff_hz": 20000})
+        return p
+
+    def test_mono_128_trafia_na_liste(self, client, lib_copy):
+        p = self._mp3(lib_copy, "Ktoś - Mono.mp3", 1)
+        d = client.post("/api/upgrade/list", json={"files": [p]}).json()
+        assert d["count"] == 1
+        row = d["tracks"][0]
+        assert row["grade"] == "warn" and "128 kbps" in row["verdict"] and "mono" in row["verdict"]
+
+    def test_dobry_flac_dalej_poza_lista(self, client, lib_copy):
+        d = client.post("/api/upgrade/list",
+                        json={"files": [os.path.join(lib_copy, GOOD_FLAC)]}).json()
+        assert d["count"] == 0

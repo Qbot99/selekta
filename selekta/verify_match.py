@@ -174,10 +174,46 @@ def verify(path: str, preview: bytes) -> MatchResult:
     return MatchResult(round(score, 3), round(offset, 1), verdict, note)
 
 
+_RANGA = {"mismatch": 0, "uncertain": 1, "match": 2}
+
+
 def verify_track(path: str, track: Track) -> MatchResult | None:
-    """Convenience wrapper; None when Spotify has no preview."""
-    data = preview_bytes(track)
-    return verify(path, data) if data else None
+    """Plik vs 30-sekundowa próbka; None, gdy żadne źródło nie dało próbki.
+
+    Gdy próbka ze Spotify NIE potwierdza utworu, pytamy drugie, niezależne
+    źródło (iTunes). Przegląd 0.4.2: „Dancing Queen" dostało od próbki
+    Spotify 0,25 („to NIE ten utwór — odrzuć"), a ten sam plik z próbką
+    z iTunes 0,79. Próbka bywa wycięta z innego wydania (inny master,
+    wersja singlowa), więc jedno źródło nie może samo skazać właściwego
+    pliku. Rozstrzyga lepszy werdykt; w nocie zostają oba wyniki.
+    """
+    try:
+        data = preview_bytes(track)
+    except requests.RequestException:
+        data = None
+    res = verify(path, data) if data else None
+    if res is not None and res.verdict == "match":
+        return res
+    druga = None
+    if track.artist or track.title:
+        try:
+            druga = verify_by_name(path, track.artist, track.title)
+        except Exception:  # noqa: BLE001 — drugie źródło jest tylko pomocą
+            druga = None
+    if druga is None:
+        return res
+    res2, opis = druga
+    if res is None:
+        res2.note = "; ".join(x for x in (res2.note, f"próbka z iTunes: {opis}") if x)
+        return res2
+    if _RANGA[res2.verdict] > _RANGA[res.verdict]:
+        note = (f"Spotify {res.score:.2f}, iTunes {res2.score:.2f} — drugie źródło "
+                f"potwierdza ({opis})")
+        if res2.note:
+            note += f"; {res2.note}"
+        return MatchResult(res2.score, res2.offset_s, res2.verdict, note)
+    res.note = "; ".join(x for x in (res.note, f"iTunes też nie potwierdza ({res2.score:.2f})") if x)
+    return res
 
 
 def preview_itunes(artist: str, title: str) -> tuple[bytes, str] | None:

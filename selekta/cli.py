@@ -69,7 +69,12 @@ def _load_tracks(source: str) -> list[spotify.Track]:
     tracks, origin = importers.resolve_any(text)
     if not tracks:
         sys.exit("nie znalazłem żadnych utworów w podanym źródle")
-    print(f"źródło: {origin} — {len(tracks)} utworów\n")
+    total = getattr(tracks, "zrodlo_total", None)
+    z = f" (z {total} w źródle)" if total and total > len(tracks) else ""
+    print(f"źródło: {origin} — {len(tracks)} utworów{z}")
+    for uwaga in getattr(tracks, "uwagi", []) or []:
+        print(f"⚠️ {uwaga}")
+    print()
     return tracks
 
 
@@ -85,10 +90,20 @@ def _audio_paths(folder: str) -> list[str]:
 
 def cmd_organize(args) -> None:
     tracks = _load_tracks(args.source)
-    matched, missing = [], []
+    # Przemianowujemy i tagujemy WYŁĄCZNIE ten sam utwór w tej samej wersji.
+    # Dawniej best_match brał najwyższy wynik ≥ 0,6: „✓ Frozen ← Like a
+    # Prayer", a --apply przepisałby cudzy plik na „Madonna - Frozen".
+    index = matcher.library_index(args.folder)
+    matched, missing, inne = [], [], {}
     for t in tracks:
-        cand = matcher.best_match(t, args.folder)
-        (matched.append((t, cand)) if cand else missing.append(t))
+        cand = matcher.classify_track(t, index)
+        pas = matcher.lane(cand)
+        if pas == "auto":
+            matched.append((t, cand))
+        else:
+            missing.append(t)
+            if pas == "version":
+                inne[id(t)] = cand
 
     for t, cand in matched:
         print(f"✓ {t.artist} — {t.title}")
@@ -105,7 +120,11 @@ def cmd_organize(args) -> None:
         print(f"\nBrakuje {len(missing)} utworów:")
         for t in missing:
             print(f"  ✗ {t.artist} — {t.title}")
-            print(f"    kup: {stores.buy_links(t)['beatport']}")
+            if id(t) in inne:
+                print(f"    ≈ masz inną wersję: {os.path.basename(inne[id(t)].path)}"
+                      " (nie ruszam jej)")
+            sk = stores.sklepy(t)[:2]
+            print("    kup: " + " · ".join(f"{x['name']} {x['url']}" for x in sk))
     print(f"\n{len(matched)} dopasowanych, {len(missing)} brakujących"
           + ("" if args.apply else "  (dry-run — dodaj --apply)"))
 
@@ -322,8 +341,10 @@ def cmd_radar(args) -> None:
 
 def cmd_wishlist(args) -> None:
     if args.add:
-        artist, _, title = args.add.partition(" - ")
-        it = wishlist.add(artist.strip(), title.strip())
+        para = importers.split_artist_title(args.add)
+        if not para:
+            sys.exit('podaj utwór jako "Artysta - Tytuł" (z myślnikiem otoczonym spacjami)')
+        it = wishlist.add(*para)
         print(f"dodano do listy życzeń: {it['artist']} — {it['title']}")
     elif args.remove:
         # lista pokazuje numery od 1 (i id) — tak samo liczymy przy usuwaniu;
@@ -356,48 +377,46 @@ def cmd_wishlist(args) -> None:
         wpisy = wishlist.items()
         if not wpisy:
             print("lista życzeń jest pusta")
-        for nr, it in enumerate(wpisy, 1):
-            stan = "  ✓ znalezione" if it.get("found") else ""
-            print(f"  {nr}. {it['artist']} — {it['title']}  [{it.get('id', '')}]{stan}")
+        for i, it in enumerate(wpisy, 1):
+            znak = "★" if it.get("found") else "·"
+            print(f"  {i:>2}. {znak} {it['artist']} — {it['title']}  [id {it['id']}]")
         if wpisy:
             print("\nusuń: selekta wishlist --remove NUMER (albo id)")
 
 
 def cmd_hunt(args) -> None:
     tracks = _load_tracks(args.source)
-    have = {t.id for t in tracks if args.folder and matcher.best_match(t, args.folder)}
+    # „mam" tylko gdy biblioteka ma TEN SAM utwór w tej samej wersji —
+    # dawniej best_match brał Like a Prayer za Frozen i hunt go pomijał
+    index = matcher.library_index(args.folder) if args.folder else None
     slskd = SlskdClient()
     online = slskd.available()
     if not online:
         print("(slskd niedostępny — pokazuję tylko linki zakupowe)\n")
     for t in tracks:
-        if t.id and t.id in have:
+        if index is not None and matcher.lane(matcher.classify_track(t, index)) == "auto":
             continue
         print(f"♪ {t.artist} — {t.title}")
         if online:
-            # ta sama drabina zapytań i ranking (artysta + tytuł) co w apce;
-            # dawniej rank() bez artysty i tytułu → wygrywał FLAC innego utworu
+            # ta sama drabina zapytań i ranking z tożsamością co w aplikacji
             hits = slskd.search_track(t.artist, t.title, t.duration_s)
+            pewny = slskd.pewny_wynik(hits, t.artist, t.title, t.duration_s) if hits else None
             for h in hits[:3]:
                 kind = "lossless" if h.is_lossless else f"{h.bitrate or '?'} kbps"
-                nazwa = os.path.basename(h.filename.replace("\\", "/"))
-                print(f"    slsk: {nazwa} [{kind}, {h.size//1_000_000} MB]")
-            if hits and args.download:
-                hit, opis, ocena = poszukiwacz.najlepszy(slskd, hits, t.artist, t.title,
-                                                         t.duration_s)
-                if ocena == "pewne":
-                    slskd.download(hit)
-                    print(f"    ⬇ zlecono pobieranie: {opis['filename']}")
-                elif ocena:
-                    print(f"    ? „{opis['filename']}” wygląda dobrze, ale bez zgodnego "
-                          "czasu trwania — nie pobieram w ciemno; potwierdź w aplikacji "
-                          "albo pobierz ręcznie")
-                else:
-                    print("    — żaden wynik nie jest na pewno tym utworem — nic nie pobieram")
+                znak = "✓" if h is pewny else " "
+                print(f"   {znak} slsk: {os.path.basename(h.filename.replace(chr(92), '/'))}"
+                      f" [{kind}, {h.size//1_000_000} MB]")
+            if pewny and args.download:
+                slskd.download(pewny)
+                print(f"    ⬇ zlecono pobieranie: {os.path.basename(pewny.filename.replace(chr(92), '/'))}")
+            elif hits and not pewny:
+                print("    slsk: żaden wynik nie jest na pewno tym utworem w tej wersji "
+                      "— wybierz ręcznie w aplikacji (nic nie pobieram)")
             elif not hits:
                 print("    slsk: brak wyników — dodaję do listy życzeń")
                 wishlist.add(t.artist, t.title, t.duration_s)
-        print(f"    kup: {stores.buy_links(t)['beatport']}")
+        sk = stores.sklepy(t)[:3]
+        print("    kup: " + " · ".join(f"{x['name']} {x['url']}" for x in sk))
 
 
 # --------------------------------------------------------------------------
@@ -532,7 +551,7 @@ def main() -> None:
 
     w = sub.add_parser("wishlist", help="lista życzeń + cykliczne szukanie na Soulseeku")
     w.add_argument("--add", metavar='"Artysta - Tytuł"')
-    w.add_argument("--remove", metavar="NUMER|ID", help="numer z listy (od 1) albo id")
+    w.add_argument("--remove", metavar="NUMER|ID", help="numer z listy (od 1) albo id wpisu")
     w.add_argument("--check", action="store_true", help="sprawdź teraz na Soulseeku")
     w.add_argument("--daemon", action="store_true", help="pętla w tle")
     w.add_argument("--interval", type=int, default=3600)

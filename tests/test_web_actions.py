@@ -34,7 +34,9 @@ def test_import_text_tracklist_offline(client):
     assert d["counts"]["auto"] + d["counts"]["resolve"] >= 1
     assert d["counts"]["missing"] >= 1
     missing = d["missing"][0]
-    assert missing["buy"].startswith("https://www.beatport.com/search")
+    # kilka sklepów (pop: Qobuz/Apple przodem), „buy" = pierwszy z nich
+    assert missing["buy"] == missing["sklepy"][0]["url"]
+    assert {s["id"] for s in missing["sklepy"]} >= {"beatport", "qobuz", "apple", "bandcamp"}
 
 
 @pytest.mark.network
@@ -110,3 +112,24 @@ def test_redownload_queues_wishlist(client):
     assert r.status_code == 200
     items = client.get("/api/wishlist").json()["items"]
     assert any(i["artist"] == "Artysta X" for i in items)
+
+
+def test_redownload_bierze_tagi_a_nie_numer_sciezki(client, lib_copy):
+    """Przegląd 0.4.2: „01 - Hung Up.flac" → artysta „01"."""
+    from tests.conftest import fast_copy
+    fast_copy(os.path.join(lib_copy, GOOD_FLAC), os.path.join(lib_copy, "01 - Cokolwiek.flac"))
+    r = client.post("/api/redownload", json={"file": "01 - Cokolwiek.flac"})
+    assert r.status_code == 200
+    assert (r.json()["artist"], r.json()["title"]) == ("Odymel", "Gucci")
+    r = client.post("/api/redownload", json={"file": "07 - Zaginiony Utwór.flac"})
+    assert r.json()["artist"] == "" and r.json()["title"] == "Zaginiony Utwór"
+    tytuly = [i["title"] for i in client.get("/api/wishlist").json()["items"]]
+    assert tytuly.count("Gucci") == 1
+
+
+def test_wishlist_api_zapisuje_czas_i_nie_dubluje(client):
+    for _ in range(2):
+        client.post("/api/wishlist", json={"artist": "Madonna", "title": "Hung Up",
+                                           "duration": 337.7})
+    items = client.get("/api/wishlist").json()["items"]
+    assert len(items) == 1 and items[0]["duration_s"] == 337.7

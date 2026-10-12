@@ -410,6 +410,30 @@ class SlskdClient:
 
         return sorted(hits, key=key, reverse=True)
 
+    def pewny_wynik(self, hits: list[SearchHit], artist: str, title: str,
+                    duration_s: float | None = None) -> SearchHit | None:
+        """Pierwszy (wg rankingu) wynik, który JEST tym utworem w tej wersji.
+
+        Do automatów: kolejki, `selekta hunt --download`, listy życzeń.
+        Ranking stawia jakość wysoko, a `rank()` bez artysty i tytułu
+        wybierał po prostu największy FLAC — lista życzeń zgłaszała
+        „Znaleziono" z plikiem „Rick Astley - Never Gonna Give You Up.flac".
+        Tożsamość sprawdzamy tym samym porównaniem co dopasowanie do
+        biblioteki (wykonawca, tytuł bez dopisków, wersja + czas).
+        """
+        from . import matcher
+        from .spotify import Track
+
+        t = Track(id="", artist=artist or "", title=title or "",
+                  duration_s=duration_s or None)
+        for h in hits:
+            low = h.filename.lower()
+            if not low.endswith(_AUDIO_EXT_HIT) or any(m in low for m in _MIX_HINTS):
+                continue
+            if matcher.verdict_for_name(t, h.filename, h.length_s) == 2:
+                return h
+        return None
+
     def describe(self, hit: SearchHit, artist: str, title: str,
                  duration_s: float | None = None) -> dict:
         """Opis kandydata dla użytkownika — dane, na podstawie których wybiera.
@@ -559,13 +583,19 @@ class SlskdClient:
         slskd grupuje je użytkownik -> katalog -> plik; kreator chce
         płaskiej listy, żeby dopasować plik do utworu z playlisty.
         """
+        rows = self.downloads_or_none()
+        return rows if rows is not None else []
+
+    def downloads_or_none(self) -> list[dict] | None:
+        """Jak downloads(), ale None, gdy slskd nie odpowiedział — kolejka
+        musi odróżnić „transferu nie ma" od „nie wiadomo"."""
         try:
             r = requests.get(f"{self.base}/api/v0/transfers/downloads",
                              headers=self.headers, timeout=10)
             r.raise_for_status()
             users = r.json()
         except (requests.RequestException, ValueError):
-            return []
+            return None
         rows: list[dict] = []
         for user in users or []:
             for directory in (user.get("directories") or []):

@@ -87,16 +87,19 @@ def ocena(opis: dict, artist: str, title: str, duration_s: float | None) -> str:
 
 def najlepszy(client: SlskdClient, hits: list[SearchHit], artist: str, title: str,
               duration_s: float | None) -> tuple[SearchHit | None, dict | None, str]:
-    """Pierwszy (wg rankingu klienta) kandydat, który przechodzi ocenę."""
-    zapas: tuple[SearchHit | None, dict | None, str] = (None, None, "")
-    for h in hits[:ILE_KANDYDATOW]:
-        opis = client.describe(h, artist, title, duration_s)
-        o = ocena(opis, artist, title, duration_s)
-        if o == "pewne":
-            return h, opis, o
-        if o and zapas[0] is None:
-            zapas = (h, opis, o)
-    return zapas
+    """Pierwszy (wg rankingu klienta) kandydat, który JEST tym utworem w tej wersji.
+
+    Tożsamość sprawdza `client.pewny_wynik` — to samo porównanie co dopasowanie
+    do biblioteki (wykonawca, tytuł, wersja miksu, czas). Sam automat pobiera
+    tylko przy zgodnym czasie trwania; bez znanego czasu wynik czeka
+    na potwierdzenie użytkownika.
+    """
+    pewny = client.pewny_wynik(hits[:ILE_KANDYDATOW], artist, title, duration_s)
+    if pewny is None:
+        return None, None, ""
+    opis = client.describe(pewny, artist, title, duration_s)
+    o = ocena(opis, artist, title, duration_s)
+    return pewny, opis, (o or "do-potwierdzenia")
 
 
 # ---------------------------------------------------------------- pamięć listy

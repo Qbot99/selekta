@@ -63,7 +63,7 @@ def test_split_artist_title_ok(line, expected):
         "   ",                    # same spacje
         "Artist - ",              # pusty tytuł
         " - ",                    # pusty artysta i tytuł
-        "Artist-Title",           # myślnik bez spacji to nie separator
+        "Artist-Title-Extra",     # dwa myślniki bez spacji: nie zgadujemy
     ],
 )
 def test_split_artist_title_returns_none(line):
@@ -240,6 +240,11 @@ def test_resolve_any_real_youtube_playlist():
     for t in tracks:
         assert t.artist and t.title
         assert t.id.startswith("yt:")
-    # duża część pozycji ma czas trwania z badge'a
+    # Czas filmu z dopiskiem „Official Video" to czas teledysku, nie utworu
+    # (Thriller: 822 s) — takie czasy celowo pomijamy. Te, które zostały,
+    # to czasy utworów (kanały „- Topic", „Official Audio").
     with_dur = [t for t in tracks if t.duration_s]
-    assert len(with_dur) >= len(tracks) // 2
+    assert all(t.duration_s < 15 * 60 for t in with_dur)
+    # playlisty >100 dociągamy stronami kontynuacji
+    if getattr(tracks, "zrodlo_total", 0) and tracks.zrodlo_total > 100:
+        assert len(tracks) > 100
