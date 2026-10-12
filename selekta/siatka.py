@@ -70,6 +70,23 @@ class Siatka:
 
 # ---------------------------------------------------------------- obwiednie
 
+def _szybka_dl(n: int) -> int:
+    """Najmniejsza długość ≥ n złożona z 2, 3 i 5 — FFT o długości z dużym
+    czynnikiem pierwszym bywa kilkakrotnie wolniejsze (5-minutowy utwór)."""
+    best = 1 << (n - 1).bit_length()
+    p5 = 1
+    while p5 < best:
+        p35 = p5
+        while p35 < best:
+            p = p35
+            while p < n:
+                p *= 2
+            best = min(best, p)
+            p35 *= 3
+        p5 *= 5
+    return best
+
+
 def _obwiednia_pasma(x: np.ndarray, sr: int, lo: float, hi: float,
                      wygladz_s: float, krok: int) -> np.ndarray:
     """Obwiednia pasma [lo, hi] Hz co `krok` próbek (~1 ms).
@@ -78,14 +95,14 @@ def _obwiednia_pasma(x: np.ndarray, sr: int, lo: float, hi: float,
     a potem bierzemy maksimum w każdym koszyku — maksimum, bo chodzi o to,
     KIEDY uderzenie się zaczyna, nie ile ma średnio energii.
     """
-    n = x.size
-    widmo = np.fft.rfft(x)
+    n = _szybka_dl(x.size)                     # dopełnienie zerami: ta sama obwiednia, szybsze FFT
+    widmo = np.fft.rfft(x, n)
     f = np.fft.rfftfreq(n, 1.0 / sr)
     widmo[(f < lo) | (f > hi)] = 0.0
     analityczny = np.zeros(n, dtype=complex)
     analityczny[:widmo.size] = widmo
     analityczny[1:(n + 1) // 2] *= 2.0
-    obw = np.abs(np.fft.ifft(analityczny, n))
+    obw = np.abs(np.fft.ifft(analityczny, n))[:x.size]
     w = max(1, int(sr * wygladz_s))
     if w > 1:
         obw = np.convolve(obw, np.ones(w) / w, mode="same")
@@ -95,10 +112,11 @@ def _obwiednia_pasma(x: np.ndarray, sr: int, lo: float, hi: float,
 
 def _sygnal_pasma(x: np.ndarray, sr: int, lo: float, hi: float) -> np.ndarray:
     """Sygnał (nie obwiednia) przefiltrowany do [lo, hi] Hz — do liczenia przejść przez zero."""
-    widmo = np.fft.rfft(x)
-    f = np.fft.rfftfreq(x.size, 1.0 / sr)
+    n = _szybka_dl(x.size)
+    widmo = np.fft.rfft(x, n)
+    f = np.fft.rfftfreq(n, 1.0 / sr)
     widmo[(f < lo) | (f > hi)] = 0.0
-    return np.fft.irfft(widmo, x.size).astype(np.float32)
+    return np.fft.irfft(widmo, n)[:x.size].astype(np.float32)
 
 
 def _funkcja_onsetow(e: np.ndarray) -> np.ndarray:
@@ -136,11 +154,13 @@ def _szczyty(d: np.ndarray, fps: float, min_odstep_ms: float = 100.0
     return idx / fps, d[idx]
 
 
-def _transjenty(x: np.ndarray, sr: int):
+def _transjenty(x: np.ndarray, sr: int, e_szer: np.ndarray | None = None):
     """Transjenty szerokopasmowe + waga „stopowatości" z przyrostu basu po nich."""
     krok = max(1, int(round(sr / 1000.0)))
     fps = sr / krok
-    d_all = _funkcja_onsetow(_obwiednia_pasma(x, sr, 20.0, min(10_000.0, sr / 2 - 1), 0.003, krok))
+    if e_szer is None:
+        e_szer = _obwiednia_pasma(x, sr, 20.0, min(10_000.0, sr / 2 - 1), 0.003, krok)
+    d_all = _funkcja_onsetow(e_szer)
     e_low = _obwiednia_pasma(x, sr, 40.0, 160.0, 0.005, krok)
     t_on, s_on = _szczyty(d_all, fps)
     if t_on.size == 0:
@@ -235,7 +255,7 @@ def _faza(t_on: np.ndarray, waga: np.ndarray, okres: float) -> tuple[float, floa
 # ---------------------------------------------------------------- jedynka taktu
 
 def _jedynka(x: np.ndarray, sr: int, kotwica: float, okres: float,
-             e_low: np.ndarray, fps: float) -> tuple[int, float]:
+             e_low: np.ndarray, fps: float, e_szer: np.ndarray | None = None) -> tuple[int, float]:
     """Który z czterech bitów jest jedynką taktu.
 
     Dowody, każdy jako głos na klasę bitu mod 4: crash (skok góry pasma
@@ -250,7 +270,7 @@ def _jedynka(x: np.ndarray, sr: int, kotwica: float, okres: float,
     if n_b < MIN_KICKOW_DO_TAKTU:
         return 0, 0.0
     krok = max(1, int(round(sr / 1000.0)))
-    e_all = _obwiednia_pasma(x, sr, 20.0, sr / 2 - 1, 0.003, krok)
+    e_all = e_szer if e_szer is not None else _obwiednia_pasma(x, sr, 20.0, sr / 2 - 1, 0.003, krok)
     e_hi = _obwiednia_pasma(x, sr, 2000.0, min(9000.0, sr / 2 - 1), 0.003, krok)
     granice = kotwica + np.arange(n_b + 1) * okres
     idx = np.clip((granice * fps).astype(int), 0, e_all.size - 1)
@@ -763,14 +783,21 @@ def _korekta_kliku(e_hi: np.ndarray, e_all: np.ndarray, fps: float, linie: np.nd
     if not kand:
         return 0.0, True
     najl = max(kand, key=lambda k: k[2])
-    przy = max([k[2] for k in kand if abs(k[0]) <= 4] or [0.0])
+    # Narost NA linii mierzymy od niej samej: kolejne ząbki tego samego kliku,
+    # który zaczął się wcześniej (åmrtüm — dash: klik od −20 ms), nie są
+    # osobnym uderzeniem na linii.
+    przy = 0.0
+    if hf[zero - 15:zero + 1].min() <= hf[zero - 25:zero - 4].min() * 1.3:
+        przy = max([k[2] for k in kand if abs(k[0]) <= 4] or [0.0])
     if abs(najl[0]) <= 8 or przy >= 0.4 * najl[2]:
         return 0.0, True
-    a_, b_ = sorted((zero + najl[0], zero))
-    if b_ - a_ > 6:
-        dno = float(bb[a_ + 3:b_ - 2].min())
-        if dno < 0.25 * float(bb[zero - h:zero + h].max()):
-            return 0.0, True                        # oddziela je cisza — to osobne uderzenie
+    if najl[0] < 0 and -najl[0] > 6:
+        # klik PRZED linią: między nim a linią nie może być ciszy — inaczej to
+        # osobne, wcześniejsze uderzenie (samotny klaps 76 ms przed stopą).
+        # Po linii cisza jest normalna: sidechain „oddycha” tuż przed stopą.
+        dno = float(bb[zero + najl[0] + 3:zero - 2].min())
+        if dno < 0.08 * float(bb[zero - h:zero + h].max()):   # cisza (PP DJ Killer: 2 %), nie dołek (åmrtüm: 15 %)
+            return 0.0, True
     pewne = najl[1] >= 3.0 and przy < 0.25 * najl[2]
     return najl[0] / fps, pewne
 
@@ -866,7 +893,8 @@ def oszacuj(x: np.ndarray, sr: int, bpm_hint: float | None = None,
     if x.size < sr * 10:
         return None
     x = np.asarray(x, dtype=np.float64)
-    t_on, s_on, waga, d_all, e_low, fps = _transjenty(x, sr)
+    e_szer = _obwiednia_pasma(x, sr, 20.0, min(10_000.0, sr / 2 - 1), 0.003, max(1, int(round(sr / 1000.0))))
+    t_on, s_on, waga, d_all, e_low, fps = _transjenty(x, sr, e_szer)
     if t_on.size < MIN_TRANSJENTOW or not np.any(waga > 0):
         return None
     w = s_on * waga
@@ -920,7 +948,7 @@ def oszacuj(x: np.ndarray, sr: int, bpm_hint: float | None = None,
     # Klik przed korpusem stopy: przesuń CAŁĄ siatkę na klik (patrz _korekta_kliku)
     krok_ms = max(1, int(round(sr / 1000.0)))
     e_hi = _obwiednia_kliku(x, sr, krok_ms)
-    e_cale = _obwiednia_pasma(x, sr, 20.0, sr / 2 - 1, 0.003, krok_ms)
+    e_cale = e_szer
     linie_glowne = zn[0][0] + np.arange(int((dl_s - zn[0][0]) / okres)) * okres
     przes_kliku, pewne = _korekta_kliku(e_hi, e_cale, sr / krok_ms, linie_glowne[linie_glowne > 0],
                                         e_low if e_low.size else None)
@@ -956,7 +984,7 @@ def oszacuj(x: np.ndarray, sr: int, bpm_hint: float | None = None,
         kotwica = t0                        # siatka dynamiczna zaczyna się od pierwszego znacznika
     n_kotwicy = n0 + int(round((kotwica - t0) / okres))
 
-    b, pewnosc_taktu = _jedynka(x, sr, kotwica, okres, e_low, fps)
+    b, pewnosc_taktu = _jedynka(x, sr, kotwica, okres, e_low, fps, e_szer)
     battito0 = battito_dla(b)
     znaczniki = []
     for i, (tz, bz, nz) in enumerate(zn):
