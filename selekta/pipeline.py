@@ -86,12 +86,12 @@ def identity(path: str, track: Track | None) -> Check:
 def sound_quality(path: str) -> Check:
     """Analiza widmowa: fałszywy lossless / słabe źródło.
 
-    Transkod z MP3 w kontenerze bezstratnym dostaje w quality.analyze
-    grade=bad po dyskryminatorze ciszy nad cięciem (ściana + cyfrowa cisza
-    = transkod; łagodne zbocze z energią = master z lowpassem, w bibliotece
-    to 1/5 legalnych plików). Dzięki temu bramka może jednolicie oblewać
-    tylko „bad": fałszywe FLAC-i odpadają, mastery przechodzą, a stratne
-    „warn" (256 kbps) to niższa półka, nie fałszerstwo.
+    Bramka oblewa „bad”: transkod z MP3/AAC w kontenerze bezstratnym
+    (ściana kodeka z ciszą nad nią i śladami kodeka pod nią — liczone
+    z ramek bez przesteru, więc głośne mastery nie chowają transkodu)
+    albo bardzo słaby plik stratny. „warn” przechodzi: ściana bez śladów
+    kodeka bywa konwersją częstotliwości przy masteringu, a MP3 256 to
+    niższa półka, nie fałszerstwo — takie pliki pokazuje „Sprawdź uchem”.
     """
     rep = quality.analyze(path)
     passed = rep.grade != "bad"
