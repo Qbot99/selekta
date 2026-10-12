@@ -461,6 +461,187 @@ def _model_siatki(n: np.ndarray, t: np.ndarray, dl_s: float) -> dict:
             "zle_okno_s": float(np.interp(zle[0][0], n, t)) if len(zle) >= 2 else None}
 
 
+# ---------------------------------------------------------------- v3: grzebień przez cały utwór
+
+GRZEBIEN_ZAKRES_BPM = 0.15   # wokół prążka tempa — prążek trafia z dokładnością ~0,003–0,05
+GRZEBIEN_KROK_BPM = 0.0005   # 0,0005 BPM = ~1 ms rozjazdu na 5 minutach
+GRZEBIEN_SIGMA_S = 0.002     # stopa „na linii”, gdy leży w ~2 ms od niej
+TOL_INLIER_S = 0.006         # stopa do regresji: ≤ 6 ms od linii
+TOL_OKNA_V3_S = 0.008        # okno 16 bitów trzyma siatkę: |mediana| ≤ 8 ms
+UDZIAL_OKIEN_STALEJ = 0.7    # tyle okien musi trzymać, żeby jedna stała siatka wystarczyła
+MIN_ODCINEK_BITOW = 64       # odcinek ze stałym tempem: co najmniej 16 taktów
+
+
+def _grzebien(t: np.ndarray, w: np.ndarray, bpm_lo: float, bpm_hi: float,
+              krok: float = GRZEBIEN_KROK_BPM, sigma_s: float = GRZEBIEN_SIGMA_S) -> tuple[float, float, float]:
+    """Stałe tempo i faza, przy których najwięcej wagi stóp leży NA liniach — w całym utworze naraz.
+
+    Dla każdego kandydata BPM: histogram faz stóp (koszyki 0,5 ms) wygładzony
+    jądrem Gaussa ±2 ms (kołowo), wynik = najwyższy szczyt. Prawdziwe tempo
+    układa stopy z intra, środka i outra w JEDEN szczyt; tempo o 0,01 obok
+    rozmywa go o ~20 ms na 5 minutach. Nie śledzimy bitów po kolei, więc
+    breakdown bez stopy niczego nie gubi. Zwraca (bpm, faza [s], wynik).
+    """
+    kand = np.arange(bpm_lo, bpm_hi + krok / 2, krok)
+    calk = np.arange(np.ceil(bpm_lo * 2) / 2, bpm_hi + 1e-9, 0.5)       # całkowite i połówkowe zawsze
+    kand = np.unique(np.round(np.concatenate([kand, calk]), 4))
+    best = (-1.0, float(kand[0]), 0.0)
+    for bpm in kand:
+        okres = 60.0 / bpm
+        nb = max(8, int(round(okres / 0.0005)))
+        idx = ((t % okres) / okres * nb).astype(int) % nb
+        h = np.bincount(idx, weights=w, minlength=nb)
+        sig = sigma_s / okres * nb
+        f = np.fft.rfftfreq(nb)
+        hs = np.fft.irfft(np.fft.rfft(h) * np.exp(-2 * (np.pi * f * sig) ** 2), nb)
+        j = int(np.argmax(hs))
+        if hs[j] > best[0]:
+            best = (float(hs[j]), float(bpm), (j + 0.5) / nb * okres)
+    return best[1], best[2], best[0]
+
+
+def _okna_v3(t: np.ndarray, w: np.ndarray, a: float, okres: float, okno: int = OKNO_BITOW):
+    """Mediany odchyłek stóp od linii t = a + n·okres w oknach po `okno` bitów (≥ 6 stóp blisko linii)."""
+    n = np.round((t - a) / okres)
+    r = t - (a + n * okres)
+    blisko = np.abs(r) < 0.15 * okres
+    out = []
+    if not blisko.any():
+        return out
+    n_b, r_b = n[blisko], r[blisko]
+    for start in range(int(n_b.min()), int(n_b.max()) + 1, okno // 2):
+        m = (n_b >= start) & (n_b < start + okno)
+        if m.sum() >= 6:
+            out.append((start, float(np.median(r_b[m]))))
+    return out
+
+
+def _dopasuj_odcinek(t: np.ndarray, w: np.ndarray, bpm_lo: float, bpm_hi: float) -> dict | None:
+    """Stała siatka dla jednego odcinka: grzebień → regresja po stopach na liniach → okna."""
+    if t.size < 16:
+        return None
+    if bpm_hi - bpm_lo > 0.4:
+        # szeroki zakres: najpierw zgrubnie (krok 0,02, jądro 6 ms), potem dokładnie wokół
+        zgr, _f, _w = _grzebien(t, w, bpm_lo, bpm_hi, krok=0.02, sigma_s=0.006)
+        bpm_lo, bpm_hi = zgr - 0.06, zgr + 0.06
+    bpm, faza, _wynik = _grzebien(t, w, bpm_lo, bpm_hi)
+    okres = 60.0 / bpm
+    n = np.round((t - faza) / okres)
+    r = t - (faza + n * okres)
+    moc = w >= 0.2 * float(np.percentile(w, 90))
+    ok = (np.abs(r) <= TOL_INLIER_S) & moc
+    if ok.sum() >= 12 and np.unique(n[ok]).size >= 8:
+        a, b, _ = _regresja(n[ok], t[ok])
+        if not 0.2 < b < 2.0:
+            a, b = faza, okres
+    else:
+        a, b = faza, okres
+    okna = _okna_v3(t[moc], w[moc], a, b)
+    udzial = float(np.mean([abs(v) <= TOL_OKNA_V3_S for _, v in okna])) if okna else 0.0
+    return dict(a=a, okres=b, bpm_dokladne=60.0 / b, okna=okna, udzial=udzial,
+                n_min=int(np.round((t.min() - a) / b)), n_max=int(np.round((t.max() - a) / b)))
+
+
+def _zapis_bpm(bpm_dokl: float) -> float:
+    """BPM do XML-a: całkowite/połówkowe, gdy pomiar leży tuż obok, inaczej 0,01."""
+    for kand in (round(bpm_dokl), round(bpm_dokl * 2) / 2.0):
+        if abs(bpm_dokl - kand) <= 0.002:
+            return float(kand)
+    return round(bpm_dokl, 2)
+
+
+def _znaczniki_odcinka(a: float, okres: float, n_od: int, n_do: int) -> list[tuple[float, float, int]]:
+    """Znaczniki TEMPO jednego odcinka stałego tempa; kotwice, gdy zaokrąglenie BPM by uciekło."""
+    bpm_z = _zapis_bpm(60.0 / okres)
+    blad_na_bit = abs(60.0 / bpm_z - okres)
+    co = (n_do - n_od + 1) if blad_na_bit < 1e-9 else max(OKNO_BITOW, int(ROZJAZD_ZAOKR_S / blad_na_bit))
+    co = max(4, (co // 4) * 4)
+    return [(a + k * okres, float(bpm_z), k) for k in range(n_od, n_do + 1, co)]
+
+
+def _model_v3(t: np.ndarray, w: np.ndarray, bpm: float, dl_s: float) -> dict | None:
+    """Najprostsza siatka, która trzyma stopy przez cały utwór.
+
+    1. Jedna stała siatka z grzebienia (prawie cała muzyka klubowa).
+    2. Gdy za mało okien trzyma: kilka odcinków o stałym tempie (zmiana tempa
+       w trakcie, np. intro 120 → 128), dzielonych tam, gdzie siatka się
+       rozjeżdża — każdy odcinek co najmniej 16 taktów.
+    3. Gdy i to nie trzyma (nagranie na żywo, taśma): siatka dynamiczna jak
+       wcześniej, ale zawsze z prośbą o sprawdzenie uchem.
+    """
+    lo, hi = bpm - GRZEBIEN_ZAKRES_BPM, bpm + GRZEBIEN_ZAKRES_BPM
+    cala = _dopasuj_odcinek(t, w, lo, hi)
+    if cala is None:
+        return None
+    wynik = dict(bpm_dokladne=round(cala["bpm_dokladne"], 4))
+    okna = cala["okna"]
+    if cala["udzial"] >= UDZIAL_OKIEN_STALEJ:
+        zn = _znaczniki_odcinka(cala["a"], cala["okres"], cala["n_min"], cala["n_max"])
+        return {**wynik, "tryb": "stała", "znaczniki": zn, "udzial_na_linii": round(cala["udzial"], 2),
+                "odchylka_ms": round(1000 * float(np.median([abs(v) for _, v in okna])), 1) if okna else None}
+
+    # 2. odcinki stałego tempa: dziel rekurencyjnie tam, gdzie siatka przestaje trzymać
+    def podziel(t_od: float, t_do: float, glebokosc: int) -> list[dict] | None:
+        m = (t >= t_od) & (t < t_do)
+        o = _dopasuj_odcinek(t[m], w[m], bpm * 0.9, bpm * 1.1) if m.sum() >= 32 else None
+        if o is None:
+            return None
+        o.update(t_od=t_od, t_do=t_do)
+        if o["udzial"] >= 0.85 or glebokosc >= 3:
+            return [o]
+        # podział w oknie, gdzie odchyłka zmienia znak trendu najmocniej
+        dl_bitu = o["okres"]
+        if (t_do - t_od) < 2 * MIN_ODCINEK_BITOW * dl_bitu:
+            return [o]
+        najl = None
+        for frac in np.linspace(0.25, 0.75, 11):
+            sr = t_od + frac * (t_do - t_od)
+            if sr - t_od < MIN_ODCINEK_BITOW * dl_bitu or t_do - sr < MIN_ODCINEK_BITOW * dl_bitu:
+                continue
+            ml, mr = (t >= t_od) & (t < sr), (t >= sr) & (t < t_do)
+            L = _dopasuj_odcinek(t[ml], w[ml], bpm * 0.9, bpm * 1.1)
+            R = _dopasuj_odcinek(t[mr], w[mr], bpm * 0.9, bpm * 1.1)
+            if L is None or R is None:
+                continue
+            ocena = (L["udzial"] * (sr - t_od) + R["udzial"] * (t_do - sr)) / (t_do - t_od)
+            if najl is None or ocena > najl[0]:
+                najl = (ocena, sr)
+        if najl is None or najl[0] < o["udzial"] + 0.15:
+            return [o]
+        lewa = podziel(t_od, najl[1], glebokosc + 1)
+        prawa = podziel(najl[1], t_do, glebokosc + 1)
+        return (lewa or []) + (prawa or []) if lewa and prawa else [o]
+
+    odcinki = podziel(float(t.min()) - 1e-3, float(t.max()) + 1e-3, 0) or []
+    if len(odcinki) > 1:
+        wazony = sum(o["udzial"] * (o["t_do"] - o["t_od"]) for o in odcinki) / sum(o["t_do"] - o["t_od"] for o in odcinki)
+        rozne_tempo = max(o["bpm_dokladne"] for o in odcinki) - min(o["bpm_dokladne"] for o in odcinki) > 0.05
+        if wazony >= 0.85 and rozne_tempo:
+            zn: list[tuple[float, float, int]] = []
+            n_bazowy = 0
+            for i, o in enumerate(odcinki):
+                n_od = int(np.ceil((o["t_od"] - o["a"]) / o["okres"] - 1e-9))
+                n_do = int(np.floor((o["t_do"] - o["a"]) / o["okres"]))
+                if i == 0:
+                    n_od = o["n_min"]
+                if i == len(odcinki) - 1:
+                    n_do = o["n_max"]
+                kawalki = _znaczniki_odcinka(o["a"], o["okres"], n_od, max(n_od, n_do))
+                if zn:
+                    # numer bitu ciągły przez granicę: ile bitów poprzedniego tempa do startu odcinka
+                    t_pop, bpm_pop, n_pop = zn[-1]
+                    n_bazowy = n_pop + int(round((kawalki[0][0] - t_pop) / (60.0 / bpm_pop)))
+                else:
+                    n_bazowy = kawalki[0][2]
+                for tz, bz, nz in kawalki:
+                    zn.append((tz, bz, n_bazowy + (nz - kawalki[0][2])))
+            return {**wynik, "tryb": "odcinki", "znaczniki": zn, "udzial_na_linii": round(wazony, 2),
+                    "odchylka_ms": round(1000 * float(np.median([abs(v) for o in odcinki for _, v in o["okna"]])), 1)}
+
+    # 3. ostatnia deska: siatka dynamiczna (dotychczasowy model), zawsze oflagowana
+    return None
+
+
 def _spadek_tonu(x_bas: np.ndarray, sr: int, t: float) -> float:
     """Ile razy częstotliwość dźwięku basowego spada w pierwszych 60 ms po uderzeniu.
 
@@ -586,13 +767,21 @@ def oszacuj(x: np.ndarray, sr: int, bpm_hint: float | None = None,
     else:
         mocne = w >= 0.35 * float(np.percentile(w, 90))
     dl_s = x.size / sr
-    n_b, t_b = _sledz_bity(t_on[mocne], okres, faza)
-    if n_b.size >= 16:
-        model = _model_siatki(n_b, t_b, dl_s)
-    else:                                   # za mało stóp na model — stała siatka z prążka
-        model = {"tryb": "stała", "znaczniki": [(faza, round(bpm, 2), 0)], "bpm_dokladne": None,
-                 "odchylka_ms": None}
-        flaga = flaga or "za mało wyraźnych stóp, żeby sprawdzić siatkę przez cały utwór"
+    # v3: stała siatka z grzebienia po wszystkich stopach naraz (bez śledzenia
+    # bit po bicie, które gubiło się w breakdownach i rozjeżdżało siatkę),
+    # odcinki stałego tempa przy skokowej zmianie, dynamiczna dopiero na końcu
+    model = _model_v3(t_on[mocne], w[mocne], bpm, dl_s) if mocne.sum() >= 16 else None
+    if model is None:
+        n_b, t_b = _sledz_bity(t_on[mocne], okres, faza)
+        if n_b.size >= 16:
+            model = _model_siatki(n_b, t_b, dl_s)
+            if model["tryb"] == "dynamiczna":
+                flaga = flaga or ("tempo zmienia się w trakcie (nagranie na żywo?) — siatka dynamiczna, "
+                                  "sprawdź uchem przejścia")
+        else:                               # za mało stóp na model — stała siatka z prążka
+            model = {"tryb": "stała", "znaczniki": [(faza, round(bpm, 2), 0)], "bpm_dokladne": None,
+                     "odchylka_ms": None}
+            flaga = flaga or "za mało wyraźnych stóp, żeby sprawdzić siatkę przez cały utwór"
     zn = model["znaczniki"]
     bpm = zn[0][1]; okres = 60.0 / bpm
     if model["tryb"] == "dynamiczna" and model.get("zle_okno_s") is not None:
@@ -633,7 +822,9 @@ def oszacuj(x: np.ndarray, sr: int, bpm_hint: float | None = None,
     if spojnosc < PROG_PEWNOSCI and not flaga:
         flaga = "stopa niewyraźna — siatka może leżeć obok, sprawdź uchem"
     opis = (flaga or ("siatka dynamiczna — tempo zmienia się w trakcie, znacznik w każdym takcie"
-                      if model["tryb"] == "dynamiczna" else "siatka na stopie przez cały utwór"))
+                      if model["tryb"] == "dynamiczna" else
+                      f"tempo zmienia się skokowo — {len(zn)} odcinków stałego tempa"
+                      if model["tryb"] == "odcinki" else "siatka na stopie przez cały utwór"))
     return Siatka(bpm=round(float(bpm), 3), first_beat_s=round(float(kotwica), 3),
                   battito=battito0, pewnosc=round(spojnosc, 3),
                   pewnosc_taktu=round(pewnosc_taktu, 2), kickow=kickow, opis=opis,

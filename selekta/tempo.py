@@ -81,6 +81,12 @@ def zbadaj(path: str, bpm: float | None, c: dict | None = None) -> Stabilnosc:
 
 def _opisz(s, bpm: float, dl: float) -> Stabilnosc:
     okien = len(s.znaczniki)
+    if s.tryb == "odcinki":
+        tempa = sorted({round(float(z["bpm"] if isinstance(z, dict) else z[1]), 2) for z in s.znaczniki})
+        return Stabilnosc(stabilne=False, okien=okien,
+                          opis=(f"tempo zmienia się skokowo ({' → '.join(f'{t:g}' for t in tempa)} BPM) — "
+                                f"selekta ustawi {okien} znaczników tempa, każdy odcinek na stopie"
+                                + (f". Sprawdź uchem: {s.flaga}" if s.flaga else "")))
     if s.tryb == "dynamiczna":
         return Stabilnosc(stabilne=False, okien=okien, wahanie_bitu=round((s.odchylka_ms or 0) / 1000 * bpm / 60, 3),
                           opis=(f"tempo faluje — zmienia się w trakcie utworu; selekta ustawi siatkę dynamiczną "
