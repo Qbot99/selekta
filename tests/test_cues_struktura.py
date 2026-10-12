@@ -29,7 +29,10 @@ def _utwor(path, sekcje, wstep_pad_taktow=0):
     stopa, hihat = probka._stopa(SR), probka._hihat(SR, rng)
     okres = 60.0 / BPM
     pad = 0.08 * (np.sin(2 * np.pi * 220 * t) + np.sin(2 * np.pi * 277.2 * t) + np.sin(2 * np.pi * 329.6 * t))
-    bas = 0.35 * np.sign(np.sin(2 * np.pi * 55 * t)) * 0.6
+    # linia basu wyraźnie cichsza od stopy — jak w realnych utworach; przy
+    # tak ustawionym basie stara metoda („bas na stałe” ≤ 250 Hz) uznawała
+    # samą stopę za wejście grooveu i kończyła intro na pierwszym uderzeniu
+    bas = 0.1 * np.sin(2 * np.pi * 55 * t)
     if wstep_pad_taktow:
         a, b = int(START * SR), int(poczatek * SR)
         x[a:b] += pad[a:b]
