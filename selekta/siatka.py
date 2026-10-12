@@ -29,15 +29,12 @@ analizy rekordboxa (pliki ANLZ) — stara siatka w ≤25 ms od rekordboxa
 w 17 przypadkach, ta w 68. Essentia i librosa siadają na hi-hatach tak samo
 jak stary flux, więc nie nadają się tu na arbitra.
 
-ZNANA SŁABOŚĆ: tonalny bas na „i" głośniejszy od stopy co najmniej dwa
-razy (wzorzec syntetyczny L w tests/test_siatka.py) przeciąga siatkę na
-siebie — waga basowa nie odróżnia stopy od twardo zaatakowanego basu.
-Realny przykład z donkiem na „i" (Pegassi — MOAA) wyszedł dobrze, ale
-przy takim materiale sprawdź siatkę uchem.
+Bas na „i” głośniejszy od stopy (hard house) — dawniej znana słabość —
+rozstrzyga spadek tonu: stopa to ton opadający, basowa nuta trzyma wysokość.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -60,6 +57,15 @@ class Siatka:
     pewnosc_taktu: float = 0.0  # przewaga wybranej jedynki nad drugą kandydatką, 0–1
     kickow: int = 0             # ile mocnych stóp policzono
     opis: str = ""
+    # Znaczniki TEMPO dla rekordboxa: [{"t": s, "bpm": x.xx, "battito": 1–4}].
+    # Stała siatka = 1 znacznik (albo kilka kotwiczących, gdy samo zaokrąglenie
+    # BPM do 0,01 rozjechałoby siatkę pod koniec utworu); tempo zmienne = siatka
+    # dynamiczna, znacznik na początku każdego taktu, w którym tempo się zmienia.
+    znaczniki: list = field(default_factory=list)
+    tryb: str = "stała"         # "stała" | "dynamiczna"
+    bpm_dokladne: float | None = None   # z regresji po wszystkich stopach
+    odchylka_ms: float | None = None    # najgorsze okno 16 bitów: mediana |stopa − linia|
+    flaga: str | None = None    # powód „sprawdź uchem” — siatka może nie trzymać
 
 
 # ---------------------------------------------------------------- obwiednie
@@ -85,6 +91,14 @@ def _obwiednia_pasma(x: np.ndarray, sr: int, lo: float, hi: float,
         obw = np.convolve(obw, np.ones(w) / w, mode="same")
     m = (obw.size // krok) * krok
     return obw[:m].reshape(-1, krok).max(axis=1)
+
+
+def _sygnal_pasma(x: np.ndarray, sr: int, lo: float, hi: float) -> np.ndarray:
+    """Sygnał (nie obwiednia) przefiltrowany do [lo, hi] Hz — do liczenia przejść przez zero."""
+    widmo = np.fft.rfft(x)
+    f = np.fft.rfftfreq(x.size, 1.0 / sr)
+    widmo[(f < lo) | (f > hi)] = 0.0
+    return np.fft.irfft(widmo, x.size).astype(np.float32)
 
 
 def _funkcja_onsetow(e: np.ndarray) -> np.ndarray:
@@ -269,6 +283,227 @@ def _jedynka(x: np.ndarray, sr: int, kotwica: float, okres: float,
     return int(kol[0]), pewnosc
 
 
+# ---------------------------------------------------------------- model siatki przez cały utwór
+
+TOL_OKNA_S = 0.005          # siatka „trzyma”, gdy w każdym oknie mediana |stopa − linia| ≤ 5 ms
+OKNO_BITOW = 16             # okno kontroli: 4 takty
+ROZJAZD_ZAOKR_S = 0.002     # ile wolno uciec przez zapis BPM z dokładnością 0,01 w XML
+LAPANIE = 0.10              # stopa liczy się do bitu, gdy leży w ±10 % okresu od przewidywania
+FLAGA_OKNA_S = 0.012        # okno dalej niż tyle od siatki dynamicznej — flaga (2+ takie okna)
+UDZIAL_STALEGO = 0.6        # tyle okien musi leżeć na jednej prostej, żeby tempo uznać za stałe
+
+
+def _regresja(n: np.ndarray, t: np.ndarray) -> tuple[float, float, np.ndarray]:
+    """Odporna prosta t = a + b·n (odrzuca odstające: |reszta| > max(3 ms, 4·MAD))."""
+    maska = np.ones(n.size, dtype=bool)
+    a = b = 0.0
+    for _ in range(6):
+        if maska.sum() < 2:
+            break
+        A = np.vstack([np.ones(int(maska.sum())), n[maska]]).T
+        (a, b), *_ = np.linalg.lstsq(A, t[maska], rcond=None)
+        r = t - (a + b * n)
+        mad = float(np.median(np.abs(r[maska] - np.median(r[maska])))) * 1.4826
+        nowa = np.abs(r) <= max(0.003, 4.0 * mad)
+        if np.array_equal(nowa, maska):
+            break
+        maska = nowa
+    return float(a), float(b), t - (a + b * n)
+
+
+def _okna_odchylek(n: np.ndarray, reszty: np.ndarray, okno: int = OKNO_BITOW) -> list[tuple[int, float]]:
+    """Mediana reszt w oknach po `okno` bitów (z zakładką), tylko okna z ≥ 6 stopami."""
+    out = []
+    if n.size == 0:
+        return out
+    for start in range(int(n.min()), int(n.max()) + 1, okno // 2):
+        m = (n >= start) & (n < start + okno)
+        if m.sum() >= 6:
+            out.append((start, float(np.median(reszty[m]))))
+    return out
+
+
+def _sledz_bity(t_kick: np.ndarray, okres: float, faza: float) -> tuple[np.ndarray, np.ndarray]:
+    """Przypisz mocnym stopom numery bitów, idąc przez utwór z lokalnym tempem.
+
+    Globalne przypisanie (faza + n·okres) zawodzi, gdy tempo pływa (stare
+    nagrania, live) albo BPM jest minimalnie obok — po kilku minutach stopy
+    lądują przy sąsiednim bicie. Tu każdy bit przewidujemy z ostatnich
+    złapanych stóp, więc tracker idzie za muzyką; po przerwie bez stopy
+    (breakdown) szuka jej szerzej, bo tempo mogło się w tym czasie zmienić.
+    Zwraca (numery bitów, czasy) samych stóp, które złapały się na bit.
+    """
+    if t_kick.size < 8:
+        return np.zeros(0, int), np.zeros(0)
+    t_kick = np.sort(t_kick)
+    # start: stopa w najgęstszym miejscu zgodnym z globalną fazą
+    r = (t_kick - faza) / okres
+    na = np.abs(r - np.round(r)) < LAPANIE
+    if not na.any():
+        return np.zeros(0, int), np.zeros(0)
+    i0 = int(np.flatnonzero(na)[na.sum() // 2])
+    n_out, t_out = {0: t_kick[i0]}, None
+
+    def krok(kierunek: int) -> None:
+        ostatnie = [(0, t_kick[i0])]
+        n, t_prev, przerwa = 0, t_kick[i0], 0
+        lokalny = okres
+        while True:
+            n += kierunek
+            przewidywany = t_prev + kierunek * lokalny * (przerwa + 1)
+            if przewidywany < -okres or przewidywany > t_kick[-1] + okres:
+                break
+            zasieg = (LAPANIE if przerwa < 8 else 0.22) * lokalny
+            j = int(np.searchsorted(t_kick, przewidywany))
+            kand = [k for k in (j - 1, j) if 0 <= k < t_kick.size and abs(t_kick[k] - przewidywany) <= zasieg]
+            if not kand:
+                przerwa += 1
+                continue
+            k = min(kand, key=lambda k: abs(t_kick[k] - przewidywany))
+            n_out[n] = t_kick[k]
+            ostatnie.append((n, t_kick[k]))
+            ostatnie = ostatnie[-17:]
+            if len(ostatnie) >= 4:                      # lokalne tempo z ostatnich złapanych stóp
+                nn = np.array([o[0] for o in ostatnie], float); tt = np.array([o[1] for o in ostatnie])
+                lokalny = abs(float(np.polyfit(nn, tt, 1)[0]))
+            t_prev, przerwa = t_kick[k], 0
+
+    krok(+1)
+    krok(-1)
+    nn = np.array(sorted(n_out))
+    return nn, np.array([n_out[k] for k in nn])
+
+
+def _udzial_na_linii(okna: list[tuple[int, float]], tol: float = TOL_OKNA_S) -> float:
+    """Jaka część okien 16-bitowych leży na linii (|mediana| ≤ tol)."""
+    if not okna:
+        return 0.0
+    return float(np.mean([abs(v) <= tol for _, v in okna]))
+
+
+def _model_siatki(n: np.ndarray, t: np.ndarray, dl_s: float) -> dict:
+    """Najprostsza siatka, która trzyma się stóp przez cały utwór.
+
+    STAŁE tempo poznajemy po tym, że większość okien 16-bitowych leży na jednej
+    prostej (zmierzone: reszty 0,1–0,5 ms), a okna odstające to pojedyncze
+    sekcje, po których odchyłka wraca do zera — przefiltrowana stopa w build-upie
+    ma późniejszy atak, ale bit muzyczny jest ten sam (Laherte — Speeding:
+    4 okna po 20 ms, reszta ≤ 0,6 ms). Utwór grany na żywo albo nagranie
+    z taśmy rozjeżdża się NARASTAJĄCO i żadna prosta nie obejmie większości okien.
+
+    Kolejność prób dla stałego tempa: całkowite → połówkowe → 0,01 (z kotwicami,
+    gdy samo zaokrąglenie do 0,01 rozjechałoby siatkę) → siatka dynamiczna.
+    """
+    a, b, reszty = _regresja(n, t)
+    bpm_dokl = 60.0 / b
+    okna = _okna_odchylek(n, reszty)
+    udzial = _udzial_na_linii(okna)
+    wynik = dict(bpm_dokladne=round(bpm_dokl, 4))
+    n_min, n_max = int(n.min()), int(n.max())
+
+    if udzial >= UDZIAL_STALEGO:                        # tempo stałe
+        for kandydat in (round(bpm_dokl), round(bpm_dokl * 2) / 2.0, round(bpm_dokl, 2)):
+            okres = 60.0 / kandydat
+            r_k = t - n * okres
+            a_k = float(np.median(r_k[np.abs(reszty) <= TOL_OKNA_S])) if np.any(np.abs(reszty) <= TOL_OKNA_S) \
+                else float(np.median(r_k))              # kotwica z bitów leżących na linii
+            o_k = _okna_odchylek(n, t - (a_k + n * okres))
+            if _udzial_na_linii(o_k) >= udzial - 0.02:
+                return {**wynik, "tryb": "stała", "znaczniki": [(a_k + n_min * okres, float(kandydat), n_min)],
+                        "odchylka_ms": round(1000 * float(np.median([abs(v) for _, v in o_k])), 1),
+                        "udzial_na_linii": round(_udzial_na_linii(o_k), 2)}
+        # zapis z dokładnością 0,01 rozjeżdża się na długim utworze — kotwice co M bitów
+        bpm2 = round(bpm_dokl, 2)
+        blad_na_bit = abs(60.0 / bpm2 - b)
+        co = max(OKNO_BITOW, int(ROZJAZD_ZAOKR_S / blad_na_bit)) if blad_na_bit > 0 else n_max - n_min + 1
+        co = max(4, (co // 4) * 4)
+        zn = [(a + k * b, float(bpm2), k) for k in range(n_min, n_max + 1, co)]
+        return {**wynik, "tryb": "stała", "znaczniki": zn,
+                "odchylka_ms": round(1000 * float(np.median([abs(v) for _, v in okna])), 1),
+                "udzial_na_linii": round(udzial, 2)}
+
+    # Tempo zmienne: wygładzone tempo (regresja lokalna po ±8 bitach, odporna na
+    # pojedyncze stopy obok), znacznik dopiero tam, gdzie poprzedni przestaje
+    # trafiać — inaczej siatka szłaby za szumem pomiaru, nie za muzyką.
+    pelne = np.arange(n_min, n_max + 1)
+    gladkie = np.empty(pelne.size)
+    for i, nb in enumerate(pelne):
+        m = np.abs(n - nb) <= 8
+        gladkie[i] = np.nan
+        if m.sum() >= 4 and np.unique(n[m]).size >= 3:   # ≥ 3 różne bity — inaczej prosta nieokreślona
+            aa, bb, _ = _regresja(n[m], t[m])
+            if 0.2 < bb < 2.0:                           # okres 30–300 BPM; reszta to zdegenerowany fit
+                gladkie[i] = aa + bb * nb
+    ok = ~np.isnan(gladkie)
+    gladkie = np.interp(pelne, pelne[ok], gladkie[ok]) if ok.any() else np.interp(pelne, n, t)
+    zn: list[tuple[float, float, int]] = []
+    i = 0
+    while i < pelne.size - 4:
+        dt4 = gladkie[i + 4] - gladkie[i]
+        bpm_taktu = round(240.0 / dt4, 2) if dt4 > 0.8 else round(60.0 / b, 2)
+        zn.append((float(gladkie[i]), float(bpm_taktu), int(pelne[i])))
+        okres = 60.0 / bpm_taktu
+        j = i + 4                                       # jak długo ten znacznik trafia?
+        while j + 4 < pelne.size and abs(gladkie[i] + (j + 4 - i) * okres - gladkie[j + 4]) <= ROZJAZD_ZAOKR_S * 2:
+            j += 4
+        i = j
+    linie_n = np.array([z[2] for z in zn])
+    reszty_d = np.empty(n.size)
+    for k, (nk, tk) in enumerate(zip(n, t)):
+        j = max(0, int(np.searchsorted(linie_n, nk, side="right")) - 1)
+        t0, bpm0, n0 = zn[j]
+        reszty_d[k] = tk - (t0 + (nk - n0) * 60.0 / bpm0)
+    o_d = _okna_odchylek(n, reszty_d)
+    zle = [(st, v) for st, v in o_d if abs(v) > FLAGA_OKNA_S]
+    return {**wynik, "tryb": "dynamiczna", "znaczniki": zn,
+            "odchylka_ms": round(1000 * float(np.median([abs(v) for _, v in o_d])), 1) if o_d else None,
+            "udzial_na_linii": round(_udzial_na_linii(o_d), 2),
+            "zle_okno_s": float(np.interp(zle[0][0], n, t)) if len(zle) >= 2 else None}
+
+
+def _spadek_tonu(x_bas: np.ndarray, sr: int, t: float) -> float:
+    """Ile razy częstotliwość dźwięku basowego spada w pierwszych 60 ms po uderzeniu.
+
+    Stopa to ton opadający (ok. 120 → 50 Hz w kilkadziesiąt ms), a basowa nuta
+    na „i” trzyma wysokość. Liczymy przejścia przez zero sygnału 30–250 Hz
+    tuż po ataku i chwilę później.
+    """
+    i = int(t * sr)
+    a, b = x_bas[i + int(0.002 * sr): i + int(0.022 * sr)], x_bas[i + int(0.035 * sr): i + int(0.075 * sr)]
+    if a.size < 10 or b.size < 10:
+        return 1.0
+    za = np.count_nonzero(np.diff(np.signbit(a))) / a.size
+    zb = np.count_nonzero(np.diff(np.signbit(b))) / b.size
+    return float((za + 1e-6) / (zb + 1e-6))
+
+
+def _rozstrzygnij_pol_bitu(t_on, w, x_bas, sr, okres, faza):
+    """Faza stóp czy pół bitu obok? Głos wagi basowej sprawdzony spadkiem tonu.
+
+    Zwraca (faza, flaga): flaga, gdy dowody się kłócą — wtedy NIE zgadujemy
+    po cichu, tylko prosimy o sprawdzenie uchem.
+    """
+    # Kandydaci z OBU faz bez progu siły: przy basie na „i” 4× głośniejszym
+    # od stopy żadna stopa nie mieści się wśród „mocnych” uderzeń utworu.
+    r = (t_on - faza) / okres
+    odl = np.abs(r - np.round(r))
+    z_basem = w > 0.02 * float(np.percentile(w, 90))
+    na_fazie = z_basem & (odl < 0.1)
+    na_pol = z_basem & (np.abs(odl - 0.5) < 0.1)
+    if na_fazie.sum() < 16 or na_pol.sum() < 16:
+        return faza, None                               # brak drugiej kandydatki — nie ma sporu
+    def sredni_spadek(maska):
+        idx = np.flatnonzero(maska)
+        idx = idx[np.argsort(-w[idx])][:120]
+        return float(np.median([_spadek_tonu(x_bas, sr, float(t_on[i])) for i in idx]))
+    s_faza, s_pol = sredni_spadek(na_fazie), sredni_spadek(na_pol)
+    if s_pol > 1.15 * s_faza and s_pol > 1.2:
+        return (faza + okres / 2) % okres, None         # stopa jest na „i” obecnej fazy — przesuwamy
+    if s_faza < 1.1 and s_pol < 1.1:
+        return faza, "nie da się odróżnić stopy od basu na „i” — sprawdź siatkę uchem"
+    return faza, None
+
+
 def battito_dla(b: int) -> int:
     """Numer bitu (1–4) kotwicy, gdy jedynki leżą na indeksach ≡ b (mod 4)."""
     return (4 - b) % 4 + 1
@@ -299,38 +534,79 @@ def oszacuj(x: np.ndarray, sr: int, bpm_hint: float | None = None,
     okres = 60.0 / bpm
     faza, spojnosc = _faza(t_on, w, okres)
     # Przy słabej spójności (breakdowny, sekcje z przesuniętą stopą) prążek
-    # bywa o kilka setnych obok: 154,96 zamiast 155. Precyzja pomiaru maleje
-    # z pewnością, więc i tolerancja snapu rośnie — hard techno o 154,96 BPM
-    # nie istnieje, a 0,04 BPM to 8 ms rozjazdu na końcu 5-minutowego utworu.
+    # bywa o kilka setnych obok: 154,96 zamiast 155 — dalej i tak decyduje
+    # regresja po stopach z całego utworu, a ta podpowiedź tylko ustawia start.
     if spojnosc < 0.5:
         snap = _snap(bpm, SNAP_BPM_NIEPEWNE)
         if snap != bpm:
             bpm, okres = snap, 60.0 / snap
             faza, spojnosc = _faza(t_on, w, okres)
 
-    # Fazę wyznaczyły stopy; kotwicą jest natomiast PIERWSZY słyszalny bit
-    # na tej siatce po początku muzyki — także w filtrowanym intrze, gdzie
-    # stopa nie ma jeszcze basu (Odymel — Gucci: bity od 9 s, pełna stopa
-    # dopiero od 16 s). Zapas: pierwsza mocna stopa, potem najmocniejsza.
+    # Pół bitu obok? Waga basu bywa oszukana przez głośny bas na „i” —
+    # sprawdzamy, czy na wybranej fazie leży opadający ton stopy.
+    x_bas = _sygnal_pasma(x, sr, 30.0, 250.0)
+    faza, flaga = _rozstrzygnij_pol_bitu(t_on, w, x_bas, sr, okres, faza)
+    del x_bas
+
+    # Stopy = mocne uderzenia BLISKO wybranej fazy (próg względem nich samych):
+    # gdy bas na „i” jest głośniejszy, najmocniejsze uderzenia utworu to bas.
     r = (t_on - faza) / okres
+    blisko = np.abs(r - np.round(r)) < 0.2
+    if blisko.sum() >= 16:
+        mocne = blisko & (w >= 0.35 * float(np.percentile(w[blisko], 90)))
+    else:
+        mocne = w >= 0.35 * float(np.percentile(w, 90))
+    dl_s = x.size / sr
+    n_b, t_b = _sledz_bity(t_on[mocne], okres, faza)
+    if n_b.size >= 16:
+        model = _model_siatki(n_b, t_b, dl_s)
+    else:                                   # za mało stóp na model — stała siatka z prążka
+        model = {"tryb": "stała", "znaczniki": [(faza, round(bpm, 2), 0)], "bpm_dokladne": None,
+                 "odchylka_ms": None}
+        flaga = flaga or "za mało wyraźnych stóp, żeby sprawdzić siatkę przez cały utwór"
+    zn = model["znaczniki"]
+    bpm = zn[0][1]; okres = 60.0 / bpm
+    if model["tryb"] == "dynamiczna" and model.get("zle_okno_s") is not None:
+        m, s_ = divmod(int(model["zle_okno_s"]), 60)
+        flaga = flaga or f"siatka nie trzyma się stóp ok. {m}:{s_:02d} — sprawdź uchem"
+
+    # Kotwicą jest PIERWSZY słyszalny bit na tej siatce po początku muzyki —
+    # także w filtrowanym intrze, gdzie stopa nie ma jeszcze basu (Odymel —
+    # Gucci: bity od 9 s, pełna stopa dopiero od 16 s).
+    t0, _b0, n0 = zn[0]
+    faza0 = t0 % okres
+    r = (t_on - faza0) / okres
     na_siatce = np.abs((r - np.round(r)) * okres) < 0.08 * okres
     po_starcie = t_on >= max(0.0, od_s - 0.05)
     slyszalne = s_on >= 0.3 * float(np.median(s_on[na_siatce])) if na_siatce.any() else s_on > 0
-    mocne = w >= 0.35 * float(np.percentile(w, 90))
     for maska in (na_siatce & po_starcie & slyszalne, na_siatce & mocne):
         if maska.any():
             pierwszy = float(t_on[maska][0])
             break
     else:
         pierwszy = float(t_on[int(np.argmax(w))])
-    kotwica = faza + np.round((pierwszy - faza) / okres) * okres
+    kotwica = faza0 + np.round((pierwszy - faza0) / okres) * okres
     while kotwica < 0:
         kotwica += okres
+    if kotwica > t0 + 1e-6 and len(zn) > 1:
+        kotwica = t0                        # siatka dynamiczna zaczyna się od pierwszego znacznika
+    n_kotwicy = n0 + int(round((kotwica - t0) / okres))
 
     b, pewnosc_taktu = _jedynka(x, sr, kotwica, okres, e_low, fps)
+    battito0 = battito_dla(b)
+    znaczniki = []
+    for i, (tz, bz, nz) in enumerate(zn):
+        tz = kotwica if i == 0 else tz
+        nz = n_kotwicy if i == 0 else nz
+        znaczniki.append({"t": round(float(tz), 4), "bpm": float(bz),
+                          "battito": (battito0 - 1 + (nz - n_kotwicy)) % 4 + 1})
     kickow = int(mocne.sum())
-    opis = ("siatka na stopie" if spojnosc >= PROG_PEWNOSCI
-            else "stopa niewyraźna — siatka może leżeć obok, sprawdź uchem")
-    return Siatka(bpm=round(bpm, 3), first_beat_s=round(float(kotwica), 3),
-                  battito=battito_dla(b), pewnosc=round(spojnosc, 3),
-                  pewnosc_taktu=round(pewnosc_taktu, 2), kickow=kickow, opis=opis)
+    if spojnosc < PROG_PEWNOSCI and not flaga:
+        flaga = "stopa niewyraźna — siatka może leżeć obok, sprawdź uchem"
+    opis = (flaga or ("siatka dynamiczna — tempo zmienia się w trakcie, znacznik w każdym takcie"
+                      if model["tryb"] == "dynamiczna" else "siatka na stopie przez cały utwór"))
+    return Siatka(bpm=round(float(bpm), 3), first_beat_s=round(float(kotwica), 3),
+                  battito=battito0, pewnosc=round(spojnosc, 3),
+                  pewnosc_taktu=round(pewnosc_taktu, 2), kickow=kickow, opis=opis,
+                  znaczniki=znaczniki, tryb=model["tryb"], bpm_dokladne=model.get("bpm_dokladne"),
+                  odchylka_ms=model.get("odchylka_ms"), flaga=flaga)

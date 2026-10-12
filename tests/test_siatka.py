@@ -171,9 +171,8 @@ class TestWersjaPamieci:
         assert cache.WERSJE["cues"] >= 3
 
 
-class TestZnaneSlabosci:
-    """Udokumentowane granice metody — test ma PAŚĆ, gdy granica zniknie
-    (strict xfail), żeby ktoś nie zostawił nieaktualnej dokumentacji."""
+class TestBasNaI:
+    """Bas na „i” (hard house) — kiedyś granica metody, teraz rozstrzygana spadkiem tonu stopy."""
 
     def _offbeat_bass(self, path: str, bpm: float, t0: float, poziom: float, sekund: float = 60.0) -> str:
         import wave, struct
@@ -200,8 +199,11 @@ class TestZnaneSlabosci:
         s = siatka.oszacuj(_dekoduj(p), SR, bpm_hint=135.0)
         assert _blad_fazy_ms(s.first_beat_s, 0.31, 135.0) < 8.0
 
-    @pytest.mark.xfail(strict=True, reason="znana słabość: tonalny bas na „i” ≥2× głośniejszy od stopy przeciąga siatkę")
-    def test_bas_na_i_dwa_razy_glosniejszy(self, tmp_path):
-        p = self._offbeat_bass(str(tmp_path / "b2.wav"), 135.0, 0.31, 2.0)
+    @pytest.mark.parametrize("poziom", [2.0, 4.0])
+    def test_glosny_bas_na_i_nie_przeciaga_siatki(self, tmp_path, poziom):
+        """Dawniej znana słabość (do 0.4.2): bas na „i” ≥2× głośniejszy od stopy
+        przeciągał siatkę o pół bitu. Rozstrzyga spadek tonu: stopa opada
+        (120 → 50 Hz), basowa nuta trzyma wysokość."""
+        p = self._offbeat_bass(str(tmp_path / f"b{poziom}.wav"), 135.0, 0.31, poziom)
         s = siatka.oszacuj(_dekoduj(p), SR, bpm_hint=135.0)
         assert _blad_fazy_ms(s.first_beat_s, 0.31, 135.0) < 8.0

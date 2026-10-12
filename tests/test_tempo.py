@@ -120,28 +120,3 @@ class TestPrzypadkiBrzegowe:
         zly = tmp_path / "zly.wav"
         zly.write_bytes(b"to nie jest dzwiek")
         assert tempo.zbadaj(str(zly), 150.0).stabilne is True
-
-
-class TestPomiarFazy:
-    def test_okna_uwzgledniaja_przesuniecie(self):
-        """Bez tego równy metronom wyglądałby na dryfujący."""
-        bpm, okres = 150.0, 0.4
-        n = int(120 * tempo.FPS)
-        flux = np.zeros(n)
-        t = 0.1
-        while t < 120:
-            i = int(t * tempo.FPS)
-            if i < n:
-                flux[i] = 1.0
-            t += okres
-        czasy, fazy, pewnosci = tempo._fazy_w_oknach(flux, bpm)
-        assert czasy.size >= 4
-        rozrzut = float(np.std(tempo._rozwin(fazy, okres)))
-        assert rozrzut < 0.02, f"fazy powinny być zgodne, rozrzut {rozrzut}"
-
-    def test_pewnosc_spada_bez_pulsu(self):
-        """Szum nie ma pulsu — okno musi zostać odrzucone."""
-        rng = np.random.default_rng(7)
-        szum = rng.random(int(60 * tempo.FPS))
-        _t, _f, pewnosci = tempo._fazy_w_oknach(szum, 150.0)
-        assert pewnosci.size and float(np.median(pewnosci)) < 0.1

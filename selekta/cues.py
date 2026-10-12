@@ -79,6 +79,13 @@ class Cues:
     bpm_siatki: float | None = None      # BPM dostrojone do stopy (całkowite, gdy tak wychodzi)
     pewnosc_siatki: float | None = None  # spójność kicków z siatką, 0–1
     pewnosc_taktu: float | None = None   # przewaga jedynki taktu nad drugą kandydatką, 0–1
+    # znaczniki TEMPO dla rekordboxa [{"t","bpm","battito"}] — stała siatka = 1 znacznik,
+    # tempo zmienne = siatka dynamiczna; flaga = powód, żeby sprawdzić siatkę uchem
+    znaczniki: list | None = None
+    tryb_siatki: str | None = None
+    flaga_siatki: str | None = None
+    odchylka_siatki_ms: float | None = None
+    bpm_dokladne: float | None = None
 
 
 # ---------------------------------------------------------------- dekodowanie
@@ -395,6 +402,11 @@ def analyze(path: str, bpm: float | None = None) -> Cues:
         bpm_siatki=s.bpm if s else None,
         pewnosc_siatki=s.pewnosc if s else None,
         pewnosc_taktu=s.pewnosc_taktu if s else None,
+        znaczniki=s.znaczniki if s else None,
+        tryb_siatki=s.tryb if s else None,
+        flaga_siatki=s.flaga if s else None,
+        odchylka_siatki_ms=s.odchylka_ms if s else None,
+        bpm_dokladne=s.bpm_dokladne if s else None,
     )
 
 

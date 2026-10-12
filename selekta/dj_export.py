@@ -177,6 +177,19 @@ def _location_url(path: str) -> str:
     return "file://localhost" + quote(os.path.abspath(path), safe="/")
 
 
+def _znaczniki_tempa(raw) -> list[dict]:
+    """Poprawne znaczniki TEMPO z analizy (czas ≥ 0, BPM 40–250, battito 1–4), rosnąco w czasie."""
+    out = []
+    for z in raw or []:
+        try:
+            t, b, bt = float(z["t"]), float(z["bpm"]), int(z.get("battito") or 1)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if t >= 0 and 40 <= b <= 250 and 1 <= bt <= 4:
+            out.append({"t": t, "bpm": b, "battito": bt})
+    return sorted(out, key=lambda z: z["t"])
+
+
 def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> str:
     """Write a rekordbox DJ_PLAYLISTS 1.0.0 XML with one playlist; return out_path.
 
@@ -217,8 +230,17 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
         # swojemu i sam ustawia kotwicę — a wtedy nasze wyliczenie pierwszego
         # uderzenia przepada. Inizio to moment pierwszego bitu w sekundach,
         # Battito=1 oznacza „to jest pierwsza miara taktu".
+        # Kilka znaczników TEMPO: siatka dynamiczna (tempo zmienia się w trakcie)
+        # albo kotwice co kilkadziesiąt taktów, gdy samo zaokrąglenie BPM do
+        # 0,01 rozjechałoby stałą siatkę pod koniec utworu. Każdy znacznik
+        # zaczyna siatkę od nowa w swoim miejscu, z własnym numerem bitu w takcie.
+        siatka_zn = _znaczniki_tempa(track.get("siatka_znaczniki"))
         first_beat = _czas_lub_none(track.get("first_beat_s"))
-        if bpm and first_beat is not None:
+        if bpm and siatka_zn:
+            for z in siatka_zn:
+                ET.SubElement(el, "TEMPO", Inizio=f"{z['t']:.3f}", Bpm=f"{z['bpm']:.2f}",
+                              Metro="4/4", Battito=str(z['battito']))
+        elif bpm and first_beat is not None:
             try:
                 battito = int(track.get("battito") or 1)
             except (TypeError, ValueError):
@@ -399,6 +421,13 @@ def wzbogac_o_siatke(tracks: list[dict]) -> list[dict]:
         elif (c.get("bpm_siatki")
               and (c.get("pewnosc_siatki") or 0) >= siatka.PROG_PEWNOSCI):
             t["bpm"] = c["bpm_siatki"]
+        # Pełna siatka z analizy (wiele znaczników) — tylko gdy kotwica i BPM są
+        # nasze; ręczna poprawka w selekcie albo siatka z rekordboxa wygrywają.
+        if (reczna.get("first_beat_s") is None and rb.get("first_beat_s") is None
+                and c.get("znaczniki") and (c.get("pewnosc_siatki") or 0) >= siatka.PROG_PEWNOSCI):
+            t["siatka_znaczniki"] = c["znaczniki"]
+            if c.get("bpm_dokladne"):
+                t["bpm"] = round(float(c["bpm_dokladne"]), 2) if len(c["znaczniki"]) > 1 else c["znaczniki"][0]["bpm"]
         # Ręczna praca z rekordboxa przechodzi dalej nietknięta.
         if rb:
             t["znaczniki"] = rb.get("znaczniki") or []
