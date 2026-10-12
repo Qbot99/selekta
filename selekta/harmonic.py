@@ -58,7 +58,7 @@ AC_UP = 16            # upsampling autokorelacji (gładka interpolacja opóźnie
 
 # Key stage (tonacja v3, październik 2026 — opis w docstringu _key_from_signal)
 K_SR = 11025          # tonacja: osobne dekodowanie CAŁEGO utworu (do K_MAX_S)
-K_MAX_S = 600.0       # dłuższe pliki (sety, miksy): środkowe 10 minut
+K_MAX_S = 480.0       # dłuższe pliki (sety, miksy): środkowe 8 minut (~21 MB próbek)
 K_NFFT = 8192         # 0,74 s okna -> 1,35 Hz: półtony rozdzielone już od ~40 Hz
 K_HOP = 4096
 K_MIDI_MIN = 24       # C1 (32,7 Hz)
@@ -220,21 +220,24 @@ def _bpm_from_signal(x: np.ndarray) -> tuple[float, float]:
 # ---------------------------------------------------------------- key
 
 def _strojenie_sygnalu(x: np.ndarray, sr: int) -> float:
-    """Odchyłka stroju nagrania od A=440 Hz w półtonach (-0,5..0,5).
+    """Odchyłka stroju nagrania od A=440 Hz w półtonach (-0,5..0,5)."""
+    n_fft = K_NFFT * max(1, int(round(sr / K_SR)))
+    hop = K_HOP * max(1, int(round(sr / K_SR)))
+    return _strojenie_z_widma(_ramki_widma(x, n_fft, hop), sr, n_fft)
 
-    Szczyty widma 100-2000 Hz, częstotliwość doprecyzowana interpolacją
+
+def _strojenie_z_widma(paczki, sr: int, n_fft: int) -> float:
+    """Szczyty widma 100-2000 Hz, częstotliwość doprecyzowana interpolacją
     paraboliczną, odchyłki od siatki półtonów uśrednione kołowo (waga =
     amplituda szczytu). W korpusie (październik 2026) mediana to -7 ct,
     a kilkanaście utworów (bootlegi, stare płyty) jest przestrojonych o
     20-45 ct — przy 45 ct nuty leżą w połowie między półtonami.
     """
-    n_fft = K_NFFT * max(1, int(round(sr / K_SR)))
-    hop = n_fft // 2
     f = np.fft.rfftfreq(n_fft, 1.0 / sr)
     band = np.flatnonzero((f >= 100.0) & (f <= 2000.0))
     lo, hi = int(band[0]), int(band[-1])
     z = 0j
-    for mags in _ramki_widma(x, n_fft, hop):
+    for mags in paczki:
         mb = mags[:, lo - 1:hi + 2]
         lg = np.log(mb + 1e-9)
         c = lg[:, 1:-1]
@@ -253,8 +256,8 @@ def _ramki_widma(x: np.ndarray, n_fft: int, hop: int):
     całych utworach)."""
     win = np.hanning(n_fft).astype(np.float32)
     n = (len(x) - n_fft) // hop
-    for a in range(0, max(n, 0), 256):
-        b = min(n, a + 256)
+    for a in range(0, max(n, 0), 128):
+        b = min(n, a + 128)
         idx = np.arange(n_fft)[None, :] + hop * np.arange(a, b)[:, None]
         yield np.abs(np.fft.rfft(x[idx] * win, axis=1))
 
@@ -304,8 +307,10 @@ def _chroma_bas_srodek(x: np.ndarray, sr: int = K_SR) -> tuple[np.ndarray, np.nd
     5. suma aktywacji nut po całym utworze, osobno bas i środek.
     """
     n_fft = K_NFFT * max(1, int(round(sr / K_SR)))
-    hop = n_fft // 2
-    dev = _strojenie_sygnalu(x, sr)
+    hop = K_HOP * max(1, int(round(sr / K_SR)))
+    # dwa przebiegi po paczkach klatek zamiast trzymania całego widma
+    # w pamięci (oszczędność RAM kosztem ~0,3 s na utwór)
+    dev = _strojenie_z_widma(_ramki_widma(x, n_fft, hop), sr, n_fft)
     f = np.fft.rfftfreq(n_fft, 1.0 / sr)
     with np.errstate(divide="ignore"):
         m = 69.0 + 12.0 * np.log2(np.maximum(f, 1e-9) / 440.0) - dev
