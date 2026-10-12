@@ -61,14 +61,21 @@ def _compute_gain(integrated_lufs: float, true_peak_dbtp: float) -> float:
 
     ``gain = -18 - integrated``, następnie przycięta tak, aby
     ``true_peak + gain <= -1 dBTP`` (brak przesteru po podbiciu).
-    Gdy pomiar się nie powiódł (NaN), zwraca 0.0 — brak korekty.
+    Gdy pomiaru nie ma — NaN (błąd dekodowania) albo -inf (cisza, plik
+    krótszy niż okno pomiaru 0,4 s) — zwraca 0.0: brak korekty. Bez tego
+    cisza dostawała „+inf dB”, a plik 0,15 s +17 dB policzone z samego szczytu.
     """
-    if math.isnan(integrated_lufs):
+    if not math.isfinite(integrated_lufs):
         return 0.0
     gain = TARGET_LUFS - integrated_lufs
-    if not math.isnan(true_peak_dbtp):
+    if math.isfinite(true_peak_dbtp):
         gain = min(gain, PEAK_CEILING_DBTP - true_peak_dbtp)
     return gain
+
+
+def zmierzono(l: "Loudness") -> bool:
+    """Czy pomiar nadaje się do korekty (skończona głośność i szczyt)."""
+    return math.isfinite(l.integrated_lufs) and math.isfinite(l.true_peak_dbtp)
 
 
 def true_peak_linear(l: Loudness) -> float:
@@ -126,9 +133,10 @@ def write_tags(path: str, l: Loudness) -> None:
       rekordbox i Mixxx).
 
     Zapisuje wyłącznie te dwa pola — pozostałe tagi zostają nietknięte.
-    Przy nieudanym pomiarze (NaN) nie zapisuje nic.
+    Przy nieudanym pomiarze (NaN, cisza = -inf) nie zapisuje nic — tag
+    „+inf dB” psuł odtwarzacze czytające ReplayGain.
     """
-    if math.isnan(l.gain_db) or math.isnan(l.true_peak_dbtp):
+    if not zmierzono(l) or not math.isfinite(l.gain_db):
         return
     gain_s = f"{l.gain_db:+.2f} dB"
     peak_s = f"{true_peak_linear(l):.6f}"
@@ -170,6 +178,8 @@ def format_report(l: Loudness) -> str:
     """Jednolinijkowe podsumowanie pomiaru po polsku."""
     if math.isnan(l.integrated_lufs):
         return "głośność: błąd dekodowania — brak pomiaru"
+    if not math.isfinite(l.integrated_lufs):
+        return "głośność: cisza albo plik za krótki do pomiaru — bez korekty"
     return (
         f"głośność {l.integrated_lufs:+.1f} LUFS | "
         f"true peak {l.true_peak_dbtp:+.1f} dBTP | "

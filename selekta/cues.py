@@ -17,10 +17,12 @@ Punkty czasowe:
 
   * first_beat_s  — pierwszy wyraźny onset po ciszy/fade-inie; przy podanym
     BPM dociągany do najbliższego silnego transientu w obrębie jednego bitu.
-  * intro_end_s   — pierwsza chwila, od której energia basu utrzymuje się
-    trwale (stopa+bas na stałe), czyli wejście głównego grooveu.
-  * outro_start_s — ostatnia chwila pełnej energii; po niej aranżacja już
-    trwale opada (wyjście do miksu).
+  * intro_end_s   — pierwsza granica frazy (co 4 takty od jedynki), na której
+    coś wchodzi (bas, melodia, wyraźny skok w którymś paśmie); bez tempa —
+    chwila, od której energia basu utrzymuje się trwale.
+  * outro_start_s — ostatnia granica frazy w drugiej połowie, za którą coś
+    odchodzi albo przed którą jest przejście; bez tempa — koniec ostatniego
+    trwałego odcinka pełnej energii.
   * drop_s        — największy skok energii poprzedzony wcześniejszym
     spadkiem (breakdown -> drop); None, gdy brak wyraźnego.
 
@@ -284,6 +286,113 @@ def _intro_end(low: np.ndarray, start: int) -> int:
     return start
 
 
+# ---------------------------------------------------------------- struktura na siatce fraz
+#
+# Koniec intra i początek outra wypadają na granicach fraz (wielokrotności
+# 4 taktów od jedynki) — tak liczy je rekordbox i tak gra DJ. Zamiast
+# szukać „basu na stałe” (stopa też jest basem, więc intro z samą stopą
+# kończyło się na pierwszym uderzeniu: 3/4 wzorców i 26/73 realnych
+# utworów w przeglądzie 0.4.2) porównujemy całe takty: poziom w pięciu
+# pasmach, poziom całości i „bas trwały” (25. percentyl pasma < 120 Hz —
+# stopa między uderzeniami cichnie, linia basu nie).
+#
+# Strojone na 19 utworach speeding z frazami rekordboxa (PSSI), sprawdzane
+# na 32 innych (raport napraw): intro ±4 s 5/19 → 13/19 (strojenie),
+# 16/32 → 20/32 (kontrola); outro 3/19 → 13/19, 8/31 → 16/31.
+
+_PASMA = {"sub": (0.0, 120.0), "low": (0.0, 250.0), "lowmid": (250.0, 1000.0),
+          "mid": (1000.0, 3000.0), "high": (3000.0, SR / 2.0)}
+NOWOSC_DB = 1.5          # zmiana mediany 2 taktów w którymkolwiek paśmie
+OKNO_TAKTOW = 2
+WSTEP_MIN_TAKTOW = 2     # tyle taktów grania przed pierwszą jedynką = intro bez stopy
+INTRO_MAX_TAKTOW = 32
+PRZEJSCIE_DB = 3.0       # takt ciszej o tyle przed granicą = przejście (fill) przed outrem
+OUTRO_MIN_TAKTOW = 4
+
+
+def _pasma(x: np.ndarray) -> dict[str, np.ndarray]:
+    """Moc na klatkę w pasmach do porównywania taktów."""
+    mags = _stft_mags(x, N_FFT, HOP)
+    freqs = np.fft.rfftfreq(N_FFT, 1.0 / SR)
+    moc = mags ** 2
+    out = {k: moc[:, (freqs > lo) & (freqs <= hi)].sum(axis=1) if lo > 0
+           else moc[:, freqs <= hi].sum(axis=1) for k, (lo, hi) in _PASMA.items()}
+    out["total"] = moc.sum(axis=1)
+    return out
+
+
+def _takty(pasma: dict, first_beat_s: float, bpm: float, battito: int):
+    """Cechy taktów (dB) od pierwszej jedynki — także przed nią, dopóki gra.
+
+    Zwraca (początki taktów [s], macierz cech, indeks taktu z jedynką, jedynka [s]).
+    """
+    okres = 60.0 / bpm
+    takt = 4 * okres
+    d0 = first_beat_s + ((1 - int(battito or 1)) % 4) * okres
+    tot = pasma["total"]
+    czas = tot.size / FPS
+    p5, p60 = np.percentile(tot, 5), np.percentile(tot, 60)
+    prog = p5 + 0.02 * (p60 - p5)
+    k0 = 0
+    while d0 + (k0 - 1) * takt >= 0:
+        a, b = int(round((d0 + (k0 - 1) * takt) * FPS)), int(round((d0 + k0 * takt) * FPS))
+        if b <= a or tot[a:b].mean() <= prog:
+            break
+        k0 -= 1
+    starty = d0 + np.arange(k0, int((czas - d0) / takt)) * takt
+    klucze = ("sub", "low", "lowmid", "mid", "high", "total")
+    F = np.zeros((len(starty), len(klucze) + 1))
+    for i, t in enumerate(starty):
+        a, b = int(round(t * FPS)), max(int(round((t + takt) * FPS)), int(round(t * FPS)) + 1)
+        for j, k in enumerate(klucze):
+            F[i, j] = 10 * np.log10(pasma[k][a:b].mean() + 1e-12)
+        F[i, -1] = 10 * np.log10(np.percentile(pasma["sub"][a:b], 25) + 1e-12)   # bas trwały
+    return starty, F, -k0, d0
+
+
+def _zmiana(F: np.ndarray, c: int, okno: int) -> np.ndarray | None:
+    przed, po = F[max(0, c - okno):c], F[c:c + okno]
+    if len(po) < okno or len(przed) == 0:
+        return None
+    return np.median(po, axis=0) - np.median(przed, axis=0)
+
+
+def _intro_end_frazy(pasma: dict, first_beat_s: float, bpm: float, battito: int) -> float:
+    """Koniec intra [s]: pierwsza granica frazy, na której coś wchodzi.
+
+    Kandydaci: pierwsza jedynka (gdy przed nią gra już coś bez stopy — wtedy
+    to jest intro) i co 4 takty dalej, do 32 taktów i 45 % utworu. Gdy nic
+    wyraźnie nie wchodzi, utwór nie ma intra — zwracamy pierwszą jedynkę.
+    """
+    starty, F, i0, d0 = _takty(pasma, first_beat_s, bpm, battito)
+    if len(starty) < i0 + 2 * OKNO_TAKTOW:
+        return d0
+    limit = min(i0 + INTRO_MAX_TAKTOW, int(len(starty) * 0.45))
+    kandydaci = ([i0] if i0 >= WSTEP_MIN_TAKTOW else []) + list(range(i0 + 4, limit + 1, 4))
+    for c in kandydaci:
+        z = _zmiana(F, c, OKNO_TAKTOW)
+        if z is not None and float(z.max()) >= NOWOSC_DB:
+            return float(starty[c])
+    return float(d0)
+
+
+def _outro_start_frazy(pasma: dict, first_beat_s: float, bpm: float, battito: int) -> float | None:
+    """Początek outra [s]: ostatnia granica frazy w drugiej połowie utworu,
+    za którą coś wyraźnie odchodzi albo przed którą jest przejście (takt
+    ciszej o 3 dB, po nim powrót) — co najmniej 4 takty przed końcem."""
+    starty, F, i0, _ = _takty(pasma, first_beat_s, bpm, battito)
+    n = len(starty)
+    czas = pasma["total"].size / FPS
+    kandydaci = [c for c in range(i0 + 4, n - OUTRO_MIN_TAKTOW + 1, 4) if starty[c] >= 0.5 * czas]
+    for c in reversed(kandydaci):
+        z = _zmiana(F, c, OKNO_TAKTOW)
+        przejscie = (c >= 5 and F[c - 1, 5] <= np.median(F[c - 5:c - 1, 5]) - PRZEJSCIE_DB
+                     and F[c, 5] >= F[c - 1, 5] + PRZEJSCIE_DB / 2)
+        if (z is not None and float(z.min()) <= -NOWOSC_DB) or przejscie:
+            return float(starty[c])
+    return None
+
+
 def _outro_start(total: np.ndarray, end_limit: int) -> int:
     """Klatka, od której energia trwale opada (początek outra)."""
     tot_s = _smooth(total, SMOOTH_S)
@@ -371,6 +480,16 @@ def analyze(path: str, bpm: float | None = None) -> Cues:
     intro_end = ie / FPS
     outro_start = os_ / FPS
     drop = (dr / FPS) if dr is not None else None
+    # Przy znanym tempie intro i outro liczymy na siatce fraz (patrz wyżej);
+    # stare obwiedniowe wartości zostają tylko jako zapas bez tempa.
+    bpm_frazy = (s.bpm if s is not None and s.bpm else bpm)
+    if bpm_frazy and bpm_frazy > 0:
+        pasma = _pasma(x)
+        battito = s.battito if s is not None else 1
+        intro_end = _intro_end_frazy(pasma, first_beat, bpm_frazy, battito)
+        o = _outro_start_frazy(pasma, first_beat, bpm_frazy, battito)
+        if o is not None:
+            outro_start = o
 
     # porządkowanie: 0 <= first_beat < intro_end < outro_start < duration
     first_beat = max(0.0, min(first_beat, duration))

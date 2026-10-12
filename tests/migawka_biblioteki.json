@@ -4,7 +4,7 @@
   "camelot": "3A",
   "cutoff_hz": 24100.0,
   "first_beat_s": 1.978,
-  "grade": "ok",
+  "grade": "warn",
   "lufs": -13.99,
   "tempo_stabilne": true
  },
@@ -58,7 +58,7 @@
   "camelot": "1A",
   "cutoff_hz": 20700.0,
   "first_beat_s": 0.404,
-  "grade": "warn",
+  "grade": "ok",
   "lufs": -8.41,
   "tempo_stabilne": true
  },
@@ -76,7 +76,7 @@
   "camelot": "2A",
   "cutoff_hz": 20100.0,
   "first_beat_s": 0.01,
-  "grade": "warn",
+  "grade": "bad",
   "lufs": -9.21,
   "tempo_stabilne": false
  },

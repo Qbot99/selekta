@@ -46,11 +46,48 @@ def test_put_get_roundtrip(audio_file):
     assert entry["data"] == data
 
 
-def test_get_none_after_mtime_change(audio_file):
+def test_touch_does_not_invalidate(audio_file):
+    """Klucz z treści: sama zmiana daty nie zmienia dźwięku ani wyniku."""
     cache.put(audio_file, "harmonic", {"bpm": 146.0})
-    assert cache.get(audio_file, "harmonic") is not None
-    os.utime(audio_file, (1_000_000_000, 1_000_000_000))   # "podmiana" pliku
-    assert cache.get(audio_file, "harmonic") is None
+    os.utime(audio_file, (1_000_000_000, 1_000_000_000))
+    assert cache.get(audio_file, "harmonic") == {"bpm": 146.0}
+
+
+def test_same_size_and_mtime_other_content_is_miss(audio_file):
+    """Przegląd 0.4.2: podmiana treści przy tym samym rozmiarze i dacie
+    zwracała stary wynik."""
+    cache.put(audio_file, "quality", {"grade": "ok"})
+    st = os.stat(audio_file)
+    with open(audio_file, "r+b") as fh:
+        fh.seek(40)
+        fh.write(b"\x01\x02\x03")
+    os.utime(audio_file, ns=(st.st_atime_ns, st.st_mtime_ns))
+    assert os.stat(audio_file).st_size == st.st_size
+    assert cache.get(audio_file, "quality") is None
+
+
+def test_copy_elsewhere_hits_cache(tmp_path, audio_file):
+    """Kopia utworu w folderze setu (inna ścieżka, inna data) nie liczy się
+    od nowa — przegląd 0.4.2: eksport 6 utworów z kreatora trwał 7 minut."""
+    import shutil
+    cache.put(audio_file, "cues", {"drop_s": 61.2})
+    kopia_dir = tmp_path / "Sety" / "Piątek"
+    kopia_dir.mkdir(parents=True)
+    kopia = kopia_dir / "kopia.flac"
+    shutil.copyfile(audio_file, kopia)           # nowa data modyfikacji
+    os.utime(kopia, (1_500_000_000, 1_500_000_000))
+    assert cache.get(str(kopia), "cues") == {"drop_s": 61.2}
+
+
+def test_large_file_reencoded_same_size_is_miss(tmp_path):
+    """Duży plik przekodowany w miejscu (ten sam nagłówek i rozmiar, inny
+    dźwięk) — klucz bierze próbki z całej długości, więc to zauważa."""
+    p = tmp_path / "duzy.wav"
+    naglowek = b"RIFF" + os.urandom(40)
+    p.write_bytes(naglowek + os.urandom(3 * 1024 * 1024))
+    cache.put(str(p), "harmonic", {"bpm": 128.0})
+    p.write_bytes(naglowek + os.urandom(3 * 1024 * 1024))
+    assert cache.get(str(p), "harmonic") is None
 
 
 def test_get_none_after_content_change(audio_file):
@@ -78,10 +115,13 @@ def test_put_unserializable_data_raises(audio_file):
     assert leftovers == []
 
 
-def test_key_for_changes_with_mtime(audio_file):
+def test_key_for_follows_content_not_mtime(audio_file):
     k1 = cache.key_for(audio_file)
     assert isinstance(k1, str) and len(k1) == 32
     os.utime(audio_file, (1_000_000_000, 1_000_000_000))
+    assert cache.key_for(audio_file) == k1
+    with open(audio_file, "ab") as fh:
+        fh.write(b"x")
     assert cache.key_for(audio_file) != k1
     with pytest.raises(OSError):
         cache.key_for(audio_file + ".brak")
@@ -89,7 +129,8 @@ def test_key_for_changes_with_mtime(audio_file):
 
 def test_put_prunes_stale_fingerprints(audio_file):
     cache.put(audio_file, "harmonic", {"v": 1})
-    os.utime(audio_file, (1_000_000_000, 1_000_000_000))
+    with open(audio_file, "ab") as fh:          # plik pod tą ścieżką zmienia treść
+        fh.write(b"nowe")
     cache.put(audio_file, "harmonic", {"v": 2})
     store = _store("harmonic.json")
     assert len(store["entries"]) == 1          # stary odcisk usunięty
@@ -218,3 +259,81 @@ def test_parallel_puts_leave_valid_json(tmp_path):
     # brak plików tymczasowych po zakończeniu
     assert [n for n in os.listdir(cache.CACHE_DIR) if n.endswith(".tmp")] == []
     assert cache.stats()["_total_entries"] == len(store["entries"])
+
+
+def _proces_zapisujacy(cache_dir: str, pliki: list[str], i: int) -> None:
+    from selekta import cache as c
+    c.CACHE_DIR = cache_dir
+    for p in pliki:
+        c.put(p, "harmonic", {"proces": i, "plik": os.path.basename(p)})
+
+
+def test_parallel_puts_from_processes_lose_nothing(tmp_path):
+    """Przegląd 0.4.2: 8 wątków × 5 plików zostawiało 20/40 wpisów —
+    odczyt–modyfikacja–zapis bez blokady gubił połowę pracy."""
+    import multiprocessing as mp
+    pliki = []
+    for i in range(8):
+        grupa = []
+        for j in range(5):
+            p = tmp_path / f"p{i}_{j}.mp3"
+            p.write_bytes(os.urandom(64 + i * 5 + j))
+            grupa.append(str(p))
+        pliki.append(grupa)
+    ctx = mp.get_context("spawn")
+    procesy = [ctx.Process(target=_proces_zapisujacy, args=(cache.CACHE_DIR, g, i))
+               for i, g in enumerate(pliki)]
+    for pr in procesy:
+        pr.start()
+    for pr in procesy:
+        pr.join(60)
+        assert pr.exitcode == 0
+    assert cache.stats()["harmonic"] == 40
+    for i, g in enumerate(pliki):
+        for p in g:
+            assert cache.get(p, "harmonic") == {"proces": i, "plik": os.path.basename(p)}
+
+
+def test_parallel_puts_from_threads_lose_nothing(tmp_path):
+    pliki = []
+    for i in range(40):
+        p = tmp_path / f"t{i}.mp3"
+        p.write_bytes(os.urandom(100 + i))
+        pliki.append(str(p))
+
+    def worker(grupa):
+        for p in grupa:
+            cache.put(p, "quality", {"p": os.path.basename(p)})
+
+    threads = [threading.Thread(target=worker, args=(pliki[i::8],)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert cache.stats()["quality"] == 40
+
+
+def test_old_format_store_is_migrated(tmp_path):
+    """Magazyn sprzed zmiany klucza nie przepada: wpisy aktualnych plików
+    dostają nowe klucze, nieaktualne znikają."""
+    import hashlib
+    zywy = tmp_path / "zywy.flac"
+    zywy.write_bytes(b"fLaC" + os.urandom(500))
+    zmieniony = tmp_path / "zmieniony.flac"
+    zmieniony.write_bytes(b"fLaC" + os.urandom(500))
+    wpisy = {}
+    for p, dane in ((zywy, {"bpm": 128.0}), (zmieniony, {"bpm": 140.0})):
+        st = os.stat(p)
+        stary_klucz = hashlib.md5(f"{p}\x00{st.st_mtime_ns}\x00{st.st_size}".encode()).hexdigest()
+        wpisy[stary_klucz] = {"path": str(p), "mtime_ns": st.st_mtime_ns, "size": st.st_size,
+                              "wersja": cache.wersja("harmonic"), "data": dane}
+    os.makedirs(cache.CACHE_DIR, exist_ok=True)
+    with open(os.path.join(cache.CACHE_DIR, "harmonic.json"), "w", encoding="utf-8") as fh:
+        json.dump({"kind": "harmonic", "entries": wpisy}, fh)
+    with open(zmieniony, "ab") as fh:
+        fh.write(b"inna tresc")
+    assert cache.get(str(zywy), "harmonic") == {"bpm": 128.0}
+    assert cache.get(str(zmieniony), "harmonic") is None
+    store = _store("harmonic.json")
+    assert store["format"] == cache.FORMAT
+    assert len(store["entries"]) == 1

@@ -48,6 +48,20 @@ class TestObliczanie:
         d = waveform.oblicz(str(zly))
         assert d["punkty"] == 0 and d["szczyt"] == []
 
+    def test_bardzo_krotki_plik_nie_wywala(self, tmp_path):
+        """Przegląd 0.4.2: plik 0,15 s → ValueError przy reshape → HTTP 500."""
+        import wave
+        import numpy as np
+        p = tmp_path / "krotki.wav"
+        x = 0.5 * np.sin(2 * np.pi * 440 * np.arange(int(44100 * 0.15)) / 44100)
+        with wave.open(str(p), "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(44100)
+            w.writeframes((x * 32767).astype("<i2").tobytes())
+        d = waveform.oblicz(str(p))
+        assert 0 < d["punkty"] <= 1600
+        assert len(d["szczyt"]) == len(d["rms"]) == d["punkty"]
+        assert d["czas_s"] == pytest.approx(0.15, abs=0.01)
+
     def test_liczba_punktow_ma_rozsadne_granice(self, lib_copy):
         maly = waveform.oblicz(os.path.join(lib_copy, GOOD_MP3), punkty=1)
         duzy = waveform.oblicz(os.path.join(lib_copy, GOOD_MP3), punkty=99999)

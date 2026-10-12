@@ -26,7 +26,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
-from . import cache, matcher
+from . import cache, matcher, waveform
 
 PROG_TEMPA = 0.25
 PROG_TONACJI = 0.4
@@ -89,8 +89,17 @@ def _ta_sama_oktawa(a: float, b: float) -> bool:
 
 
 def _powody(h: dict, tempo: dict | None, q: dict | None,
-            c: dict | None = None, bpm_tag: float | None = None) -> list[Powod]:
+            c: dict | None = None, reczna: dict | None = None,
+            bpm_tag: float | None = None) -> list[Powod]:
+    """Powody do sprawdzenia uchem.
+
+    ``reczna`` to ręczna korekta siatki (waveform.wczytaj_siatke). Gdy
+    DJ sam ustawił kotwicę/BPM, automatyczna siatka już nie obowiązuje:
+    nie proponujemy drugi raz poprawki BPM, którą właśnie przyjął, ani nie
+    straszymy niepewnością siatki, której nie używa.
+    """
     out: list[Powod] = []
+    reczna = reczna or {}
     bpm = h.get("bpm")
     conf_bpm = h.get("confidence_bpm")
     if bpm and bpm_tag and not _ta_sama_oktawa(bpm, bpm_tag):
@@ -122,13 +131,16 @@ def _powody(h: dict, tempo: dict | None, q: dict | None,
                 "tempo_zmienne",
                 tempo.get("opis") or "tempo nie trzyma się przez cały utwór "
                 "— jedna siatka go nie obejmie", WAGI["tempo_zmienne"]))
-        elif tempo.get("bpm_nietrafione") and tempo.get("bpm_poprawione"):
+        elif (tempo.get("bpm_nietrafione") and tempo.get("bpm_poprawione")
+              and not reczna.get("bpm")):
+            # dwa miejsca po przecinku: „127.8” zamiast 127,75 to znowu
+            # siatka, która rozjedzie się do końca utworu
             out.append(Powod(
                 "bpm_nietrafione",
                 f"siatka rozjeżdża się przez BPM nietrafione o ułamek — "
-                f"proponowana poprawka {tempo['bpm_poprawione']:.1f}",
+                f"proponowana poprawka {tempo['bpm_poprawione']:.2f}",
                 WAGI["bpm_nietrafione"]))
-    if c and c.get("pewnosc_siatki") is not None:
+    if c and c.get("pewnosc_siatki") is not None and reczna.get("first_beat_s") is None:
         # siatka liczona na stopie (siatka.py): niska spójność znaczy, że
         # stopa jest niewyraźna albo tempo pływa — siatka może leżeć obok
         if c["pewnosc_siatki"] < PROG_SIATKI:
@@ -182,7 +194,8 @@ def sprawdz(folder: str) -> dict:
         if t is None:
             bez_tempa += 1
         powody = _powody(h, t, cache.get(p, "quality"),
-                         cache.get(p, "cues"), bpm_tag=bpm_z_tagu(p))
+                         cache.get(p, "cues"), waveform.wczytaj_siatke(p),
+                         bpm_tag=bpm_z_tagu(p))
         u = DoSprawdzenia(p, h.get("bpm"), h.get("camelot"), h.get("key"), powody)
         widziane[odc] = u
         if powody:

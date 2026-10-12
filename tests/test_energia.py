@@ -225,3 +225,137 @@ class TestGestoscPerkusji:
     def test_perkusja_na_tle_melodii_wykryta(self):
         miks = self._pad() * 0.7 + self._bit() * 0.5
         assert energia._gestosc(self._flux(miks), 128.0) > 6.0
+
+
+# --------------------------------------------------------------------------
+# energia bezwzględna — porównywalna między utworami
+# --------------------------------------------------------------------------
+
+_SR = 44100
+
+
+def _utwor(sek=40, poziom_db=-8.0, breakdown=None, perkusja=True, bas=True, bpm=140.0):
+    """Syntetyczny utwór o znanej budowie (jak w przeglądzie 0.4.2)."""
+    rng = np.random.default_rng(1)
+    n = int(_SR * sek)
+    t = np.arange(n) / _SR
+    x = np.zeros(n)
+    okres = 60.0 / bpm
+    if perkusja:
+        for b in np.arange(0, sek, okres):
+            i, dl = int(b * _SR), int(0.15 * _SR)
+            if i + dl > n:
+                break
+            tt = np.arange(dl) / _SR
+            x[i:i + dl] += np.sin(2 * np.pi * (50 + 80 * np.exp(-tt * 30)) * tt) * np.exp(-tt * 18)
+        for b in np.arange(okres / 2, sek, okres):
+            i, dl = int(b * _SR), int(0.04 * _SR)
+            if i + dl > n:
+                break
+            x[i:i + dl] += 0.3 * rng.standard_normal(dl) * np.exp(-np.arange(dl) / _SR * 80)
+    if bas:
+        x += 0.25 * np.sin(2 * np.pi * 55 * t)
+    pad = 0.15 * (np.sin(2 * np.pi * 220 * t) + np.sin(2 * np.pi * 277.2 * t)
+                  + np.sin(2 * np.pi * 329.6 * t))
+    x += pad
+    if breakdown:
+        a, b = int(breakdown[0] * _SR), int(breakdown[1] * _SR)
+        x[a:b] = pad[a:b]
+    return x / np.max(np.abs(x)) * 10 ** (poziom_db / 20)
+
+
+def _wav(path, x):
+    import wave
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(_SR)
+        w.writeframes((np.clip(x, -1, 1) * 32767).astype("<i2").tobytes())
+    return str(path)
+
+
+@pytest.fixture(scope="module")
+def synt(tmp_path_factory):
+    d = tmp_path_factory.mktemp("energia")
+    pliki = {
+        "bit": _wav(d / "bit.wav", _utwor()),
+        "bit_cichy": _wav(d / "bit_cichy.wav", _utwor(poziom_db=-33.0)),
+        "breakdown": _wav(d / "breakdown.wav", _utwor(sek=60, breakdown=(18, 42))),
+        "pad": _wav(d / "pad.wav", _utwor(perkusja=False, bas=False, poziom_db=-20.0)),
+        "pad_glosny": _wav(d / "pad_glosny.wav", _utwor(perkusja=False, bas=False)),
+    }
+    return {k: energia.analizuj(p, bpm=140.0) for k, p in pliki.items()}
+
+
+class TestEnergiaBezwzgledna:
+    """Przegląd 0.4.2: krzywa dzielona przez maksimum TEGO utworu — sam pad
+    dostawał 1,0 (najwięcej w secie), a utwór 25 dB cichszy tyle samo co
+    głośny. Kulminacja setu lądowała na spokojnym otwieraczu."""
+
+    def test_pad_bez_rytmu_ponizej_pelnego_bitu(self, synt):
+        assert synt["pad"].srednia < synt["bit"].srednia - 0.2
+        assert synt["pad_glosny"].srednia < synt["bit"].srednia
+
+    def test_cichszy_o_25_db_ma_nizsza_energie(self, synt):
+        assert synt["bit_cichy"].srednia < synt["bit"].srednia - 0.05
+        assert synt["bit_cichy"].glosnosc_lufs < synt["bit"].glosnosc_lufs - 20
+
+    def test_pad_bez_rytmu_nie_ma_uderzen(self, synt):
+        assert synt["pad"].uderzenia_na_s == 0.0
+        assert synt["pad_glosny"].uderzenia_na_s == 0.0
+        assert synt["pad"].faza == "rozgrzewka"
+
+    def test_breakdown_24_s_jest_widoczny(self, synt):
+        """Przegląd: breakdown_s = 0,0 mimo 24 s breakdownu w 60 s utworze."""
+        assert 18.0 <= synt["breakdown"].breakdown_s <= 30.0
+        assert synt["bit"].breakdown_s <= 3.0
+
+    def test_krzywa_bezwzgledna_cichy_utwor_lezy_nisko(self, synt):
+        assert max(synt["bit_cichy"].krzywa) < max(synt["bit"].krzywa)
+        assert max(synt["pad"].krzywa) < 0.2
+
+    def test_luk_setu_nie_stawia_kulminacji_na_padzie(self, synt):
+        kolej = ["pad", "bit_cichy", "breakdown", "bit", "pad_glosny"]
+        utwory = [{"file": k, "title": k, "srednia": synt[k].srednia} for k in kolej]
+        luk = energia.luk_setu(utwory)
+        assert kolej[luk["kulminacja"]] in ("bit", "breakdown")
+
+
+class TestFrazyZAktualnejSiatki:
+    """Przegląd 0.4.2: po ręcznej zmianie kotwicy /api/energia dalej zwracało
+    frazy od starej; ręczna kotwica 0,0 s była ignorowana (`or`)."""
+
+    @pytest.fixture()
+    def klient_synt(self, tmp_path, monkeypatch):
+        from selekta import cache, cues, waveform
+        p = _wav(tmp_path / "utwor.wav", _utwor(sek=40, bpm=128.0))
+        cache.put(p, "harmonic", {"bpm": 128.0, "key": "A minor", "camelot": "8A",
+                                  "confidence_bpm": 0.5, "confidence_key": 0.9})
+        cache.put(p, "cues", {"first_beat_s": 0.5, "intro_end_s": 8.0, "outro_start_s": 30.0,
+                              "drop_s": None, "duration_s": 40.0, "battito": 1,
+                              "bpm_siatki": 128.0, "pewnosc_siatki": 0.9, "pewnosc_taktu": 0.8})
+
+        def nie_licz(*a, **k):
+            raise AssertionError("energia nie może liczyć punktów cue (38 s na utwór)")
+        monkeypatch.setattr(cues, "analyze", nie_licz)
+        web.set_folder(str(tmp_path))
+        return TestClient(web.app), p, waveform
+
+    def _frazy(self, klient, p):
+        d = klient.post("/api/energia", json={"files": [os.path.basename(p)]}).json()
+        return d["utwory"][0]["frazy"]
+
+    def test_frazy_przesuwaja_sie_po_korekcie(self, klient_synt):
+        klient, p, waveform = klient_synt
+        assert self._frazy(klient, p)[0] == 0.5
+        waveform.zapisz_siatke(p, 2.375, 128.0)
+        assert self._frazy(klient, p)[0] == 2.375
+
+    def test_reczna_kotwica_zero_jest_szanowana(self, klient_synt):
+        klient, p, waveform = klient_synt
+        waveform.zapisz_siatke(p, 0.0, 128.0)
+        assert self._frazy(klient, p)[0] == 0.0
+
+    def test_bez_siatki_nie_zmyslamy_fraz(self, klient_synt):
+        from selekta import cache
+        klient, p, _ = klient_synt
+        cache.clear("cues")
+        assert self._frazy(klient, p) == []

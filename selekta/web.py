@@ -1784,21 +1784,44 @@ def _zakres(payload: dict | None) -> tuple[list[str], str]:
 
 
 def _struktura_dla(path: str) -> dict:
-    """Kształt utworu z pamięci podręcznej; policz, gdy go nie ma."""
-    dane = cache.get(path, "energia")
-    if dane is not None:
-        return dane
+    """Kształt utworu z pamięci podręcznej; policz, gdy go nie ma.
+
+    Energia nie zależy od siatki, więc nie liczymy dla niej punktów cue —
+    to one zajmowały ~38 z ~48 s na utwór (17 utworów: 812 s). Granice fraz
+    zależą od siatki, dlatego liczymy je przy KAŻDYM odczycie z aktualnej
+    kotwicy i BPM: po ręcznej korekcie siatki przesuwają się od razu
+    (wcześniej cache energii trzymał frazy od starej kotwicy).
+    """
     h = cache.get(path, "harmonic")
     if h is None:
         h = asdict(harmonic.analyze(path)); cache.put(path, "harmonic", h)
-    c = cache.get(path, "cues")
-    if c is None:
-        c = asdict(cues.analyze(path, bpm=h.get("bpm"))); cache.put(path, "cues", c)
-    kotwica = ((waveform.wczytaj_siatke(path) or {}).get("first_beat_s")
-               or c.get("first_beat_s") or 0.0)
-    dane = asdict(energia.analizuj(path, bpm=h.get("bpm"), kotwica=kotwica))
-    cache.put(path, "energia", dane)
-    return dane
+    dane = cache.get(path, "energia")
+    if dane is None:
+        dane = asdict(energia.analizuj(path, bpm=h.get("bpm")))
+        cache.put(path, "energia", dane)
+    kotwica, bpm = _siatka_dla(path, h)
+    frazy = (energia.granice_fraz(dane.get("czas_s") or 0.0, bpm, kotwica)
+             if kotwica is not None else [])
+    return {**dane, "frazy": frazy}
+
+
+def _siatka_dla(path: str, h: dict) -> tuple[float | None, float | None]:
+    """(kotwica, BPM) siatki: ręczna korekta > siatka z analizy > BPM utworu.
+
+    `is not None`, nie `or`: ręczna kotwica 0,0 s to świadoma decyzja.
+    Bez znanej kotwicy zwracamy None — frazy od zera byłyby zmyślone.
+    """
+    reczna = waveform.wczytaj_siatke(path) or {}
+    c = cache.get(path, "cues") or {}
+    kotwica = next((v for v in (reczna.get("first_beat_s"), c.get("first_beat_s"))
+                    if v is not None), None)
+    if reczna.get("bpm"):
+        bpm = reczna["bpm"]
+    elif c.get("bpm_siatki") and (c.get("pewnosc_siatki") or 0) >= siatka.PROG_PEWNOSCI:
+        bpm = c["bpm_siatki"]
+    else:
+        bpm = h.get("bpm")
+    return kotwica, bpm
 
 
 @app.post("/api/historia/wczytaj")
@@ -1951,7 +1974,8 @@ def api_tempo_przyjmij(payload: dict) -> JSONResponse:
                                  "— tempo jest stałe albo faluje")
     c = cache.get(path, "cues") or {}
     reczna = waveform.wczytaj_siatke(path) or {}
-    kotwica = reczna.get("first_beat_s") or c.get("first_beat_s") or 0.0
+    kotwica = next((v for v in (reczna.get("first_beat_s"), c.get("first_beat_s"))
+                    if v is not None), 0.0)
     battito = reczna.get("battito") if reczna else c.get("battito")
     wpis = waveform.zapisz_siatke(path, kotwica, t["bpm_poprawione"], battito or 1)
     return JSONResponse({"ok": True, **wpis})

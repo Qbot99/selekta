@@ -6,6 +6,8 @@ i wybór następnego źródła (next_source).
 """
 from __future__ import annotations
 
+import pytest
+
 from selekta import pipeline
 from selekta.pipeline import Check, VerifyResult
 from selekta.slskd_client import SearchHit
@@ -131,10 +133,13 @@ def test_next_source_empty_hits_returns_none():
     assert pipeline.next_source([], set(), None) is None
 
 
-def test_transkod_z_320_oblewa_pelna_weryfikacje(tmp_path):
-    """Regresja z 1.09.2026: FLAC z pasmem MP3 320 przechodził `check`
-    jako „warn" — ostrzeżenie łatwe do przeoczenia. PRAWDZIWY transkod
-    (ściana + cyfrowa cisza nad cięciem) ma OBLAĆ bramkę."""
+def test_czysty_transkod_320_z_szumu_dostaje_ostrzezenie(tmp_path):
+    """Szum przekodowany przez MP3 320 bez przesteru: ściana 20 kHz i cisza
+    nad nią, ale bez dziur kodeka — tego samego śladu nie da się odróżnić od
+    konwersji 48→44,1 kHz przy masteringu. Zmiana z 11.10.2026: zamiast
+    „bad” (które oblewało też prawdziwe mastery po konwersji: w zestawie
+    kontrolnym 16/22) jest „warn” z nazwą podejrzenia — bramka przepuszcza,
+    lista „sprawdź uchem” pokazuje."""
     import subprocess
     from tests import probka
     wav = probka.pelne_pasmo(str(tmp_path / "a.wav"), sekund=70)
@@ -144,8 +149,30 @@ def test_transkod_z_320_oblewa_pelna_weryfikacje(tmp_path):
     flac = probka.do_flac(str(tmp_path / "dekod.wav"),
                           str(tmp_path / "transkod.flac"))
     wynik = pipeline.sound_quality(flac)
+    assert "MP3 320" in wynik.detail
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("wyjscie", [["-sample_fmt", "s16"], []])
+def test_transkod_320_prawdziwej_muzyki_oblewa_bramke(sample, tmp_path, wyjscie):
+    """Przegląd 0.4.2: 15/15 typowych transkodów MP3 192–320 → FLAC z głośnych
+    masterów przechodziło bramkę (przester przy zapisie zalewał pasmo nad
+    cięciem). Tu: Odymel – Gucci, 30 s ze środka, MP3 320 → FLAC 16 bit
+    i domyślny FLAC ffmpeg (24 bit)."""
+    import subprocess
+    src = sample(GOOD_FLAC)
+    wycinek = str(tmp_path / "w.flac")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "90", "-t", "30", "-i", src,
+                    wycinek], check=True)
+    mp3 = str(tmp_path / "w.mp3")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", wycinek, "-b:a", "320k", mp3], check=True)
+    flac = str(tmp_path / "t.flac")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", mp3, *wyjscie, flac], check=True)
+    wynik = pipeline.sound_quality(flac)
     assert wynik.passed is False, wynik.detail
     assert "transkod" in wynik.detail
+    # ten sam wycinek bez transkodu przechodzi
+    assert pipeline.sound_quality(wycinek).passed is True
 
 
 def test_master_z_lowpassem_przechodzi_check(tmp_path):

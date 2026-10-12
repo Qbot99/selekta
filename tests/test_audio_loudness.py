@@ -163,3 +163,46 @@ def test_format_report_failed_measurement():
     assert loudness.format_report(Loudness(nan, nan, nan, 0.0)) == (
         "głośność: błąd dekodowania — brak pomiaru"
     )
+
+
+# ---------------------------------------------------------------- cisza i krótkie pliki
+
+def _wav(path, sekundy: float, amplituda: float = 0.0) -> str:
+    import wave
+    import numpy as np
+    sr = 44100
+    n = int(sr * sekundy)
+    x = amplituda * np.sin(2 * np.pi * 440 * np.arange(n) / sr)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr)
+        w.writeframes((x * 32767).astype("<i2").tobytes())
+    return str(path)
+
+
+def test_compute_gain_infinite_measurement_is_no_correction():
+    inf = float("inf")
+    assert loudness._compute_gain(-inf, -inf) == 0.0
+    assert loudness._compute_gain(-inf, -3.0) == 0.0
+    assert loudness._compute_gain(-20.0, -inf) == pytest.approx(2.0)
+
+
+def test_silence_writes_no_infinite_replaygain(tmp_path):
+    """Przegląd 0.4.2: cisza 10 s dostawała tag REPLAYGAIN_TRACK_GAIN = „+inf dB”."""
+    p = _wav(tmp_path / "cisza.wav", 10.0)
+    l = loudness.analyze(p)
+    assert math.isfinite(l.gain_db) and l.gain_db == 0.0
+    loudness.write_tags(p, l)
+    from mutagen.wave import WAVE
+    tags = WAVE(p).tags
+    assert tags is None or tags.getall("TXXX:REPLAYGAIN_TRACK_GAIN") == []
+    assert "cisza" in loudness.format_report(l) or "błąd" in loudness.format_report(l)
+
+
+def test_too_short_file_gets_no_gain_from_peak_alone(tmp_path):
+    """Plik 0,15 s: głośności nie da się zmierzyć (okno 0,4 s), a wcześniej
+    korekta +17 dB brała się z samego szczytu."""
+    p = _wav(tmp_path / "krotki.wav", 0.15, 0.5)
+    l = loudness.analyze(p)
+    if math.isfinite(l.integrated_lufs):
+        pytest.skip("ffmpeg zmierzył głośność krótkiego pliku")
+    assert l.gain_db == 0.0

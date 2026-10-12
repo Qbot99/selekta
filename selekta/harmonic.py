@@ -23,12 +23,15 @@ niezależnych źródeł: rekordbox, Mixed In Key, Serato, Beatport).
 
 Tags: TBPM/TKEY (ID3: MP3, WAV, AIFF) and BPM/INITIALKEY (Vorbis: FLAC)
 get standard values the DJ software expects; the Camelot code goes only
-into COMMENT (Vorbis) / TXXX:CAMELOT (ID3).
+into CAMELOT (Vorbis; COMMENT only when it holds no note of the DJ) /
+TXXX:CAMELOT (ID3).
 
 Analysis window (BPM): 75 s starting at 1/3 of the track duration, skipping
 intros and outros.  Key: the whole track (see above).
 """
 from __future__ import annotations
+
+import re
 
 import subprocess
 from dataclasses import dataclass
@@ -465,9 +468,17 @@ def analyze(path: str) -> TrackAnalysis:
     return TrackAnalysis(bpm, key_name, camelot, conf_b, round(conf_k, 2), alt)
 
 
+_KOD_CAMELOT = re.compile(r"^\d{1,2}[AB]$")
+
+
 def write_tags(path: str, ta: TrackAnalysis) -> None:
     """Write BPM/key tags: standard notation in TKEY/INITIALKEY, Camelot
-    only in COMMENT (Vorbis) / TXXX:CAMELOT (ID3)."""
+    in CAMELOT (Vorbis) / TXXX:CAMELOT (ID3).
+
+    Vorbis COMMENT gets the Camelot code only when it is empty or holds
+    nothing but a Camelot code from an earlier run — a DJ's own note
+    („Kupione na Beatport — zagrać po 2 w nocy”) is never overwritten.
+    """
     bpm_s = f"{ta.bpm:g}"
     key_s = standard_key(ta)
     low = path.lower()
@@ -475,7 +486,10 @@ def write_tags(path: str, ta: TrackAnalysis) -> None:
         audio = FLAC(path)
         audio["BPM"] = bpm_s
         audio["INITIALKEY"] = key_s
-        audio["COMMENT"] = ta.camelot
+        audio["CAMELOT"] = ta.camelot
+        stare = [c.strip() for c in (audio.get("COMMENT") or []) if c.strip()]
+        if all(_KOD_CAMELOT.match(c) for c in stare):
+            audio["COMMENT"] = ta.camelot
         audio.save()
         return
     if low.endswith(".wav"):
