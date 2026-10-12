@@ -641,8 +641,8 @@ ODSTAJE_OKNO_S = 0.015      # okno „obok stóp”
 ODSTAJE_SERIA = 6           # tyle okien z rzędu (≈ 12 taktów) obok = sekcja nie trzyma siatki
 
 
-def _sekcja_obok(okna: list[tuple[int, float]], a: float, okres: float) -> float | None:
-    """Czas [s] początku najdłuższej serii ≥ 6 okien leżących > 15 ms obok siatki (ten sam znak).
+def _sekcja_obok(okna: list[tuple[int, float]], a: float, okres: float) -> tuple[float, float] | None:
+    """(początek, koniec) [s] najdłuższej serii ≥ 6 okien leżących > 15 ms obok siatki (ten sam znak).
 
     Sklejony edit (Juaan — Carasho: pierwsze 2 minuty 38–51 ms obok reszty)
     albo zmiana tempa, której model nie złapał. Pojedyncza sekcja z filtrowaną
@@ -657,7 +657,38 @@ def _sekcja_obok(okna: list[tuple[int, float]], a: float, okres: float) -> float
             znak, dl, start = z, (1 if z else 0), (s if z else None)
         if dl >= ODSTAJE_SERIA and (najl is None or dl > najl[1]):
             najl = (start, dl)
-    return None if najl is None else float(a + najl[0] * okres)
+    if najl is None:
+        return None
+    return float(a + najl[0] * okres), float(a + (najl[0] + (najl[1] + 1) * OKNO_BITOW // 2) * okres)
+
+
+def _sekcja_przesunieta(e: np.ndarray, fps: float, linie: np.ndarray, t_od: float, t_do: float) -> bool:
+    """Czy w sekcji [t_od, t_do] TEN SAM dźwięk leży przesunięty względem siatki.
+
+    Porównujemy uśredniony kształt bitu (obwiednia 200 Hz–10 kHz, ±60 ms)
+    w sekcji i w reszcie utworu. Sklejony edit (Juaan — Carasho) przesuwa
+    cały kształt — korelacja ma szczyt przy przesunięciu. Sekcja z inną stopą
+    na tej samej siatce (G&G — Paper Cuts, płaskowyż +22 ms samych onsetów)
+    ma kształt na miejscu — szczyt przy zerze — i alarm byłby fałszywy.
+    """
+    h = int(0.06 * fps)
+    idx = np.round(np.asarray(linie) * fps).astype(int)
+    ok = (idx - 2 * h >= 0) & (idx + 2 * h < e.size)
+    w_sekcji = ok & (linie >= t_od) & (linie < t_do)
+    poza = ok & ~((linie >= t_od - 4) & (linie < t_do + 4))
+    if w_sekcji.sum() < 16 or poza.sum() < 16:
+        return True                                  # nie da się porównać — zostaw alarm
+    pa = np.mean([e[i - 2 * h:i + 2 * h] for i in idx[w_sekcji]], axis=0)
+    pb = np.mean([e[i - h:i + h] for i in idx[poza]], axis=0)
+    pb = (pb - pb.mean()) / (pb.std() + 1e-12)
+    best_lag, best_c = 0, -1.0
+    for lag in range(-h, h + 1):
+        seg = pa[h + lag:3 * h + lag]
+        seg = (seg - seg.mean()) / (seg.std() + 1e-12)
+        c = float(np.mean(seg * pb))
+        if c > best_c:
+            best_c, best_lag = c, lag
+    return best_c > 0.5 and abs(best_lag) / fps > 0.008
 
 
 def _zapis_bpm(bpm_dokl: float) -> float:
@@ -697,7 +728,7 @@ def _model_v3(t: np.ndarray, w: np.ndarray, bpm: float, dl_s: float) -> dict | N
         zn = _znaczniki_odcinka(cala["a"], cala["okres"], cala["n_min"], cala["n_max"])
         return {**wynik, "tryb": "stała", "znaczniki": zn, "udzial_na_linii": round(cala["udzial"], 2),
                 "odchylka_ms": round(1000 * float(np.median([abs(v) for _, v in okna])), 1) if okna else None,
-                "zle_okno_s": _sekcja_obok(okna, cala["a"], cala["okres"])}
+                "sekcja_obok": _sekcja_obok(okna, cala["a"], cala["okres"])}
 
     # 2. odcinki stałego tempa: dziel rekurencyjnie tam, gdzie siatka przestaje trzymać
     def podziel(t_od: float, t_do: float, glebokosc: int) -> list[dict] | None:
@@ -1052,6 +1083,13 @@ def oszacuj(x: np.ndarray, sr: int, bpm_hint: float | None = None,
             flaga = flaga or ("stopa złożona (klik i korpus osobno) — siatka ustawiona na klik, "
                               "sprawdź uchem, czy trafia")
     del e_hi
+    if model.get("sekcja_obok") is not None:
+        t_od, t_do = model["sekcja_obok"]
+        linie_s = zn[0][0] + np.arange(int((dl_s - zn[0][0]) / okres)) * okres
+        e_s = _obwiednia_pasma(x, sr, 200.0, min(10_000.0, sr / 2 - 1), 0.002, krok_ms)
+        if _sekcja_przesunieta(e_s, sr / krok_ms, linie_s[linie_s > 0], t_od, t_do):
+            model["zle_okno_s"] = t_od
+        del e_s
     if model.get("zle_okno_s") is not None:
         m, s_ = divmod(int(max(0.0, model["zle_okno_s"])), 60)
         flaga = flaga or (f"siatka nie trzyma się stóp ok. {m}:{s_:02d} — sprawdź uchem"
