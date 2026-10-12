@@ -208,9 +208,10 @@ def _save_store(kind: str, store: dict) -> None:
 # przepuszczało ucięte MP3); energia 3 — energia bezwzględna (porównywalna
 # między utworami), frazy liczone przy odczycie z aktualnej siatki;
 # cues 4 — koniec intra i początek outra na granicach fraz; quality 3 —
-# widmo z ramek bez przesteru, ślady kodeka, ALAC jako bezstratny
+# widmo z ramek bez przesteru, ślady kodeka, ALAC jako bezstratny;
+# loudness 2 — cisza nie zostawia w pamięci korekty +inf dB
 WERSJE = {"cues": 4, "harmonic": 2, "tempo": 2, "quality": 3, "energia": 3,
-          "integrity": 2}
+          "integrity": 2, "loudness": 2}
 
 
 def wersja(kind: str) -> int:
