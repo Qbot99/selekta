@@ -925,6 +925,48 @@ def _korekta_glosnosci(bb: np.ndarray, lo: np.ndarray | None, zero: int, h: int,
     return najl[0] / fps
 
 
+def _dryf_osemek(e_hi: np.ndarray, e_all: np.ndarray, fps: float, linie: np.ndarray, dl_s: float
+                 ) -> float | None:
+    """Rozjazd [s/bit] siatki względem ataków stopy liczonych w ósemkach utworu; None = brak pewnego trendu.
+
+    W każdej ósemce utworu: profil wysokiego pasma uśredniony po 24
+    najgłośniejszych bitach, atak = najstromszy narost w ±40 ms. Gdy ataki
+    z co najmniej 6 z 8 ósemek leżą na jednej prostej (±3 ms), a prosta
+    rozjeżdża się o ≥ 6 ms przez utwór — tempo jest o ułamek obok (Stressed:
+    +21 → +3,5 ms, czyli 125,99 zamiast 126,0). Pojedyncze sekcje z innym
+    atakiem (breakdown, filtr) nie leżą na prostej i nie ruszają tempa.
+    """
+    h = int(0.06 * fps); z = int(0.04 * fps)
+    okres = float(np.median(np.diff(linie))) if len(linie) > 2 else 0.5
+    pkt = []
+    for q in range(8):
+        a0, a1 = q * dl_s / 8, (q + 1) * dl_s / 8
+        Lq = linie[(linie > a0 + 0.1) & (linie < a1 - 0.1)]
+        idx = np.round(Lq * fps).astype(int)
+        idx = idx[(idx - h >= 0) & (idx + h < min(e_hi.size, e_all.size))]
+        if idx.size < 12:
+            continue
+        gl = np.array([e_all[i:i + int(0.05 * fps)].max() for i in idx])
+        wyb = idx[np.argsort(-gl)[:24]]
+        p = np.mean([e_hi[i - h:i + h] for i in wyb], axis=0)
+        w6 = max(1, int(0.002 * fps))
+        p = np.convolve(p, np.ones(w6) / w6, mode="same")
+        d = np.diff(p)
+        j = int(np.argmax(d[h - z:h + z])) + h - z
+        pkt.append(((a0 + a1) / 2 / okres, (j - h) / fps))          # (bit, przesunięcie ataku [s])
+    if len(pkt) < 6:
+        return None
+    x = np.array([p[0] for p in pkt]); y = np.array([p[1] for p in pkt])
+    nach = [(y[j] - y[i]) / (x[j] - x[i]) for i in range(len(x)) for j in range(i + 1, len(x)) if x[j] != x[i]]
+    b = float(np.median(nach)); a = float(np.median(y - b * x))
+    na_prostej = np.abs(y - (a + b * x)) <= 0.003
+    if na_prostej.sum() < 6 or abs(b) * (x.max() - x.min()) < 0.006:
+        return None
+    # dopasowanie tylko na punktach z prostej
+    b = float(np.polyfit(x[na_prostej], y[na_prostej], 1)[0])
+    return b
+
+
 def _spadek_tonu(x_bas: np.ndarray, sr: int, t: float) -> float:
     """Ile razy częstotliwość dźwięku basowego spada w pierwszych 60 ms po uderzeniu.
 
@@ -1077,6 +1119,23 @@ def oszacuj(x: np.ndarray, sr: int, bpm_hint: float | None = None,
     przes_kliku, pewne = _korekta_kliku(e_hi, e_cale, sr / krok_ms, linie_glowne[linie_glowne > 0],
                                         e_low if e_low.size else None, e_srod)
     del e_srod
+    if model["tryb"] == "stała":
+        # drugi etap tempa: ataki w ósemkach utworu (po korekcie fazy)
+        linie_q = zn[0][0] + przes_kliku + np.arange(int((dl_s - zn[0][0]) / okres)) * okres
+        dryf = _dryf_osemek(e_hi, e_cale, sr / krok_ms, linie_q[linie_q > 0], dl_s)
+        if dryf is not None:
+            okres_n = okres + dryf
+            n0 = zn[0][2]
+            t0 = zn[0][0] + przes_kliku
+            # atak w środku utworu zostaje na miejscu: obracamy siatkę wokół środka
+            n_sr = int((dl_s / 2 - t0) / okres)
+            t_sr = t0 + n_sr * okres
+            a_n = t_sr - n_sr * okres_n
+            n_max = int((dl_s - a_n) / okres_n)
+            zn = _znaczniki_odcinka(a_n - przes_kliku, okres_n, 0, max(0, n_max))
+            zn = [(tz, bz, nz + n0) for tz, bz, nz in zn]
+            bpm = zn[0][1]; okres = 60.0 / bpm
+            model["bpm_dokladne"] = round(60.0 / okres_n, 4)
     if przes_kliku:
         zn = [(tz + przes_kliku, bz, nz) for tz, bz, nz in zn]
         if not pewne:
