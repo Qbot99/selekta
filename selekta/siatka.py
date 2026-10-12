@@ -781,7 +781,7 @@ def _obwiednia_kliku(x: np.ndarray, sr: int, krok: int) -> np.ndarray:
 
 
 def _korekta_kliku(e_hi: np.ndarray, e_all: np.ndarray, fps: float, linie: np.ndarray,
-                   e_low: np.ndarray | None = None) -> tuple[float, bool]:
+                   e_low: np.ndarray | None = None, e_srod: np.ndarray | None = None) -> tuple[float, bool]:
     """Przesunięcie siatki [s] na POCZĄTEK stopy, gdy ten nie leży na linii; (przesunięcie, pewne?).
 
     DJ słyszy początek stopy w jej najwcześniejszym ostrym ataku. W hard techno
@@ -811,26 +811,34 @@ def _korekta_kliku(e_hi: np.ndarray, e_all: np.ndarray, fps: float, linie: np.nd
     hf = np.mean([e_hi[i - h - 25:i + h + 66] for i in wyb], axis=0)
     bb = np.mean([e_all[i - h - 25:i + h + 66] for i in wyb], axis=0)
     lo = np.mean([e_low[i - h - 25:i + h + 66] for i in wyb], axis=0) if e_low is not None else None
+    sr_ = np.mean([e_srod[i - h - 25:i + h + 66] for i in wyb], axis=0) if e_srod is not None else bb
     w2 = max(1, int(0.002 * fps))
-    hs = np.convolve(hf, np.ones(w2) / w2, mode="same")
-    d = np.diff(hs, prepend=hs[0])
-    med = float(np.median(hf)) + 1e-12
     zero = h + 25                                   # indeks linii w profilu
-    kand = []
-    for i in range(zero - h, zero + h + 1):
-        if d[i] > 0 and d[i] >= d[i - 1] and d[i] >= d[i + 1]:
-            sila = float((hf[i:i + 9].max() - hf[i - 15:i + 1].min()) / med)
-            j = i
-            while j > zero - h - 20 and d[j - 1] > 0.3 * d[i]:
-                j -= 1
-            bas = 1.0
-            if lo is not None:
-                po, przed = lo[j:j + 60].max(), lo[max(0, j - 20):j + 1].mean() + 1e-12
-                bas = float(min(po / przed, 3.0))
-            kand.append((j - zero, sila, sila * bas))
+
+    def narosty(prof: np.ndarray) -> list[tuple[int, float, float]]:
+        """(początek względem linii [klatki], siła, siła × przyrost basu po nim)."""
+        ps = np.convolve(prof, np.ones(w2) / w2, mode="same")
+        d = np.diff(ps, prepend=ps[0])
+        med = float(np.median(prof)) + 1e-12
+        out = []
+        for i in range(zero - h, zero + h + 1):
+            if d[i] > 0 and d[i] >= d[i - 1] and d[i] >= d[i + 1]:
+                sila = float((prof[i:i + 9].max() - prof[i - 15:i + 1].min()) / med)
+                j = i
+                while j > zero - h - 20 and d[j - 1] > 0.3 * d[i]:
+                    j -= 1
+                bas = 1.0
+                if lo is not None:
+                    po, przed = lo[j:j + 60].max(), lo[max(0, j - 20):j + 1].mean() + 1e-12
+                    bas = float(min(po / przed, 3.0))
+                out.append((j - zero, sila, sila * bas))
+        return out
+
+    kand = narosty(hf)
     if not kand:
         return 0.0, True
     najl = max(kand, key=lambda k: k[2])
+    przes_glosnosci = _korekta_glosnosci(sr_, lo, zero, h, fps)
     # Narost NA linii mierzymy od niej samej: kolejne ząbki tego samego kliku,
     # który zaczął się wcześniej (åmrtüm — dash: klik od −20 ms), nie są
     # osobnym uderzeniem na linii.
@@ -838,16 +846,48 @@ def _korekta_kliku(e_hi: np.ndarray, e_all: np.ndarray, fps: float, linie: np.nd
     if hf[zero - 15:zero + 1].min() <= hf[zero - 25:zero - 4].min() * 1.3:
         przy = max([k[2] for k in kand if abs(k[0]) <= 4] or [0.0])
     if abs(najl[0]) <= 8 or przy >= 0.4 * najl[2]:
-        return 0.0, True
+        return przes_glosnosci, True
     if najl[0] < 0 and -najl[0] > 6:
         # klik PRZED linią: między nim a linią nie może być ciszy — inaczej to
         # osobne, wcześniejsze uderzenie (samotny klaps 76 ms przed stopą).
         # Po linii cisza jest normalna: sidechain „oddycha” tuż przed stopą.
         dno = float(bb[zero + najl[0] + 3:zero - 2].min())
         if dno < 0.08 * float(bb[zero - h:zero + h].max()):   # cisza (PP DJ Killer: 2 %), nie dołek (åmrtüm: 15 %)
-            return 0.0, True
+            return przes_glosnosci, True
     pewne = najl[1] >= 3.0 and przy < 0.25 * najl[2]
     return najl[0] / fps, pewne
+
+
+def _korekta_glosnosci(bb: np.ndarray, lo: np.ndarray | None, zero: int, h: int, fps: float) -> float:
+    """Mała poprawka (≤ 30 ms) na skok CAŁEJ głośności, gdy stopa nie ma kliku.
+
+    Blr, Left 2 Dust — Lights: atak stopy to skok |x| o ~50 % 13 ms przed
+    linią, wysokie pasmo w tym miejscu spada; Black Light Smoke — Perfecto:
+    skok 10 ms po linii. Profil log-głośności PASMA 200 Hz–10 kHz (bez basu,
+    którego zmarszczki ~70 Hz udawały narosty przy linii), wygładzony 4 ms,
+    narost = przyrost w 10 ms. Przesuwamy, gdy najsilniejszy narost
+    w ±30 ms leży > 8 ms od linii, jest ≥ 0,12 (×1,3) i co najmniej 2× silniejszy
+    od narostu przy linii; po nim musi rosnąć bas (to stopa, nie werbel).
+    """
+    w4 = max(1, int(0.004 * fps))
+    lg = np.log10(bb + 1e-3 * (float(bb.max()) + 1e-12))
+    lg = np.convolve(lg, np.ones(w4) / w4, mode="same")
+    k10 = int(0.010 * fps)
+    z30 = int(0.030 * fps)
+
+    def narost(i: int) -> float:
+        return float(lg[i + k10 // 2] - lg[i - k10 // 2]) if i - k10 // 2 >= 0 and i + k10 // 2 < lg.size else 0.0
+
+    oceny = [(i - zero, narost(i)) for i in range(zero - z30, zero + z30 + 1)]
+    najl = max(oceny, key=lambda o: o[1])
+    przy = max(o[1] for o in oceny if abs(o[0]) <= 4)
+    if abs(najl[0]) <= 8 or najl[1] < 0.12 or najl[1] < 2 * max(przy, 0.0):
+        return 0.0
+    if lo is not None:
+        j = zero + najl[0]
+        if lo[j:j + 60].max() < 1.15 * (lo[max(0, j - 20):j + 1].mean() + 1e-12):
+            return 0.0
+    return najl[0] / fps
 
 
 def _spadek_tonu(x_bas: np.ndarray, sr: int, t: float) -> float:
@@ -998,8 +1038,10 @@ def oszacuj(x: np.ndarray, sr: int, bpm_hint: float | None = None,
     e_hi = _obwiednia_kliku(x, sr, krok_ms)
     e_cale = e_szer
     linie_glowne = zn[0][0] + np.arange(int((dl_s - zn[0][0]) / okres)) * okres
+    e_srod = _obwiednia_pasma(x, sr, 200.0, min(10_000.0, sr / 2 - 1), 0.002, krok_ms)
     przes_kliku, pewne = _korekta_kliku(e_hi, e_cale, sr / krok_ms, linie_glowne[linie_glowne > 0],
-                                        e_low if e_low.size else None)
+                                        e_low if e_low.size else None, e_srod)
+    del e_srod
     if przes_kliku:
         zn = [(tz + przes_kliku, bz, nz) for tz, bz, nz in zn]
         if not pewne:
