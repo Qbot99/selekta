@@ -526,7 +526,7 @@ def _dopasuj_odcinek(t: np.ndarray, w: np.ndarray, bpm_lo: float, bpm_hi: float)
         # szeroki zakres: najpierw zgrubnie (krok 0,02, jądro 6 ms), potem dokładnie wokół
         zgr, _f, _w = _grzebien(t, w, bpm_lo, bpm_hi, krok=0.02, sigma_s=0.006)
         bpm_lo, bpm_hi = zgr - 0.06, zgr + 0.06
-    bpm, faza, _wynik = _grzebien(t, w, bpm_lo, bpm_hi)
+    bpm, faza, wynik = _grzebien(t, w, bpm_lo, bpm_hi)
     okres = 60.0 / bpm
     n = np.round((t - faza) / okres)
     r = t - (faza + n * okres)
@@ -538,6 +538,22 @@ def _dopasuj_odcinek(t: np.ndarray, w: np.ndarray, bpm_lo: float, bpm_hi: float)
             a, b = faza, okres
     else:
         a, b = faza, okres
+    # Tempo całkowite/połówkowe, gdy trzyma stopy PRAWIE tak dobrze jak najlepsze.
+    # Dwie grupy stóp (klik w intrze, korpus dalej) przechylają dopasowanie
+    # o 0,01 BPM, a to 20 ms rozjazdu na końcu (Lucid: 131,99 → 132,0, wyniki
+    # 1,38 vs 1,36). Producent ustawia tempo w DAW — przy remisie wygrywa
+    # liczba okrągła; przy wyraźnej przewadze (Dash Berlin 127,99) pomiar.
+    bpm_r = 60.0 / b
+    for kand in (round(bpm_r), round(bpm_r * 2) / 2.0):
+        if abs(kand - bpm_r) <= 0.03 and abs(kand - bpm_r) > 1e-4:
+            _b2, f2, w2 = _grzebien(t, w, kand - 1e-6, kand + 1e-6)
+            _b3, _f3, w_r = _grzebien(t, w, bpm_r - 1e-6, bpm_r + 1e-6)
+            if w2 >= 0.97 * max(w_r, wynik):
+                b = 60.0 / kand
+                r2 = t - (f2 + np.round((t - f2) / b) * b)
+                bliskie = (np.abs(r2) <= TOL_INLIER_S) & moc
+                a = f2 + (float(np.median(r2[bliskie])) if bliskie.sum() >= 8 else 0.0)
+            break
     okna = _okna_v3(t[moc], w[moc], a, b)
     udzial = float(np.mean([abs(v) <= TOL_OKNA_V3_S for _, v in okna])) if okna else 0.0
     return dict(a=a, okres=b, bpm_dokladne=60.0 / b, okna=okna, udzial=udzial,
@@ -696,53 +712,67 @@ def _obwiednia_kliku(x: np.ndarray, sr: int, krok: int) -> np.ndarray:
     return d2[:m].reshape(-1, krok).max(axis=1)
 
 
-def _korekta_kliku(e_hi: np.ndarray, e_all: np.ndarray, fps: float, linie: np.ndarray) -> float:
-    """Przesunięcie siatki [s] na KLIK stopy, gdy ten wyraźnie wyprzedza narost, na którym siatka stoi.
+def _korekta_kliku(e_hi: np.ndarray, e_all: np.ndarray, fps: float, linie: np.ndarray,
+                   e_low: np.ndarray | None = None) -> tuple[float, bool]:
+    """Przesunięcie siatki [s] na POCZĄTEK stopy, gdy ten nie leży na linii; (przesunięcie, pewne?).
 
-    W hard techno stopa bywa dwuczęściowa: krótki klik (wysokie pasmo) i 20–50 ms
-    później dopiero basowy korpus. Szerokopasmowa funkcja onsetów łapie
-    korpus — siatka stała wtedy o te 30 ms za późno (The Rocketman — The
-    Nighttrain: rekordbox na kliku, selekta na korpusie). DJ słyszy początek
-    stopy w kliku, więc tam musi być linia.
+    DJ słyszy początek stopy w jej najwcześniejszym ostrym ataku. W hard techno
+    stopa bywa złożona: klik (wysokie pasmo) i 20–50 ms później basowy korpus,
+    a między stopami gra ciągły bas („rumble”). Szerokopasmowe onsety łapią
+    wtedy korpus albo nutę basu — siatka stała 13–57 ms obok (zmierzone na
+    233 siatkach rekordboxa: The Nighttrain, Pegassi — 227kg, Eli Brown —
+    Wavey, Nicolas Julian — Like This, The Rocketman — Una Hora Más…).
 
-    Uśredniamy obwiednię wysokiego pasma po 64 najgłośniejszych bitach (cały
-    bit, ±½ okresu). Klik to szczyt między −50 a −8 ms, który:
-    * wyrasta z ciszy (minimum 25 ms przed nim ≤ 40 % szczytu),
-    * dominuje nad wszystkim wcześniej w bicie (≤ 50 % szczytu) — ciągłe
-      hi-haty, bas „na i” z ostrymi krawędziami (Manieczki, fala prostokątna)
-      tego nie spełniają,
-    * gaśnie do linii (≤ 60 % szczytu).
+    Na profilu uśrednionym po 64 najgłośniejszych bitach (±¼ bitu, maks. 90 ms)
+    szukamy narostów wysokiego pasma; każdy ważymy tym, czy po nim ROŚNIE bas
+    (korpus stopy), czy gaśnie (klaps, hi-hat, koniec poprzedniej nuty).
+    Przesuwamy, gdy najlepszy kandydat leży > 8 ms od linii, przy linii nie ma
+    porównywalnego narostu (< 40 %) i kandydata od linii nie dzieli cisza
+    (samotny klaps 76 ms przed stopą — PP DJ Killer — zostaje bez zmian).
+    „Pewne” = kandydat wyraźny (siła ≥ 3) i przy linii prawie nic (< 25 %).
     """
     okres = float(np.median(np.diff(linie))) if len(linie) > 2 else 0.5
-    h = int(0.5 * okres * fps)
+    h = int(min(0.25 * okres, 0.09) * fps)
+    dl = min(e_hi.size, e_all.size, e_low.size if e_low is not None else e_hi.size)
     idx = np.round(np.asarray(linie) * fps).astype(int)
-    idx = idx[(idx - h >= 0) & (idx + h < min(e_hi.size, e_all.size))]
+    idx = idx[(idx - h - 25 >= 0) & (idx + h + 65 < dl)]
     if idx.size < 32:
-        return 0.0
+        return 0.0, True
     glosnosc = np.array([e_all[i:i + int(0.05 * fps)].max() for i in idx])
     wyb = idx[np.argsort(-glosnosc)[:64]]
-    prof = np.mean([e_hi[i - h:i + h + 1] for i in wyb], axis=0)
-    w3 = max(1, int(0.003 * fps))
-    prof = np.convolve(prof, np.ones(w3) / w3, mode="same")
-    tau = np.arange(-h, h + 1) / fps
-    okno = np.flatnonzero((tau >= KLIK_OD_S) & (tau <= KLIK_DO_S))
-    if okno.size == 0:
-        return 0.0
-    j = int(okno[np.argmax(prof[okno])])
-    szczyt = float(prof[j])
-    if szczyt <= 0:
-        return 0.0
-    podloga = float(prof[max(0, j - int(0.025 * fps)):j + 1].min())
-    wczesniej = prof[(tau > -0.5 * okres + 0.01) & (tau < tau[j] - 0.010)]
-    zakres = float(prof.max() - prof.min()) + 1e-12
-    if not (szczyt - podloga >= 0.5 * zakres and podloga <= 0.4 * szczyt
-            and prof[h] <= 0.6 * szczyt and (wczesniej.size == 0 or wczesniej.max() <= 0.5 * szczyt)):
-        return 0.0
-    prog = podloga + 0.5 * (szczyt - podloga)
-    k = j
-    while k > 0 and prof[k - 1] >= prog:
-        k -= 1
-    return float(tau[k])
+    hf = np.mean([e_hi[i - h - 25:i + h + 66] for i in wyb], axis=0)
+    bb = np.mean([e_all[i - h - 25:i + h + 66] for i in wyb], axis=0)
+    lo = np.mean([e_low[i - h - 25:i + h + 66] for i in wyb], axis=0) if e_low is not None else None
+    w2 = max(1, int(0.002 * fps))
+    hs = np.convolve(hf, np.ones(w2) / w2, mode="same")
+    d = np.diff(hs, prepend=hs[0])
+    med = float(np.median(hf)) + 1e-12
+    zero = h + 25                                   # indeks linii w profilu
+    kand = []
+    for i in range(zero - h, zero + h + 1):
+        if d[i] > 0 and d[i] >= d[i - 1] and d[i] >= d[i + 1]:
+            sila = float((hf[i:i + 9].max() - hf[i - 15:i + 1].min()) / med)
+            j = i
+            while j > zero - h - 20 and d[j - 1] > 0.3 * d[i]:
+                j -= 1
+            bas = 1.0
+            if lo is not None:
+                po, przed = lo[j:j + 60].max(), lo[max(0, j - 20):j + 1].mean() + 1e-12
+                bas = float(min(po / przed, 3.0))
+            kand.append((j - zero, sila, sila * bas))
+    if not kand:
+        return 0.0, True
+    najl = max(kand, key=lambda k: k[2])
+    przy = max([k[2] for k in kand if abs(k[0]) <= 4] or [0.0])
+    if abs(najl[0]) <= 8 or przy >= 0.4 * najl[2]:
+        return 0.0, True
+    a_, b_ = sorted((zero + najl[0], zero))
+    if b_ - a_ > 6:
+        dno = float(bb[a_ + 3:b_ - 2].min())
+        if dno < 0.25 * float(bb[zero - h:zero + h].max()):
+            return 0.0, True                        # oddziela je cisza — to osobne uderzenie
+    pewne = najl[1] >= 3.0 and przy < 0.25 * najl[2]
+    return najl[0] / fps, pewne
 
 
 def _spadek_tonu(x_bas: np.ndarray, sr: int, t: float) -> float:
@@ -892,10 +922,13 @@ def oszacuj(x: np.ndarray, sr: int, bpm_hint: float | None = None,
     e_hi = _obwiednia_kliku(x, sr, krok_ms)
     e_cale = _obwiednia_pasma(x, sr, 20.0, sr / 2 - 1, 0.003, krok_ms)
     linie_glowne = zn[0][0] + np.arange(int((dl_s - zn[0][0]) / okres)) * okres
-    przes_kliku = _korekta_kliku(e_hi, e_cale, sr / krok_ms, linie_glowne[linie_glowne > 0])
+    przes_kliku, pewne = _korekta_kliku(e_hi, e_cale, sr / krok_ms, linie_glowne[linie_glowne > 0],
+                                        e_low if e_low.size else None)
     if przes_kliku:
         zn = [(tz + przes_kliku, bz, nz) for tz, bz, nz in zn]
-        t_on = t_on + 0.0                       # transjenty bez zmian — kotwica liczona względem nowej fazy niżej
+        if not pewne:
+            flaga = flaga or ("stopa złożona (klik i korpus osobno) — siatka ustawiona na klik, "
+                              "sprawdź uchem, czy trafia")
     del e_hi
     if model["tryb"] == "dynamiczna" and model.get("zle_okno_s") is not None:
         m, s_ = divmod(int(model["zle_okno_s"]), 60)
