@@ -396,9 +396,16 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
     ET.SubElement(root, "PRODUCT", Name="selekta", Version=__version__, Company="selekta")
     wyslane: dict[str, dict[str, float]] = {}
 
+    from . import rbczas
+
     collection = ET.SubElement(root, "COLLECTION", Entries=str(len(tracks)))
     for i, track in enumerate(tracks, start=1):
         path = track["path"]
+        # Oś czasu rekordboxa jest dla MP3/M4A z opóźnieniem kodera PÓŹNIEJSZA
+        # niż nasza (ffmpeg je pomija, rekordbox nie): bez tego siatka i cue
+        # lądowały 25–51 ms za wcześnie. Wszystkie czasy w tym pliku są w osi
+        # selekty — przesuwamy je tu, w jednym miejscu (rbczas.py).
+        off = rbczas.przesuniecie_s(path) if os.path.isfile(path) else 0.0
         attrs = {
             "TrackID": str(i),
             "Name": str(track.get("title") or ""),
@@ -436,7 +443,7 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
         first_beat = _czas_lub_none(track.get("first_beat_s"))
         if bpm and siatka_zn:
             for z in siatka_zn:
-                ET.SubElement(el, "TEMPO", Inizio=f"{z['t']:.3f}", Bpm=f"{z['bpm']:.2f}",
+                ET.SubElement(el, "TEMPO", Inizio=f"{z['t'] + off:.3f}", Bpm=f"{z['bpm']:.2f}",
                               Metro="4/4", Battito=str(z['battito']))
         elif bpm and first_beat is not None:
             try:
@@ -445,7 +452,7 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
                 battito = 1
             if not 1 <= battito <= 4:
                 battito = 1
-            ET.SubElement(el, "TEMPO", Inizio=f"{first_beat:.3f}",
+            ET.SubElement(el, "TEMPO", Inizio=f"{first_beat + off:.3f}",
                           Bpm=f"{bpm:.2f}", Metro="4/4", Battito=str(battito))
 
         # Punkty cue. RĘCZNA PRACA WYGRYWA: jeśli utwór wrócił z rekordboxa
@@ -460,11 +467,11 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
                     continue
                 attrs_m = {"Name": str(z.get("nazwa") or ""),
                            "Type": str(z.get("typ") or "0"),
-                           "Start": f"{czas:.3f}",
+                           "Start": f"{max(0.0, czas + off):.3f}",
                            "Num": str(z.get("num", -1))}
                 koniec = _czas_lub_none(z.get("koniec_s"))
                 if koniec is not None:
-                    attrs_m["End"] = f"{koniec:.3f}"
+                    attrs_m["End"] = f"{max(0.0, koniec + off):.3f}"
                 kolor = str(z.get("kolor") or "")
                 if kolor.startswith("#") and len(kolor) == 7:
                     attrs_m.update(Red=str(int(kolor[1:3], 16)),
@@ -480,8 +487,8 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
                 if czas is None:
                     continue
                 ET.SubElement(el, "POSITION_MARK", Name=nazwa, Type="0",
-                              Start=f"{czas:.3f}", Num=str(numer))
-                wyslane.setdefault(path, {})[nazwa] = round(czas, 3)
+                              Start=f"{czas + off:.3f}", Num=str(numer))
+                wyslane.setdefault(path, {})[nazwa] = round(czas + off, 3)   # tak jak w XML-u
 
     playlists = ET.SubElement(root, "PLAYLISTS")
     node_root = ET.SubElement(playlists, "NODE", Type="0", Name="ROOT", Count="1")
@@ -605,6 +612,29 @@ def install_serato_crate(tracks: list[dict], library_root: str,
     """
     return install_serato_crates(tracks, library_root, crate_name)[0]
 
+def _rb_w_osi_selekty(path: str, rb: dict) -> dict:
+    """Czasy zapamiętane z XML-a rekordboxa przeliczone na oś selekty (rbczas.py).
+
+    Wszystko w selekcie (edytor siatki, cue, eksport) liczy w osi ffmpeg;
+    to_rekordbox_xml przesuwa z powrotem — ręczna praca wraca co do ms.
+    """
+    if not rb:
+        return rb
+    from . import rbczas
+    off = rbczas.przesuniecie_s(path)
+    if not off:
+        return rb
+    wynik = dict(rb)
+    if rb.get("first_beat_s") is not None:
+        wynik["first_beat_s"] = rb["first_beat_s"] - off
+    wynik["tempa"] = [{**z, "inizio_s": z["inizio_s"] - off} if z.get("inizio_s") is not None else z
+                      for z in rb.get("tempa") or []]
+    wynik["znaczniki"] = [{**z, **({"start_s": z["start_s"] - off} if z.get("start_s") is not None else {}),
+                           **({"koniec_s": z["koniec_s"] - off} if z.get("koniec_s") is not None else {})}
+                          for z in rb.get("znaczniki") or []]
+    return wynik
+
+
 def wzbogac_o_siatke(tracks: list[dict], licz_brakujace: bool = True) -> list[dict]:
     """Dołóż do eksportu siatkę beatów i punkty cue.
 
@@ -650,7 +680,7 @@ def wzbogac_o_siatke(tracks: list[dict], licz_brakujace: bool = True) -> list[di
         # Kolejność ważności kotwicy: poprawka zrobiona w selekcie (ostatnia
         # świadoma decyzja w tej apce) > to, co przyszło z rekordboxa >
         # nasze wyliczenie.
-        rb = rbimport.dla_pliku(path) or {}
+        rb = _rb_w_osi_selekty(path, rbimport.dla_pliku(path) or {})
         reczna = waveform.wczytaj_siatke(path) or {}
         # `is not None`, nie `or`: ręczna kotwica 0,0 s to świadoma decyzja
         t["first_beat_s"] = next((v for v in (reczna.get("first_beat_s"),
@@ -676,7 +706,10 @@ def wzbogac_o_siatke(tracks: list[dict], licz_brakujace: bool = True) -> list[di
             t["bpm"] = c["bpm_siatki"]
         # Pełna siatka z analizy (wiele znaczników) — tylko gdy kotwica i BPM są
         # nasze; ręczna poprawka w selekcie albo siatka z rekordboxa wygrywają.
-        if (reczna.get("first_beat_s") is None and rb.get("first_beat_s") is None
+        if len(reczna.get("znaczniki") or []) > 1:
+            # siatka dynamiczna przesunięta ręcznie w edytorze selekty
+            t["siatka_znaczniki"] = reczna["znaczniki"]
+        elif (reczna.get("first_beat_s") is None and rb.get("first_beat_s") is None
                 and c.get("znaczniki") and (c.get("pewnosc_siatki") or 0) >= siatka.PROG_PEWNOSCI):
             t["siatka_znaczniki"] = c["znaczniki"]
             if c.get("bpm_dokladne"):

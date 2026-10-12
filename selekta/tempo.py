@@ -41,19 +41,45 @@ class Stabilnosc:
     opis: str = ""
 
 
-def zbadaj(path: str, bpm: float | None) -> Stabilnosc:
-    """Sprawdź, czy stałe BPM opisuje ten utwór do samego końca."""
+class _ZAnalizy:
+    """Wynik silnika siatki odczytany z zapisanej analizy cue (pamięć podręczna)."""
+
+    def __init__(self, c: dict):
+        self.znaczniki = c.get("znaczniki") or []
+        self.tryb = c.get("tryb_siatki") or "stała"
+        self.flaga = c.get("flaga_siatki")
+        self.odchylka_ms = c.get("odchylka_siatki_ms")
+        self.bpm_dokladne = c.get("bpm_dokladne")
+        self.bpm = c.get("bpm_siatki")
+
+
+def zbadaj(path: str, bpm: float | None, c: dict | None = None) -> Stabilnosc:
+    """Sprawdź, czy stałe BPM opisuje ten utwór do samego końca.
+
+    ``c`` — gotowa analiza cue z tym samym BPM: wtedy NIE liczymy siatki drugi
+    raz, tylko czytamy jej wynik (ta sama siatka, którą dostanie rekordbox).
+    """
     if not bpm or bpm <= 0:
         return Stabilnosc(opis="bez BPM nie ma czego sprawdzać")
+    if c and c.get("tryb_siatki") and c.get("znaczniki") and c.get("bpm_siatki"):
+        if (c.get("duration_s") or 0) < MIN_DLUGOSC_S:
+            return Stabilnosc(opis="utwór za krótki, żeby ocenić stabilność tempa")
+        return _opisz(_ZAnalizy(c), bpm, float(c.get("duration_s") or 0))
     x = _decode(path)
     if x.size == 0:
         return Stabilnosc(opis="nie udało się odczytać dźwięku")
     if x.size < SR * MIN_DLUGOSC_S:
         return Stabilnosc(opis="utwór za krótki, żeby ocenić stabilność tempa")
     from . import siatka
-    s = siatka.oszacuj(x, SR, bpm)
+    from .cues import FPS, _envelopes, _poczatek_muzyki
+    total = _envelopes(x)[0]
+    s = siatka.oszacuj(x, SR, bpm, od_s=_poczatek_muzyki(total) / FPS)   # jak w analizie cue
     if s is None:
         return Stabilnosc(opis="za mało wyraźnych uderzeń, żeby ocenić stabilność tempa")
+    return _opisz(s, bpm, x.size / SR)
+
+
+def _opisz(s, bpm: float, dl: float) -> Stabilnosc:
     okien = len(s.znaczniki)
     if s.tryb == "dynamiczna":
         return Stabilnosc(stabilne=False, okien=okien, wahanie_bitu=round((s.odchylka_ms or 0) / 1000 * bpm / 60, 3),
@@ -63,7 +89,6 @@ def zbadaj(path: str, bpm: float | None) -> Stabilnosc:
     dokladne = s.bpm_dokladne or s.bpm
     if abs(dokladne - bpm) > PROG_NIETRAFIONE:
         okres_p, okres_d = 60.0 / bpm, 60.0 / dokladne
-        dl = x.size / SR
         dryf = abs(okres_p - okres_d) * (dl / okres_d)
         return Stabilnosc(stabilne=True, bpm_nietrafione=True, bpm_poprawione=round(float(s.bpm), 2),
                           dryf_s=round(dryf, 3), dryf_bitu=round(dryf / okres_d, 3), okien=okien,

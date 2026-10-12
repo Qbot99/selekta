@@ -100,13 +100,20 @@ def wczytaj_siatke(path: str) -> dict | None:
 
 
 def zapisz_siatke(path: str, first_beat_s: float, bpm: float | None = None,
-                  battito: int | None = None) -> dict:
-    """Zapamiętaj poprawkę wprowadzoną ręcznie (kotwica, BPM, numer bitu kotwicy)."""
+                  battito: int | None = None, znaczniki: list | None = None) -> dict:
+    """Zapamiętaj poprawkę wprowadzoną ręcznie (kotwica, BPM, numer bitu kotwicy).
+
+    ``znaczniki`` — siatka dynamiczna przesunięta ręcznie w całości
+    ([{"t", "bpm", "battito"}], co najmniej dwa); bez nich siatka jest stała.
+    """
     wpis = {"first_beat_s": round(float(first_beat_s), 4)}
     if bpm:
         wpis["bpm"] = round(float(bpm), 3)
     if battito and 1 <= int(battito) <= 4:
         wpis["battito"] = int(battito)
+    if znaczniki and len(znaczniki) > 1:
+        wpis["znaczniki"] = [{"t": round(float(z["t"]), 4), "bpm": round(float(z["bpm"]), 3),
+                              "battito": int(z.get("battito") or 1)} for z in znaczniki]
     dane = _wczytaj_wszystkie()
     dane[os.path.abspath(path)] = wpis
     os.makedirs(config.STATE_DIR, exist_ok=True)

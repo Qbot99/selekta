@@ -1924,7 +1924,10 @@ def _tempo_dla(path: str) -> dict:
     h = cache.get(path, "harmonic")
     if h is None:
         h = asdict(harmonic.analyze(path)); cache.put(path, "harmonic", h)
-    dane = asdict(tempo.zbadaj(path, h.get("bpm")))
+    c = cache.get(path, "cues")
+    if c is None and h.get("bpm"):
+        c = asdict(cues.analyze(path, bpm=h.get("bpm"))); cache.put(path, "cues", c)
+    dane = asdict(tempo.zbadaj(path, h.get("bpm"), c))
     cache.put(path, "tempo", dane)
     return dane
 
@@ -2260,6 +2263,29 @@ def api_decyzje_cofnij(ident: str) -> JSONResponse:
     return JSONResponse(_clean({"ok": True, "decyzja": d}))
 
 
+def _siatka_widoczna(path: str) -> dict:
+    """Siatka, którą eksport wyśle do rekordboxa — do podglądu w edytorze.
+
+    Liczy tylko z pamięci (analiza musi już być); źródło mówi, skąd siatka:
+    „reczna” (edytor selekty), „rekordbox” (wczytany XML) albo „analiza”.
+    """
+    t = dj_export.wzbogac_o_siatke([{"path": path}], licz_brakujace=False)[0]
+    reczna = waveform.wczytaj_siatke(path) or {}
+    rb = rbimport.dla_pliku(path) or {}
+    c = cache.get(path, "cues") or {}
+    zrodlo = ("reczna" if reczna.get("first_beat_s") is not None
+              else "rekordbox" if rb.get("first_beat_s") is not None else "analiza")
+    zn = dj_export._znaczniki_tempa(t.get("siatka_znaczniki"))
+    return {"bpm": t.get("bpm"), "first_beat_s": t.get("first_beat_s"),
+            "battito": t.get("battito") or 1,
+            "znaczniki": zn if len(zn) > 1 else None,
+            "zrodlo_siatki": zrodlo,
+            # kilka znaczników o tym samym BPM to stała siatka z kotwicami
+            # (zaokrąglenie BPM do 0,01), a nie zmienne tempo
+            "tryb_siatki": "dynamiczna" if len({z["bpm"] for z in zn}) > 1 else "stała",
+            "flaga_siatki": c.get("flaga_siatki") if zrodlo == "analiza" else None}
+
+
 @app.get("/api/waveform")
 def api_waveform(file: str = Query(...)) -> JSONResponse:
     """Przebieg fali plus siatka beatów i punkty cue — do podglądu i korekty."""
@@ -2278,20 +2304,13 @@ def api_waveform(file: str = Query(...)) -> JSONResponse:
         c = asdict(cues.analyze(path, bpm=h.get("bpm"))); cache.put(path, "cues", c)
 
     reczna = waveform.wczytaj_siatke(path)
-    # BPM siatki: ręczne > dostrojone do stopy (gdy pewne) > z analizy tempa
-    bpm = ((reczna or {}).get("bpm")
-           or (c.get("bpm_siatki")
-               if (c.get("pewnosc_siatki") or 0) >= siatka.PROG_PEWNOSCI else None)
-           or h.get("bpm"))
-    pierwszy = ((reczna or {}).get("first_beat_s")
-                if reczna else c.get("first_beat_s"))
-    battito = ((reczna or {}).get("battito") or 1) if reczna else (c.get("battito") or 1)
+    # Siatka DOKŁADNIE taka, jaką dostanie rekordbox (ta sama funkcja co
+    # eksport): ręczna > z rekordboxa > z analizy, z wszystkimi znacznikami.
+    g = _siatka_widoczna(path)
     return JSONResponse(_clean({
         **dane,
         "file": os.path.basename(path),
-        "bpm": bpm,
-        "first_beat_s": pierwszy,
-        "battito": battito,
+        **g,
         "pewnosc_siatki": c.get("pewnosc_siatki"),
         "pewnosc_taktu": c.get("pewnosc_taktu"),
         "wyliczony_first_beat_s": c.get("first_beat_s"),
@@ -2308,9 +2327,8 @@ def api_siatka(payload: dict) -> JSONResponse:
     dane = payload or {}
     if dane.get("reset"):
         waveform.skasuj_siatke(path)
-        c = cache.get(path, "cues") or {}
-        return JSONResponse({"ok": True, "reczna_korekta": False,
-                             "first_beat_s": c.get("first_beat_s")})
+        g = _siatka_widoczna(path)
+        return JSONResponse({"ok": True, "reczna_korekta": False, **g})
     try:
         first_beat = float(dane.get("first_beat_s"))
     except (TypeError, ValueError):
@@ -2330,7 +2348,13 @@ def api_siatka(payload: dict) -> JSONResponse:
         battito = 1
     if not 1 <= battito <= 4:
         raise HTTPException(400, "numer bitu kotwicy musi być od 1 do 4")
-    wpis = waveform.zapisz_siatke(path, first_beat, bpm, battito)
+    # siatka dynamiczna przesunięta w całości: kilka znaczników TEMPO
+    znaczniki = dj_export._znaczniki_tempa(dane.get("znaczniki"))
+    if dane.get("znaczniki") and len(znaczniki) < 2:
+        raise HTTPException(400, "siatka dynamiczna potrzebuje co najmniej dwóch poprawnych znaczników")
+    if znaczniki:
+        first_beat, battito = znaczniki[0]["t"], znaczniki[0]["battito"]
+    wpis = waveform.zapisz_siatke(path, first_beat, bpm, battito, znaczniki or None)
     return JSONResponse({"ok": True, "reczna_korekta": True, **wpis})
 
 

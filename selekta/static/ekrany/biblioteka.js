@@ -768,6 +768,7 @@
         if(seq !== SZCZ.seq) return;
         if(!f.punkty) throw new Error('nie udało się odczytać dźwięku z tego pliku');
         SZCZ.fala = f; SZCZ.bpm = f.bpm || 0; SZCZ.kotwica = f.first_beat_s || 0; SZCZ.battito = f.battito || 1; SZCZ.srodek = SZCZ.kotwica;
+        ustawZnaczniki(f);
         $('#szczFala', body).innerHTML = slupkiHTML(f, {intro_end_s:f.cues && f.cues.intro, outro_start_s:f.cues && f.cues.outro});
         $('#szczEtykiety', body).innerHTML = etykietyCue({intro_end_s:f.cues && f.cues.intro, drop_s:f.cues && f.cues.drop, outro_start_s:f.cues && f.cues.outro});
         siatkaStan(); odswiezKafle();
@@ -792,7 +793,47 @@
     if(msg){ s.innerHTML = msg; return; }
     const f = SZCZ.fala; if(!f) return;
     const pewn = f.pewnosc_siatki != null && !f.reczna_korekta ? ` · <span style="color:${f.pewnosc_siatki >= 0.25 ? K.ok : K.warn}">${f.pewnosc_siatki >= 0.25 ? 'NA STOPIE' : 'STOPA NIEWYRAŹNA — SPRAWDŹ UCHEM'}</span>` : '';
-    s.innerHTML = `SIATKA · KOTWICA ${esc(fmtCs(SZCZ.kotwica))} = BIT ${SZCZ.battito}/4${SZCZ.bpm ? ` · ${esc(fmtBpm(SZCZ.bpm))} BPM` : ''} · ${f.reczna_korekta ? `<span style="color:${K.acc}">POPRAWIONA RĘCZNIE</span>` : 'WYLICZONA'}${pewn}`;
+    const dyn = f.tryb_siatki === 'dynamiczna' && SZCZ.zn ? ` · <span style="color:${K.warn}">DYNAMICZNA: ${SZCZ.zn.length} ZNACZNIKÓW TEMPA</span>` : '';
+    const zrodlo = f.reczna_korekta ? `<span style="color:${K.acc}">POPRAWIONA RĘCZNIE</span>` : (f.zrodlo_siatki === 'rekordbox' ? 'Z REKORDBOXA' : 'WYLICZONA');
+    const flaga = f.flaga_siatki && !f.reczna_korekta ? ` · <span style="color:${K.warn}">SPRAWDŹ UCHEM: ${esc(f.flaga_siatki)}</span>` : '';
+    s.innerHTML = `SIATKA · KOTWICA ${esc(fmtCs(SZCZ.kotwica))} = BIT ${SZCZ.battito}/4${SZCZ.bpm ? ` · ${esc(fmtBpm(SZCZ.bpm))} BPM` : ''}${dyn} · ${zrodlo}${pewn}${flaga}`;
+  }
+
+  // ---------- siatka z kilkoma znacznikami TEMPO (dynamiczna albo z kotwicami) ----------
+  // Edytor przesuwa ją W CAŁOŚCI: przesunięcie kotwicy i zmiana numeru bitu
+  // dotyczą każdego znacznika. Bazę zapamiętujemy, żeby liczyć różnicę.
+  function ustawZnaczniki(f){
+    SZCZ.zn = (f && f.znaczniki && f.znaczniki.length > 1) ? f.znaczniki : null;
+    SZCZ.kotwica0 = f ? (f.first_beat_s || 0) : 0; SZCZ.battito0 = f ? (f.battito || 1) : 1;
+  }
+  function znacznikiPoZmianie(){
+    if(!SZCZ.zn) return null;
+    const off = SZCZ.kotwica - SZCZ.kotwica0, db = (SZCZ.battito || 1) - (SZCZ.battito0 || 1);
+    return SZCZ.zn.map(m => ({t: Math.max(0, m.t + off), bpm: m.bpm, battito: ((((m.battito || 1) - 1 + db) % 4) + 4) % 4 + 1}));
+  }
+  // linie siatki w [od, do_]: {t, takt} — takt = jedynka taktu
+  function linieSiatki(od, do_){
+    const out = [];
+    const zn = znacznikiPoZmianie();
+    if(zn){
+      zn.forEach((m, i) => {
+        const P = 60 / m.bpm, koniec = i + 1 < zn.length ? zn[i + 1].t - 1e-6 : do_ + P;
+        let k = Math.ceil((od - m.t) / P); if(i > 0) k = Math.max(0, k);
+        for(let t = m.t + k * P; t < koniec && t <= do_; t += P, k++){
+          out.push({t, takt: ((((m.battito || 1) - 1 + k) % 4) + 4) % 4 === 0});
+        }
+      });
+      return out;
+    }
+    if(!(SZCZ.bpm > 0)) return out;
+    const okres = 60 / SZCZ.bpm;
+    let k = Math.ceil((od - SZCZ.kotwica) / okres);
+    // kotwica ma numer bitu SZCZ.battito (1–4); jedynki taktu leżą co 4 bity od niej z tym przesunięciem
+    const jedynka = ((1 - (SZCZ.battito || 1)) % 4 + 4) % 4;
+    for(let t = SZCZ.kotwica + k * okres; t <= do_; t += okres, k++){
+      if(t >= od) out.push({t, takt: (((k - jedynka) % 4) + 4) % 4 === 0});
+    }
+    return out;
   }
 
   // ---------- edytor siatki: dwa canvasy, kotwica, zapis ----------
@@ -862,18 +903,17 @@
       const od = Math.max(0, SZCZ.srodek - SZCZ.okno / 2), do_ = Math.min(d.czas_s, od + SZCZ.okno);
       const {w, h, g} = _rysujObwiednie(zoom, d.szczyt, d.rms, od, do_);
       const x = t => ((t - od) / (do_ - od)) * w;
-      if(SZCZ.bpm > 0){
-        const okres = 60 / SZCZ.bpm;
-        let k = Math.ceil((od - SZCZ.kotwica) / okres);
-        // kotwica ma numer bitu SZCZ.battito (1–4); jedynki taktu leżą co 4 bity od niej z tym przesunięciem
-        const jedynka = ((1 - (SZCZ.battito || 1)) % 4 + 4) % 4;
-        for(let t = SZCZ.kotwica + k * okres; t <= do_; t += okres, k++){
-          if(t < od) continue;
-          const takt = (((k - jedynka) % 4) + 4) % 4 === 0;
-          g.fillStyle = takt ? 'rgba(242,236,230,.6)' : 'rgba(242,236,230,.2)';
-          g.fillRect(x(t), takt ? 0 : h * 0.18, takt ? 1.5 : 1, takt ? h : h * 0.64);
-        }
-      }
+      linieSiatki(od, do_).forEach(({t, takt}) => {
+        if(t < od) return;
+        g.fillStyle = takt ? 'rgba(242,236,230,.6)' : 'rgba(242,236,230,.2)';
+        g.fillRect(x(t), takt ? 0 : h * 0.18, takt ? 1.5 : 1, takt ? h : h * 0.64);
+      });
+      // znaczniki TEMPO (siatka dynamiczna): krótki znak u góry z BPM odcinka
+      (znacznikiPoZmianie() || []).forEach(m => {
+        if(m.t < od || m.t > do_) return;
+        g.fillStyle = K.warn; g.fillRect(x(m.t) - 0.5, 0, 1.5, 7);
+        g.font = "500 9px 'DM Mono',monospace"; g.fillText(fmtBpm(m.bpm), Math.min(x(m.t) + 3, w - 40), 8);
+      });
       g.fillStyle = K.acc; g.fillRect(x(SZCZ.kotwica) - 1, 0, 2, h);
       g.font = "500 10px 'DM Mono',monospace"; g.fillStyle = K.acc; g.fillText('kotwica', Math.min(x(SZCZ.kotwica) + 5, w - 48), h - 5);
     }
@@ -894,8 +934,11 @@
     $('#siatkaZapisz', box).onclick = async (e) => {
       const b = e.currentTarget; b.disabled = true;
       try{
-        await api('/api/siatka', {method:'POST', body:{file:SZCZ.file, first_beat_s:SZCZ.kotwica, bpm:SZCZ.bpm || null, battito:SZCZ.battito || 1}});
-        SZCZ.fala.reczna_korekta = true; SZCZ.fala.first_beat_s = SZCZ.kotwica; SZCZ.fala.battito = SZCZ.battito;
+        const zn = znacznikiPoZmianie();
+        const j = await api('/api/siatka', {method:'POST', body:{file:SZCZ.file, first_beat_s:SZCZ.kotwica, bpm:SZCZ.bpm || null, battito:SZCZ.battito || 1, ...(zn ? {znaczniki:zn} : {})}});
+        SZCZ.fala.reczna_korekta = true; SZCZ.fala.zrodlo_siatki = 'reczna';
+        if(zn){ SZCZ.kotwica = j.first_beat_s; SZCZ.battito = j.battito || 1; SZCZ.fala.znaczniki = zn; }
+        SZCZ.fala.first_beat_s = SZCZ.kotwica; SZCZ.fala.battito = SZCZ.battito; ustawZnaczniki(SZCZ.fala);
         S.toast('siatka zapisana — eksport użyje tej kotwicy', 'ok');
         przerysujFale(); odswiezKafle();
       }catch(err){}
@@ -908,7 +951,7 @@
         SZCZ.kotwica = j.first_beat_s || 0; SZCZ.srodek = SZCZ.kotwica;
         SZCZ.fala.reczna_korekta = false; SZCZ.fala.first_beat_s = SZCZ.kotwica;
         // po resecie BPM i numer bitu kotwicy wracają do wyliczonych
-        try{ const f = await api('/api/waveform?file=' + encF(SZCZ.file), {cicho:true}); SZCZ.bpm = f.bpm || SZCZ.bpm; SZCZ.fala.bpm = f.bpm; SZCZ.battito = f.battito || 1; SZCZ.fala.battito = SZCZ.battito; SZCZ.fala.pewnosc_siatki = f.pewnosc_siatki; }catch(e2){}
+        try{ const f = await api('/api/waveform?file=' + encF(SZCZ.file), {cicho:true}); SZCZ.bpm = f.bpm || SZCZ.bpm; SZCZ.battito = f.battito || 1; SZCZ.kotwica = f.first_beat_s || 0; SZCZ.srodek = SZCZ.kotwica; Object.assign(SZCZ.fala, {bpm:f.bpm, battito:SZCZ.battito, first_beat_s:SZCZ.kotwica, pewnosc_siatki:f.pewnosc_siatki, znaczniki:f.znaczniki, zrodlo_siatki:f.zrodlo_siatki, tryb_siatki:f.tryb_siatki, flaga_siatki:f.flaga_siatki}); ustawZnaczniki(SZCZ.fala); }catch(e2){}
         S.toast('przywrócono siatkę wyliczoną', 'info');
         przerysujFale(); odswiezKafle();
       }catch(err){}

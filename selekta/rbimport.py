@@ -136,10 +136,17 @@ def _wartosci_selekty(path: str) -> dict[str, list[float]]:
         c = cache.get(path, "cues") or {}
     except Exception:  # noqa: BLE001
         c = {}
+    try:
+        from . import rbczas
+        off = rbczas.przesuniecie_s(path) if os.path.isfile(path) else 0.0
+    except Exception:  # noqa: BLE001
+        off = 0.0
     for nazwa, pole in (("intro", "intro_end_s"), ("drop", "drop_s"),
                         ("outro", "outro_start_s")):
         if isinstance(c.get(pole), (int, float)):
             wynik[nazwa].append(float(c[pole]))
+            if off:                          # tak, jak je zapisuje eksport (oś rekordboxa)
+                wynik[nazwa].append(float(c[pole]) + off)
     for nazwa, czasy in wyslane_cue(path).items():
         wynik.setdefault(nazwa, []).extend(czasy)
     return wynik
