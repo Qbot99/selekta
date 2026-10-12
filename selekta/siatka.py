@@ -883,8 +883,12 @@ def _korekta_glosnosci(bb: np.ndarray, lo: np.ndarray | None, zero: int, h: int,
     przy = max(o[1] for o in oceny if abs(o[0]) <= 4)
     if abs(najl[0]) <= 8 or najl[1] < 0.12 or najl[1] < 2 * max(przy, 0.0):
         return 0.0
+    # narost musi prowadzić do GŁOŚNEGO miejsca bitu (≥ połowa maksimum pasma):
+    # cichy szmer przy syntetycznej stopie bez góry pasma to nie atak
+    j = zero + najl[0]
+    if lg[min(lg.size - 1, j + k10)] < float(lg.max()) - 0.3:
+        return 0.0
     if lo is not None:
-        j = zero + najl[0]
         if lo[j:j + 60].max() < 1.15 * (lo[max(0, j - 20):j + 1].mean() + 1e-12):
             return 0.0
     return najl[0] / fps
