@@ -681,6 +681,13 @@ def wzbogac_o_siatke(tracks: list[dict], licz_brakujace: bool = True) -> list[di
             t["siatka_znaczniki"] = c["znaczniki"]
             if c.get("bpm_dokladne"):
                 t["bpm"] = round(float(c["bpm_dokladne"]), 2) if len(c["znaczniki"]) > 1 else c["znaczniki"][0]["bpm"]
+        # Siatka dynamiczna ustawiona RĘCZNIE w rekordboxie (kilka znaczników
+        # TEMPO) wraca w całości — sam pierwszy znacznik spłaszczyłby ją do
+        # stałego tempa i rozjechał po pierwszej zmianie.
+        elif (reczna.get("first_beat_s") is None and rb.get("first_beat_s") is not None
+                and len(rb.get("tempa") or []) > 1):
+            t["siatka_znaczniki"] = [{"t": z.get("inizio_s"), "bpm": z.get("bpm"),
+                                      "battito": z.get("battito") or 1} for z in rb["tempa"]]
         # Ręczna praca z rekordboxa przechodzi dalej nietknięta.
         if rb:
             t["znaczniki"] = rb.get("znaczniki") or []

@@ -498,6 +498,15 @@ def analyze(path: str, bpm: float | None = None) -> Cues:
         if o is not None:
             outro_start = o
 
+    # Punkty cue na jedynkach taktu PRAWDZIWEJ siatki: przy siatce dynamicznej
+    # siatka fraz liczona ze stałego BPM rozjeżdża się z bitem, a drop
+    # z obwiedni ma rozdzielczość klatki (46 ms) — obok bitu, poza kwantyzacją.
+    if s is not None and s.znaczniki:
+        jedynki = siatka.jedynki_taktu(s.znaczniki, duration)
+        intro_end = siatka.do_taktu(intro_end, jedynki)
+        outro_start = siatka.do_taktu(outro_start, jedynki)
+        drop = siatka.do_taktu(drop, jedynki)
+
     # porządkowanie: 0 <= first_beat < intro_end < outro_start < duration
     first_beat = max(0.0, min(first_beat, duration))
     intro_end = max(intro_end, first_beat + EPS)

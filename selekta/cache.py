@@ -212,7 +212,10 @@ def _save_store(kind: str, store: dict) -> None:
 # cues 4 — koniec intra i początek outra na granicach fraz; quality 3 —
 # widmo z ramek bez przesteru, ślady kodeka, ALAC jako bezstratny;
 # loudness 2 — cisza nie zostawia w pamięci korekty +inf dB
-WERSJE = {"cues": 4, "harmonic": 3, "tempo": 2, "quality": 3, "energia": 3,
+# cues 5, tempo 3 (12.10.2026): silnik siatki v2 — śledzenie stóp przez cały
+# utwór, dokładne BPM z regresji, siatka dynamiczna (kilka znaczników TEMPO),
+# stabilność tempa liczona z tego samego silnika zamiast fluxu widma.
+WERSJE = {"cues": 5, "harmonic": 3, "tempo": 3, "quality": 3, "energia": 3,
           "integrity": 2, "loudness": 2}
 
 

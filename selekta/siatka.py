@@ -504,6 +504,35 @@ def _rozstrzygnij_pol_bitu(t_on, w, x_bas, sr, okres, faza):
     return faza, None
 
 
+def jedynki_taktu(znaczniki: list, dl_s: float) -> list[float]:
+    """Czasy jedynek taktu (pierwszych bitów) według znaczników TEMPO.
+
+    Znacznik {"t", "bpm", "battito"} zaczyna siatkę od nowa w swoim miejscu;
+    ``battito`` to numer bitu w takcie dla bitu leżącego dokładnie w ``t``.
+    Przed pierwszym znacznikiem siatka biegnie wstecz z jego tempem — tak
+    samo rysuje ją rekordbox.
+    """
+    import math
+    zn = sorted((z for z in znaczniki or [] if z.get("bpm")), key=lambda z: z["t"])
+    out: list[float] = []
+    for i, z in enumerate(zn):
+        okres = 60.0 / float(z["bpm"])
+        koniec = zn[i + 1]["t"] - 1e-6 if i + 1 < len(zn) else dl_s + okres
+        k = math.ceil(-z["t"] / okres) if i == 0 else 0
+        while z["t"] + k * okres < koniec:
+            if (int(z.get("battito") or 1) - 1 + k) % 4 == 0:
+                out.append(z["t"] + k * okres)
+            k += 1
+    return out
+
+
+def do_taktu(t: float | None, jedynki: list[float]) -> float | None:
+    """Najbliższa jedynka taktu — punkt cue stawiany obok bitu nie łapie kwantyzacji."""
+    if t is None or not jedynki:
+        return t
+    return min(jedynki, key=lambda j: abs(j - t))
+
+
 def battito_dla(b: int) -> int:
     """Numer bitu (1–4) kotwicy, gdy jedynki leżą na indeksach ≡ b (mod 4)."""
     return (4 - b) % 4 + 1
