@@ -44,6 +44,9 @@ def oblicz(path: str, punkty: int = PUNKTY) -> dict:
 
     czas = x.size / SR
     punkty = max(16, min(int(punkty), 4000))
+    # plik krótszy niż jeden punkt na próbkę (< 0,2 s przy 1600 punktach)
+    # rzucał ValueError przy reshape i /api/waveform zwracało 500
+    punkty = min(punkty, x.size)
     # przycinamy do pełnej wielokrotności, żeby reshape był bez kopiowania
     na_punkt = max(1, x.size // punkty)
     uzyte = na_punkt * punkty

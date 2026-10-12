@@ -1,0 +1,1645 @@
+{
+"opis": "Zbiór prawdy do testów dopasowania: biblioteka piaskownicy (80 unikalnych plików: ścieżka, ARTIST, TITLE, czas), playlista „DJ set 100lecie” z ręcznie ustaloną prawdą, przypadki trudne z przeglądu 0.4.2 oraz album Confessions on a Dance Floor i All Out 80s (biblioteka ma z nich tylko Hung Up, Sorry, Like a Prayer i You Give Love A Bad Name).",
+"biblioteka": [
+[
+"(1986) Slippery When Wet/02. You Give Love A Bad Name.flac",
+"Bon Jovi",
+"You Give Love A Bad Name",
+222.7
+],
+[
+"(2008) Hard Candy/02. 4 Minutes (feat. Justin Timberlake and Timbaland).flac",
+"Madonna",
+"4 Minutes (feat. Justin Timberlake and Timbaland)",
+246.2
+],
+[
+"2005 - Confessions on a Dance Floor/01 - Hung Up.flac",
+"Madonna",
+"Hung Up",
+336.3
+],
+[
+"2009 - Celebration/04. 4 Minutes (feat. Justin Timberlake and Timbaland).flac",
+"Madonna",
+"4 Minutes (feat. Justin Timberlake and Timbaland)",
+189.7
+],
+[
+"701 Greatest 80's/Asia-Heat of the Moment.flac",
+"Asia",
+"Heat of the Moment",
+230.9
+],
+[
+"All You Got To Do/Lilly Palmer - All You Got To Do.flac",
+"Lilly Palmer",
+"All You Got To Do",
+186.9
+],
+[
+"Arara/2. Mas Que Nada.flac",
+"Sérgio Mendes",
+"Mas Que Nada",
+231.5
+],
+[
+"CD50 - Elvis (Fool) [APL 1-0283]/13 - Burning Love.flac",
+"Elvis Presley",
+"Burning Love",
+171.5
+],
+[
+"Confessions on a Dance Floor/1-03 Sorry.flac",
+"Madonna",
+"Sorry",
+281.9
+],
+[
+"DJ set 100lecie/01 - Edge of Desire.flac",
+"Jonas Blue",
+"Edge of Desire",
+134.9
+],
+[
+"DJ set 100lecie/01 - I'm Outta Love (Radio Edit).flac",
+"Anastacia",
+"I'm Outta Love (Radio Edit)",
+245.4
+],
+[
+"DJ set 100lecie/0101 - No Man No Cry Jimmy Sax version.flac",
+"Oliver Koletzki",
+"No Man No Cry (Jimmy Sax version)",
+419.5
+],
+[
+"DJ set 100lecie/02 - Money For Nothing (Remastered 1996).flac",
+"Dire Straits",
+"Money For Nothing (Remastered 1996)",
+505.3
+],
+[
+"DJ set 100lecie/02. Dancing Queen.flac",
+"ABBA",
+"Dancing Queen",
+231.3
+],
+[
+"DJ set 100lecie/03 - Walk Of Life (Remastered 1996).flac",
+"Dire Straits",
+"Walk Of Life (Remastered 1996)",
+248.9
+],
+[
+"DJ set 100lecie/07 - September.flac",
+"Earth, Wind & Fire",
+"September",
+215.1
+],
+[
+"DJ set 100lecie/1.16 . Urszula Sipińska . Mam Cudownych Rodziców.m4a",
+"Urszula Sipińska",
+"Mam Cudownych Rodziców",
+258.2
+],
+[
+"DJ set 100lecie/Daddy Cool - Boney M.flac",
+"Boney M.",
+"Daddy Cool",
+208.6
+],
+[
+"DJ set 100lecie/Dido - 06 - Thank You.flac",
+"Dido",
+"Thank You",
+218.4
+],
+[
+"DJ set 100lecie/Kylie MINOGUE - Can't get you out of my head.flac",
+"Kylie MINOGUE",
+"Can't get you out of my head",
+228.5
+],
+[
+"DJ set 100lecie/Madonna - Like a Prayer.flac",
+"Madonna",
+"Like A Prayer",
+342.7
+],
+[
+"DJ set 100lecie/Rainfall (Praise You).flac",
+"Tom Santa",
+"Rainfall (Praise You)",
+166.6
+],
+[
+"DJ set 100lecie/Stevie Wonder - Part-Time Lover.flac",
+"Stevie Wonder",
+"Part-Time Lover",
+252.4
+],
+[
+"DJ set 100lecie/The Black Eyed Peas - I Gotta Feeling.flac",
+"The Black Eyed Peas",
+"I Gotta Feeling",
+289.1
+],
+[
+"Maddix; Feles/Maddix; Feles - My Gasoline.flac",
+"Maddix",
+"My Gasoline",
+237.0
+],
+[
+"Singles week 16 2025/Nicolas Julian, Storm & Aenjay - Like This (2025).flac",
+"Nicolas Julian, Storm & Aenjay",
+"Like This",
+143.0
+],
+[
+"Spotify · 5 wrz/03. Laherte - Speeding (Original Mix)_639242269261972010.flac",
+"Laherte",
+"Speeding (Original Mix)",
+330.5
+],
+[
+"Spotify · 5 wrz/Alt8 - On The Beat (Extended Mix) [www.dj-promo.org].mp3",
+"Alt8",
+"On The Beat Extended Mix",
+280.0
+],
+[
+"Spotify · 5 wrz/Antonym - Bass Go.flac",
+"Antonym",
+"Bass Go",
+305.0
+],
+[
+"Spotify · 5 wrz/Billy Gillies, Nu-La - Crystallize (Extended Mix).flac",
+"Billy Gillies, Nu-La",
+"Crystallize (Extended Mix)",
+243.3
+],
+[
+"Spotify · 5 wrz/Braaheim - Black Betty (Extended Mix).mp3",
+"Braaheim",
+"Black Betty (Extended Mix)",
+192.4
+],
+[
+"Spotify · 5 wrz/DJ Gigola - La Batteria.flac",
+"DJ Gigola",
+"La Batteria",
+160.0
+],
+[
+"Spotify · 5 wrz/DJ HEARTSTRING - Will You Remember Me When I'm Gone.flac",
+"DJ HEARTSTRING",
+"Will You Remember Me When I'm Gone?",
+399.3
+],
+[
+"Spotify · 5 wrz/DJ IP, Pegassi - Wanna Feel.wav",
+"DJ IP, Pegassi",
+"Wanna Feel",
+198.6
+],
+[
+"Spotify · 5 wrz/Dimitri Vegas & Like Mike, Marlon Hoffstadt, DJ Konik - Makina Time (Extended Mix).flac",
+"Dimitri Vegas & Like Mike, Marlon Hoffstadt, DJ Konik",
+"Makina Time (Extended Mix)",
+214.2
+],
+[
+"Spotify · 5 wrz/Dimitri Vegas and Like Mike - Meet Her At The Love Parade - 01 - Meet Her At The Love Parade.flac",
+"Dimitri Vegas & Like Mike",
+"Meet Her At The Love Parade",
+168.8
+],
+[
+"Spotify · 5 wrz/Dimitri Vegas, Sylver, Pat B - Turn The Tide (ft. Sylver).flac",
+"Dimitri Vegas, Sylver, Pat B",
+"Turn The Tide (ft. Sylver)",
+135.5
+],
+[
+"Spotify · 5 wrz/Eli Brown - Wavey.flac",
+"Eli Brown",
+"Wavey",
+143.4
+],
+[
+"Spotify · 5 wrz/FOVOS, Sarah de Warren - Call Me (Extended Mix).mp3",
+"FOVOS, Sarah de Warren",
+"Call Me (Extended Mix)",
+225.4
+],
+[
+"Spotify · 5 wrz/Fenrick - Make Me Sick (Extended Mix).mp3",
+"Fenrick",
+"Make Me Sick (Extended Mix)",
+243.7
+],
+[
+"Spotify · 5 wrz/Frankyeffe - Save Me (RiVid Remix).wav",
+"Frankyeffe",
+"Save Me (RiVid Remix)",
+291.5
+],
+[
+"Spotify · 5 wrz/Fuego - El Diablo (Original Mix).flac",
+"Fuego",
+"El Diablo (Original Mix)",
+404.9
+],
+[
+"Spotify · 5 wrz/Hammer House - The Jumper (Mass Medium Remix).flac",
+"Hammer House",
+"The Jumper (Mass Medium Remix)",
+201.9
+],
+[
+"Spotify · 5 wrz/Hardwell, Maddix, Luciana - ACID (Extended Mix).flac",
+"Hardwell, Maddix, Luciana",
+"ACID (Extended Mix)",
+266.7
+],
+[
+"Spotify · 5 wrz/Jacidorex - Pressure (Original Mix).mp3",
+"Jacidorex",
+"Pressure (Original Mix)",
+173.5
+],
+[
+"Spotify · 5 wrz/Lilly Palmer - Hype Boy (Extended Mix).flac",
+"Lilly Palmer",
+"Hype Boy (Extended Mix)",
+320.6
+],
+[
+"Spotify · 5 wrz/Linds - Kick It.wav",
+"Linds",
+"Kick It",
+258.1
+],
+[
+"Spotify · 5 wrz/Loic D - Melody Of World (Ronald V Remix).flac",
+"Loic D",
+"Melody Of World (Ronald V Remix)",
+152.0
+],
+[
+"Spotify · 5 wrz/Marlon Hoffstadt, FISHER (OZ), DJ Daddy Trance - It's That Time (FISHER Remix - Extended Mix) (Original Mix).flac",
+"Marlon Hoffstadt, FISHER (OZ), DJ Daddy Trance",
+"It's That Time (FISHER Remix - Extended Mix) (Original Mix)",
+238.2
+],
+[
+"Spotify · 5 wrz/Massano - The Lights (Original Mix).flac",
+"Massano",
+"The Lights (Original Mix)",
+329.1
+],
+[
+"Spotify · 5 wrz/Mike Candys - Do My Ting (Dub Mix).flac",
+"Mike Candys",
+"Do My Ting (Dub Mix)",
+136.0
+],
+[
+"Spotify · 5 wrz/MilleniumKid, JBS - Vielleicht Vielleicht (Holy Priest & elMefti Remix).mp3",
+"MilleniumKid, JBS",
+"Vielleicht Vielleicht (Holy Priest & elMefti Remix)",
+256.0
+],
+[
+"Spotify · 5 wrz/MilleniumKid, JBS, The Boy The G - Unendlichkeit (Remix).flac",
+"MilleniumKid, JBS, The Boy The G",
+"Unendlichkeit (Remix)",
+198.5
+],
+[
+"Spotify · 5 wrz/Mr.Machine - Ballad Of Doubt (Original Mix).wav",
+"Mr.Machine",
+"Ballad Of Doubt (Original Mix)",
+363.3
+],
+[
+"Spotify · 5 wrz/Novah - Rave Never Ends.flac",
+"Novah",
+"Rave Never Ends",
+207.9
+],
+[
+"Spotify · 5 wrz/Odymel - Gucci.flac",
+"Odymel",
+"Gucci",
+273.7
+],
+[
+"Spotify · 5 wrz/Odymel - Hot Stuff.wav",
+"Odymel",
+"Hot Stuff",
+244.8
+],
+[
+"Spotify · 5 wrz/Odymel - Once Again.mp3",
+"Odymel",
+"Once Again",
+270.4
+],
+[
+"Spotify · 5 wrz/PRADA2000 - GoGoGo! (VIP Intro Mix).flac",
+"PRADA2000",
+"GoGoGo! (VIP Intro Mix)",
+161.3
+],
+[
+"Spotify · 5 wrz/Panteros666, Öwes - Fire (Original Mix).mp3",
+"Panteros666, Öwes",
+"Fire (Original Mix)",
+284.9
+],
+[
+"Spotify · 5 wrz/Pawlowski, Fenrick - Back With Another One.mp3",
+"Pawlowski, Fenrick",
+"Back With Another One",
+260.1
+],
+[
+"Spotify · 5 wrz/Pegassi - 227kg.flac",
+"Pegassi",
+"227kg",
+300.4
+],
+[
+"Spotify · 5 wrz/Pegassi - Flashback (Extended Mix).flac",
+"Pegassi",
+"Flashback (Extended Mix)",
+286.4
+],
+[
+"Spotify · 5 wrz/Pegassi - MOAA (Extended).wav",
+"Pegassi",
+"MOAA (Extended)",
+275.2
+],
+[
+"Spotify · 5 wrz/Rocco, Pulsedriver, Ninkid - Take Me to the Rave (Techno Mix).flac",
+"Rocco, Pulsedriver, Ninkid",
+"Take Me to the Rave (Techno Mix)",
+196.2
+],
+[
+"Spotify · 5 wrz/Subtrax - WFT.flac",
+"Subtrax",
+"WFT",
+212.0
+],
+[
+"Spotify · 5 wrz/The Rocketman - Bounce Like That.flac",
+"The Rocketman",
+"Bounce Like That",
+171.0
+],
+[
+"Spotify · 5 wrz/The Rocketman - Una Hora Más.flac",
+"The Rocketman",
+"Una Hora Más",
+163.6
+],
+[
+"Spotify · 5 wrz/The Rocketman, Afem Syko - Make You Move (Extended Mix).mp3",
+"The Rocketman, Afem Syko",
+"Make You Move (Extended Mix)",
+297.6
+],
+[
+"Spotify · 5 wrz/The Rocketman, SHVDZ - All Night (Extended).mp3",
+"The Rocketman, SHVDZ",
+"All Night (Extended)",
+266.4
+],
+[
+"Spotify · 5 wrz/The Rocketman, SHVDZ - The Creator (Extended Mix).flac",
+"The Rocketman, SHVDZ",
+"The Creator (Extended Mix)",
+336.0
+],
+[
+"Spotify · 5 wrz/blk., Bklava - Enter The Dragon (Are You Up).flac",
+"blk., Bklava",
+"Enter The Dragon (Are You Up?)",
+180.8
+],
+[
+"Spotify · 5 wrz/mischluft, Sachsentrance - We are Energy.mp3",
+"mischluft, Sachsentrance",
+"We are Energy",
+262.0
+],
+[
+"Spotify · 5 wrz/åmrtüm - dash.mp3",
+"åmrtüm",
+"dash",
+370.9
+],
+[
+"To the Moon and Back [1996] [Single]/05 - To the Moon & Back (Escape Into Hyper Space).flac",
+"Savage Garden",
+"To the Moon & Back (Escape Into Hyper Space)",
+279.9
+],
+[
+"[2024-05-31] Laherte - Movimento EP [DIYNAMIC205]/03. Laherte - Speeding (Original Mix).flac",
+"Laherte",
+"Speeding (Original Mix)",
+330.5
+],
+[
+"super2.2/01 - Meet Her At The Love Parade.flac",
+"Dimitri Vegas & Like Mike",
+"Meet Her At The Love Parade",
+168.8
+],
+[
+"super2.2/101 Wavey.flac",
+"Eli Brown",
+"Wavey",
+143.4
+],
+[
+"super2.2/DJ IP, Pegassi - Wanna Feel (Extended).flac",
+"DJ IP, Pegassi",
+"Wanna Feel (Extended)",
+285.4
+],
+[
+"super2.2/Odymel - Gucci - 8A - 146.wav",
+"Odymel",
+"Gucci",
+273.7
+]
+],
+"playlista_100lecie": [
+[
+"auto",
+"Kylie Minogue",
+"Can't Get You out of My Head",
+230.64,
+"Kylie MINOGUE - Can't get you out of my head.flac"
+],
+[
+"auto",
+"Earth, Wind & Fire",
+"September",
+216.022,
+"07 - September.flac"
+],
+[
+"auto",
+"Urszula Sipinska",
+"Mam cudownych rodziców",
+259.786,
+"1.16 . Urszula Sipińska . Mam Cudownych Rodziców.m4a"
+],
+[
+"missing",
+"Bryan Adams",
+"Summer Of '69",
+216.053,
+null
+],
+[
+"auto",
+"Madonna",
+"Like a Prayer",
+340.866,
+"Madonna - Like a Prayer.flac"
+],
+[
+"missing",
+"Bellini",
+"Samba de Janeiro",
+168.444,
+null
+],
+[
+"auto",
+"Dido",
+"Thank You",
+218.36,
+"Dido - 06 - Thank You.flac"
+],
+[
+"auto",
+"Jonas Blue, Malive",
+"Edge of Desire",
+134.905,
+"01 - Edge of Desire.flac"
+],
+[
+"missing",
+"Kierix",
+"Na Na Na",
+211.935,
+null
+],
+[
+"auto",
+"Tom Santa",
+"Rainfall (Praise You)",
+166.569,
+"Rainfall (Praise You).flac"
+],
+[
+"auto",
+"Jimmy Sax",
+"No Man No Cry",
+419.5,
+"0101 - No Man No Cry Jimmy Sax version.flac"
+],
+[
+"auto",
+"Madonna, Justin Timberlake, Timbaland",
+"4 Minutes (feat. Justin Timberlake & Timbaland)",
+189.693,
+"04. 4 Minutes (feat. Justin Timberlake and Timbaland).flac"
+],
+[
+"version",
+"Sérgio Mendes, Black Eyed Peas",
+"Mas Que Nada - Radio Edit",
+213.293,
+"2. Mas Que Nada.flac"
+],
+[
+"auto",
+"Elvis Presley",
+"Burning Love",
+171.533,
+"13 - Burning Love.flac"
+],
+[
+"missing",
+"MEZERG",
+"Birthday",
+125.318,
+null
+],
+[
+"auto",
+"Dire Straits",
+"Walk Of Life - Remastered 1996",
+248.893,
+"03 - Walk Of Life (Remastered 1996).flac"
+],
+[
+"auto",
+"Dire Straits",
+"Money For Nothing - Remastered 1996",
+505.333,
+"02 - Money For Nothing (Remastered 1996).flac"
+],
+[
+"missing",
+"Dire Straits",
+"Sultans Of Swing",
+348.4,
+null
+],
+[
+"auto",
+"Anastacia",
+"I'm Outta Love - Radio Edit",
+245.4,
+"01 - I'm Outta Love (Radio Edit).flac"
+],
+[
+"auto",
+"Boney M.",
+"Daddy Cool",
+208.6,
+"Daddy Cool - Boney M.flac"
+],
+[
+"auto",
+"Stevie Wonder",
+"Part-Time Lover",
+252.56,
+"Stevie Wonder - Part-Time Lover.flac"
+],
+[
+"auto",
+"Madonna",
+"Hung Up",
+337.733,
+"01 - Hung Up.flac"
+],
+[
+"version",
+"Savage Garden",
+"To the Moon & Back",
+339.433,
+"05 - To the Moon & Back (Escape Into Hyper Space).flac"
+],
+[
+"auto",
+"ABBA",
+"Dancing Queen",
+230.4,
+"02. Dancing Queen.flac"
+],
+[
+"auto",
+"Madonna",
+"4 Minutes (feat. Justin Timberlake and Timbaland)",
+245.08,
+"02. 4 Minutes (feat. Justin Timberlake and Timbaland).flac"
+],
+[
+"auto",
+"Madonna",
+"Sorry",
+281.88,
+"1-03 Sorry.flac"
+],
+[
+"auto",
+"Black Eyed Peas",
+"I Gotta Feeling",
+289.133,
+"The Black Eyed Peas - I Gotta Feeling.flac"
+],
+[
+"auto",
+"Bon Jovi",
+"You Give Love A Bad Name",
+222.706,
+"02. You Give Love A Bad Name.flac"
+],
+[
+"auto",
+"Asia",
+"Heat Of The Moment",
+227.893,
+"Asia-Heat of the Moment.flac"
+],
+[
+"version",
+"Dimitri Vegas & Like Mike, Marlon Hoffstadt, Dj Konik, Dimitri Vegas, Like Mike",
+"Makina Time",
+130.09,
+"Dimitri Vegas & Like Mike, Marlon Hoffstadt, DJ Konik - Makina Time (Extended Mix).flac"
+]
+],
+"trudne": [
+[
+"auto",
+"Madonna",
+"Hung Up",
+337.7,
+"01 - Hung Up.flac"
+],
+[
+"auto",
+"Kylie Minogue",
+"Can't Get You out of My Head",
+230.6,
+"Kylie MINOGUE - Can't get you out of my head.flac"
+],
+[
+"auto",
+"Urszula Sipinska",
+"Mam cudownych rodziców",
+259.8,
+"1.16 . Urszula Sipińska . Mam Cudownych Rodziców.m4a"
+],
+[
+"auto",
+"Maddix, Fēlēs",
+"My Gasoline",
+237,
+"Maddix; Feles - My Gasoline.flac"
+],
+[
+"auto",
+"Panteros666, Öwes",
+"Fire (Original Mix)",
+285,
+"Panteros666, Öwes - Fire (Original Mix).mp3"
+],
+[
+"auto",
+"åmrtüm",
+"dash",
+371,
+"åmrtüm - dash.mp3"
+],
+[
+"auto",
+"Dimitri Vegas, Sylver, Pat B",
+"Turn The Tide (feat. Sylver)",
+135,
+"Dimitri Vegas, Sylver, Pat B - Turn The Tide (ft. Sylver).flac"
+],
+[
+"auto",
+"Loic D",
+"Melody Of World - Ronald V Remix",
+152,
+"Loic D - Melody Of World (Ronald V Remix).flac"
+],
+[
+"auto",
+"Fenrick",
+"Make Me Sick (Original Mix)",
+244,
+"Fenrick - Make Me Sick (Extended Mix).mp3"
+],
+[
+"auto",
+"Jimmy Sax",
+"No Man No Cry",
+419.5,
+"0101 - No Man No Cry Jimmy Sax version.flac"
+],
+[
+"auto",
+"Madonna, Justin Timberlake, Timbaland",
+"4 Minutes (feat. Justin Timberlake & Timbaland)",
+189.7,
+"04. 4 Minutes (feat. Justin Timberlake and Timbaland).flac"
+],
+[
+"auto",
+"Madonna",
+"4 Minutes (feat. Justin Timberlake and Timbaland)",
+245.1,
+"02. 4 Minutes (feat. Justin Timberlake and Timbaland).flac"
+],
+[
+"auto",
+"Anastacia",
+"I'm Outta Love - Radio Edit",
+245.4,
+"01 - I'm Outta Love (Radio Edit).flac"
+],
+[
+"auto",
+"Dire Straits",
+"Walk Of Life - Remastered 1996",
+248.9,
+"03 - Walk Of Life (Remastered 1996).flac"
+],
+[
+"auto",
+"Tom Santa",
+"Rainfall (Praise You)",
+166.6,
+"Rainfall (Praise You).flac"
+],
+[
+"auto",
+"Boney M.",
+"Daddy Cool",
+208.6,
+"Daddy Cool - Boney M.flac"
+],
+[
+"auto",
+"Odymel",
+"Gucci",
+null,
+"Odymel - Gucci.flac"
+],
+[
+"auto",
+"Pegassi",
+"MOAA (Extended)",
+275,
+"Pegassi - MOAA (Extended).wav"
+],
+[
+"auto",
+"Laherte",
+"Speeding (Original Mix)",
+330,
+"03. Laherte - Speeding (Original Mix)_639242269261972010.flac"
+],
+[
+"auto",
+"Madonna",
+"Hung Up",
+null,
+"01 - Hung Up.flac"
+],
+[
+"auto",
+"Odymel",
+"Hot Stuff",
+245,
+"Odymel - Hot Stuff.wav"
+],
+[
+"auto",
+"Hardwell, Maddix, Luciana",
+"ACID - Extended Mix",
+267,
+"Hardwell, Maddix, Luciana - ACID (Extended Mix).flac"
+],
+[
+"auto",
+"blk., Bklava",
+"Enter The Dragon (Are You Up?)",
+181,
+"blk., Bklava - Enter The Dragon (Are You Up).flac"
+],
+[
+"auto",
+"Nicolas Julian, STORM, AENJAY",
+"Like This",
+143,
+"Nicolas Julian, Storm & Aenjay - Like This (2025).flac"
+],
+[
+"version",
+"Savage Garden",
+"To the Moon & Back",
+339.4,
+"05 - To the Moon & Back (Escape Into Hyper Space).flac"
+],
+[
+"version",
+"Dimitri Vegas & Like Mike, Marlon Hoffstadt, Dj Konik",
+"Makina Time",
+130.1,
+"Dimitri Vegas & Like Mike, Marlon Hoffstadt, DJ Konik - Makina Time (Extended Mix).flac"
+],
+[
+"version",
+"Sérgio Mendes, Black Eyed Peas",
+"Mas Que Nada - Radio Edit",
+213.3,
+"2. Mas Que Nada.flac"
+],
+[
+"version",
+"Rocco, Pulsedriver, Ninkid",
+"Take Me to the Rave",
+196,
+"Rocco, Pulsedriver, Ninkid - Take Me to the Rave (Techno Mix).flac"
+],
+[
+"version",
+"Pegassi",
+"Flashback (Radio Edit)",
+210,
+"Pegassi - Flashback (Extended Mix).flac"
+],
+[
+"version",
+"Mike Candys",
+"Do My Ting",
+136,
+"Mike Candys - Do My Ting (Dub Mix).flac"
+],
+[
+"version",
+"PRADA2000",
+"GoGoGo!",
+161,
+"PRADA2000 - GoGoGo! (VIP Intro Mix).flac"
+],
+[
+"version",
+"Frankyeffe",
+"Save Me",
+291,
+"Frankyeffe - Save Me (RiVid Remix).wav"
+],
+[
+"version",
+"Hammer House",
+"The Jumper",
+202,
+"Hammer House - The Jumper (Mass Medium Remix).flac"
+],
+[
+"version",
+"Billy Gillies, Nu-La",
+"Crystallize (Radio Edit)",
+180,
+"Billy Gillies, Nu-La - Crystallize (Extended Mix).flac"
+],
+[
+"version",
+"Pegassi",
+"Flashback",
+null,
+"Pegassi - Flashback (Extended Mix).flac"
+],
+[
+"version",
+"Marlon Hoffstadt, DJ Daddy Trance",
+"It's That Time",
+180,
+"Marlon Hoffstadt, FISHER (OZ), DJ Daddy Trance - It's That Time (FISHER Remix - Extended Mix) (Original Mix).flac"
+],
+[
+"version",
+"MilleniumKid, JBS",
+"Vielleicht Vielleicht",
+200,
+"MilleniumKid, JBS - Vielleicht Vielleicht (Holy Priest & elMefti Remix).mp3"
+],
+[
+"missing",
+"Ram Jam",
+"Black Betty",
+236,
+null
+],
+[
+"missing",
+"Donna Summer",
+"Hot Stuff",
+230,
+null
+],
+[
+"missing",
+"NewJeans",
+"Hype Boy",
+179,
+null
+],
+[
+"missing",
+"Madonna",
+"Frozen",
+372,
+null
+],
+[
+"missing",
+"Dire Straits",
+"Sultans Of Swing",
+348.4,
+null
+],
+[
+"missing",
+"The Rocketman",
+"Una Hora Menos",
+164,
+null
+],
+[
+"missing",
+"Michael Jackson",
+"Beat It",
+258,
+null
+],
+[
+"missing",
+"a-ha",
+"Take on Me",
+225,
+null
+],
+[
+"missing",
+"Crowded House",
+"Don't Dream It's Over",
+238,
+null
+],
+[
+"missing",
+"Madonna",
+"Let It Will Be",
+260.9,
+null
+],
+[
+"missing",
+"Madonna",
+"Jump",
+238.6,
+null
+],
+[
+"missing",
+"Madonna",
+"Isaac",
+359.2,
+null
+],
+[
+"missing",
+"Bon Jovi",
+"Livin' On A Prayer",
+249,
+null
+],
+[
+"missing",
+"Composit, Jared Jones",
+"To The Moon And Back (Qubiq Remix Edit)",
+300,
+null
+],
+[
+"missing",
+"Eli Brown",
+"Wavey Gravy",
+143,
+null
+],
+[
+"missing",
+"Odymel",
+"Gucci Gang",
+274,
+null
+],
+[
+"missing",
+"Lilly Palmer",
+"All You Need",
+187,
+null
+]
+],
+"spoza_biblioteki": [
+[
+"Madonna",
+"Hung Up",
+337.663
+],
+[
+"Madonna",
+"Get Together",
+314.707
+],
+[
+"Madonna",
+"Sorry",
+281.867
+],
+[
+"Madonna",
+"Future Lovers",
+301.88
+],
+[
+"Madonna",
+"I Love New York",
+275.36
+],
+[
+"Madonna",
+"Let It Will Be",
+260.947
+],
+[
+"Madonna",
+"Forbidden Love",
+262.32
+],
+[
+"Madonna",
+"Jump",
+238.64
+],
+[
+"Madonna",
+"How High",
+243.933
+],
+[
+"Madonna",
+"Isaac",
+359.24
+],
+[
+"Madonna",
+"Push",
+212.92
+],
+[
+"Madonna",
+"Like It or Not",
+275.573
+],
+[
+"Madonna",
+"La Isla Bonita",
+242.733
+],
+[
+"Bonnie Tyler",
+"Total Eclipse of the Heart",
+267.36
+],
+[
+"Belinda Carlisle",
+"Heaven Is A Place On Earth",
+246.52
+],
+[
+"Michael Jackson",
+"Billie Jean",
+293.826
+],
+[
+"Madonna",
+"Like a Prayer",
+340.866
+],
+[
+"Bon Jovi",
+"Livin' On A Prayer",
+249.293
+],
+[
+"Bruce Springsteen",
+"Born in the U.S.A.",
+279.786
+],
+[
+"Michael Jackson",
+"Beat It",
+258.04
+],
+[
+"Billy Idol",
+"Eyes Without A Face - Remastered 1999",
+297.426
+],
+[
+"a-ha",
+"Take on Me",
+225.28
+],
+[
+"Madonna",
+"Material Girl - 2024 Remaster",
+242.337
+],
+[
+"ABBA",
+"The Winner Takes It All",
+294.72
+],
+[
+"Bonnie Tyler",
+"Holding Out for a Hero - From \"Footloose\" Soundtrack",
+348.333
+],
+[
+"Madonna",
+"Holiday",
+370.426
+],
+[
+"Michael Jackson",
+"Human Nature",
+245.837
+],
+[
+"TOTO",
+"Africa",
+295.282
+],
+[
+"Bryan Adams",
+"Heaven",
+243.36
+],
+[
+"AC/DC",
+"Back In Black",
+256.0
+],
+[
+"Eurythmics, Annie Lennox, Dave Stewart",
+"Sweet Dreams (Are Made of This) - 2005 Remaster",
+216.933
+],
+[
+"Foreigner",
+"I Want to Know What Love Is - 1999 Remaster",
+304.786
+],
+[
+"Whitney Houston",
+"I Wanna Dance with Somebody (Who Loves Me)",
+292.875
+],
+[
+"Daryl Hall & John Oates",
+"Maneater",
+273.173
+],
+[
+"Tears For Fears",
+"Everybody Wants To Rule The World",
+251.488
+],
+[
+"Billy Joel",
+"Uptown Girl",
+198.294
+],
+[
+"Alphaville",
+"Forever Young",
+226.706
+],
+[
+"Dolly Parton",
+"9 to 5",
+166.749
+],
+[
+"The Smiths",
+"There Is a Light That Never Goes Out - 2011 Remaster",
+244.586
+],
+[
+"Phil Collins",
+"Another Day in Paradise - 2016 Remaster",
+322.133
+],
+[
+"Bryan Adams",
+"Summer Of '69",
+216.053
+],
+[
+"Sade",
+"Smooth Operator - Single Version",
+258.693
+],
+[
+"Bronski Beat",
+"Smalltown Boy",
+302.413
+],
+[
+"Cutting Crew",
+"(I Just) Died In Your Arms",
+280.4
+],
+[
+"Bruce Springsteen",
+"Dancing In the Dark",
+245.296
+],
+[
+"Michael Jackson",
+"Thriller",
+358.807
+],
+[
+"Tracy Chapman",
+"Fast Car",
+296.8
+],
+[
+"Bob Marley & The Wailers",
+"Could You Be Loved",
+237.0
+],
+[
+"Phil Collins",
+"In the Air Tonight - 2015 Remaster",
+336.453
+],
+[
+"Men At Work",
+"Down Under",
+222.32
+],
+[
+"The Clash",
+"Should I Stay or Should I Go - Remastered",
+188.987
+],
+[
+"Earth, Wind & Fire",
+"Let's Groove",
+339.018
+],
+[
+"Bruce Springsteen",
+"I'm On Fire",
+159.313
+],
+[
+"Daryl Hall & John Oates",
+"You Make My Dreams (Come True)",
+190.626
+],
+[
+"Michael Jackson",
+"P.Y.T. (Pretty Young Thing)",
+238.333
+],
+[
+"Modern Talking",
+"Cheri Cheri Lady",
+226.333
+],
+[
+"Kim Carnes",
+"Bette Davis Eyes",
+228.0
+],
+[
+"Metallica",
+"Master Of Puppets",
+515.386
+],
+[
+"Stevie Nicks",
+"Edge of Seventeen - 2016 Remaster",
+329.413
+],
+[
+"Laura Branigan",
+"Self Control",
+246.44
+],
+[
+"Richard Marx",
+"Right Here Waiting",
+264.333
+],
+[
+"Fleetwood Mac",
+"Little Lies - 2017 Remaster",
+221.053
+],
+[
+"Phil Collins",
+"Against All Odds (Take a Look at Me Now) - 2016 Remaster",
+206.36
+],
+[
+"Katrina & The Waves",
+"Walking On Sunshine",
+238.733
+],
+[
+"Billy Joel",
+"We Didn't Start the Fire",
+291.1
+],
+[
+"Europe",
+"The Final Countdown",
+310.333
+],
+[
+"Fleetwood Mac",
+"Gypsy",
+264.906
+],
+[
+"Stevie Wonder",
+"I Just Called To Say I Love You",
+262.24
+],
+[
+"Van Halen",
+"Jump - 2015 Remaster",
+241.599
+],
+[
+"Tina Turner",
+"The Best",
+329.8
+],
+[
+"The Rolling Stones",
+"Start Me Up - Remastered 2009",
+213.066
+],
+[
+"Bryan Adams",
+"Run To You",
+233.27
+],
+[
+"Depeche Mode",
+"Enjoy the Silence",
+255.133
+],
+[
+"Billy Ocean",
+"Caribbean Queen (No More Love On the Run)",
+244.426
+],
+[
+"The Outfield",
+"Your Love",
+221.84
+],
+[
+"The Smiths",
+"How Soon Is Now? - 2011 Remaster",
+408.173
+],
+[
+"Tracy Chapman",
+"Baby Can I Hold You",
+193.12
+],
+[
+"Journey",
+"Don't Stop Believin'",
+248.906
+],
+[
+"Heart",
+"Alone",
+218.733
+],
+[
+"Irene Cara",
+"Flashdance...What a Feeling - Radio Edit",
+237.053
+],
+[
+"Survivor",
+"Eye of the Tiger",
+245.64
+],
+[
+"Bon Jovi",
+"You Give Love A Bad Name",
+222.706
+],
+[
+"Modern Talking",
+"Brother Louie",
+222.666
+],
+[
+"Paul Simon",
+"You Can Call Me Al",
+280.586
+],
+[
+"ABBA",
+"Super Trouper",
+252.853
+],
+[
+"The Clash",
+"Rock the Casbah - Remastered",
+222.437
+],
+[
+"Elton John",
+"Sacrifice",
+304.133
+],
+[
+"U2",
+"With Or Without You",
+295.515
+],
+[
+"Prince",
+"Kiss",
+226.24
+],
+[
+"The Police",
+"Every Little Thing She Does Is Magic",
+260.573
+],
+[
+"Def Leppard",
+"Hysteria",
+354.636
+],
+[
+"Bon Jovi",
+"Runaway",
+230.666
+],
+[
+"Depeche Mode",
+"Just Can't Get Enough",
+220.893
+],
+[
+"Tom Petty",
+"I Won't Back Down",
+178.36
+],
+[
+"Chicago",
+"You're the Inspiration - 2006 Remaster",
+229.24
+],
+[
+"Duran Duran",
+"Hungry Like the Wolf - 2009 Remaster",
+220.626
+],
+[
+"Peter Cetera",
+"Glory of Love",
+258.333
+],
+[
+"Sting",
+"Englishman In New York",
+267.266
+],
+[
+"Yes",
+"Owner of a Lonely Heart",
+268.506
+],
+[
+"TOTO",
+"Rosanna",
+330.943
+],
+[
+"Kenny Loggins",
+"Danger Zone - From \"Top Gun\" Original Soundtrack",
+215.133
+],
+[
+"Phil Collins",
+"You Can't Hurry Love - 2016 Remaster",
+175.746
+],
+[
+"Berlin",
+"Take My Breath Away - Love Theme from \"Top Gun\"",
+255.733
+],
+[
+"Technotronic",
+"Pump Up The Jam",
+320.306
+],
+[
+"Alannah Myles",
+"Black Velvet",
+287.44
+],
+[
+"The Stranglers",
+"Golden Brown",
+206.76
+],
+[
+"Christopher Cross",
+"Arthur's Theme (Best That You Can Do)",
+234.493
+],
+[
+"REO Speedwagon",
+"Can't Fight This Feeling",
+294.773
+],
+[
+"Duran Duran",
+"Save a Prayer - 2009 Remaster",
+333.306
+],
+[
+"The Human League",
+"Don't You Want Me",
+236.92
+],
+[
+"Crowded House",
+"Don't Dream It's Over",
+238.173
+],
+[
+"Van Halen",
+"Panama - 2015 Remaster",
+210.226
+]
+],
+"w_bibliotece": [
+"Hung Up",
+"Sorry",
+"Like a Prayer",
+"You Give Love A Bad Name"
+]
+}

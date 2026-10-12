@@ -47,7 +47,10 @@ def test_analyze_gucci_bpm_and_key(sample):
 
 def test_trackanalysis_has_all_fields():
     names = [f.name for f in dataclasses.fields(TrackAnalysis)]
-    assert names == ["bpm", "key", "camelot", "confidence_bpm", "confidence_key"]
+    # key_alt (tonacja v3): druga możliwość dla „sprawdź uchem”; z wartością
+    # domyślną, więc stare wpisy pamięci podręcznej nadal się wczytują
+    assert names == ["bpm", "key", "camelot", "confidence_bpm", "confidence_key", "key_alt"]
+    assert TrackAnalysis(1.0, "A minor", "8A", 0.5, 0.5).key_alt == ""
 
 
 def test_analyze_nonexistent_returns_placeholder():
@@ -141,6 +144,21 @@ def test_write_tags_flac_roundtrip(lib_copy):
     assert audio["BPM"] == ["145.6"]
     assert audio["INITIALKEY"] == ["Am"]
     assert audio["COMMENT"] == ["8A"]
+
+
+def test_write_tags_flac_keeps_user_comment(lib_copy):
+    """Przegląd 0.4.2: komentarz „Kupione na Beatport — zagrać po 2 w nocy”
+    został zastąpiony przez „8A”."""
+    p = _copy(lib_copy, GOOD_FLAC)
+    audio = FLAC(p)
+    audio["COMMENT"] = "Kupione na Beatport — zagrać po 2 w nocy"
+    audio.save()
+    harmonic.write_tags(p, TrackAnalysis(145.6, "A minor", "8A", 0.42, 1.0))
+    harmonic.write_tags(p, TrackAnalysis(145.6, "A minor", "8A", 0.42, 1.0))
+    audio = FLAC(p)
+    assert audio["COMMENT"] == ["Kupione na Beatport — zagrać po 2 w nocy"]
+    assert audio["CAMELOT"] == ["8A"]
+    assert audio["INITIALKEY"] == ["Am"]
 
 
 def test_write_tags_flac_integer_bpm_formatting(lib_copy):

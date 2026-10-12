@@ -16,7 +16,7 @@ from datetime import datetime
 
 import requests
 
-from .slskd_client import SlskdClient
+from .slskd_client import SlskdClient, SoulseekOffline
 
 STATE_DIR = os.path.expanduser("~/.selekta")
 STATE_PATH = os.path.join(STATE_DIR, "wishlist.json")
@@ -46,8 +46,35 @@ def items() -> list[dict]:
     return _load()
 
 
+def _klucz(artist: str, title: str) -> tuple[str, str]:
+    return (" ".join((artist or "").lower().split()),
+            " ".join((title or "").lower().split()))
+
+
 def add(artist: str, title: str, duration_s: float | None = None) -> dict:
-    """Append a new wishlist entry and return it."""
+    """Dodaj utwór do listy życzeń i zwróć jego wpis.
+
+    Ten sam utwór drugi raz NIE tworzy duplikatu (dawniej każde kliknięcie
+    „Dodaj do życzeń" dopisywało kolejny wpis): zwracamy istniejący,
+    uzupełniamy brakujący czas, a wpis już „znaleziony" wraca do szukania —
+    skoro ktoś dodaje go znowu, poprzednie znalezisko nie pomogło.
+    """
+    entries = _load()
+    klucz = _klucz(artist, title)
+    for e in entries:
+        if _klucz(e.get("artist", ""), e.get("title", "")) == klucz:
+            zmiana = False
+            if duration_s and not e.get("duration_s"):
+                e["duration_s"] = duration_s
+                zmiana = True
+            if e.get("found"):
+                e["found"] = False
+                e.pop("found_hit", None)
+                e.pop("found_at", None)
+                zmiana = True
+            if zmiana:
+                _save(entries)
+            return e
     entry = {
         "id": uuid.uuid4().hex[:8],
         "artist": artist.strip(),
@@ -56,7 +83,6 @@ def add(artist: str, title: str, duration_s: float | None = None) -> dict:
         "added_at": datetime.now().isoformat(timespec="seconds"),
         "found": False,
     }
-    entries = _load()
     entries.append(entry)
     _save(entries)
     return entry
@@ -102,16 +128,21 @@ def check(client: SlskdClient) -> tuple[list[dict], int]:
     for entry in entries:
         if entry.get("found"):
             continue
-        query = f"{entry['artist']} {entry['title']}"
+        artist, title = entry.get("artist", ""), entry.get("title", "")
+        dur = entry.get("duration_s")
         try:
-            hits = client.search(query)
-        except (requests.RequestException, KeyError, ValueError):
+            # ta sama drabina zapytań i ten sam ranking co w aplikacji
+            hits = client.search_track(artist, title, dur)
+        except (requests.RequestException, KeyError, ValueError, SoulseekOffline):
             nieudane += 1
             continue  # slskd padł w trakcie — spróbujemy w następnym cyklu
-        ranked = client.rank(hits, entry.get("duration_s"))
-        if not ranked:
+        # Dawniej rank(hits, czas) bez artysty i tytułu: trafność = 0 dla
+        # wszystkich, wygrywał największy FLAC — „Znaleziono" z plikiem Ricka
+        # Astleya, a wpis już nigdy nie był szukany. Teraz tylko wynik, który
+        # JEST tym utworem w tej wersji.
+        best = client.pewny_wynik(hits, artist, title, dur) if hits else None
+        if best is None:
             continue
-        best = ranked[0]
         entry["found"] = True
         entry["found_at"] = datetime.now().isoformat(timespec="seconds")
         entry["found_hit"] = {

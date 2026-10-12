@@ -39,9 +39,9 @@ TOLERANCJE = {
 
 
 def _folder() -> str:
-    return os.path.expanduser(
-        os.environ.get("SELEKTA_LIBRARY_FOLDER",
-                       "~/.local/share/nicotine/downloads"))
+    # REAL_LIB liczony przed przekierowaniem HOME na dom testów (conftest)
+    from tests.conftest import REAL_LIB
+    return os.path.expanduser(os.environ.get("SELEKTA_LIBRARY_FOLDER", REAL_LIB))
 
 
 def _pliki() -> list[str]:

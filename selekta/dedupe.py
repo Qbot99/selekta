@@ -19,11 +19,16 @@ Wykrywanie duplikatów NIE jest tu pisane od nowa — korzystamy z
 Uszkodzone kopie (zgłoszone przez ``health`` jako ``corrupt``) są odsuwane na
 sam koniec kolejki — nigdy nie zostają wybrane do zachowania, jeśli istnieje
 zdrowa alternatywa.
+
+Pliki w folderach setów (katalog z ``_selekta.json``) NIGDY nie są ani
+kandydatem do kosza, ani „gorszą kopią”: to zawartość setu, na którą
+wskazują XML-e rekordboxa. Na prawdziwej bibliotece stary plan chciał
+przenieść do kosza 183 takie pliki i rozbić wszystkie sety.
 """
 from __future__ import annotations
 
 import os
-import shutil
+import shutil  # noqa: F401 — zgodność wsteczna
 from dataclasses import dataclass, field
 
 from selekta.health import (
@@ -31,6 +36,8 @@ from selekta.health import (
     FORMAT_PRIORITY,
     DuplicateGroup,
     FileInfo,
+    HealthReport,
+    nazwa_kopii,
     scan,
 )
 
@@ -60,6 +67,8 @@ class DupAction:
     remove_desc: list[str] = field(default_factory=list)
     reclaim_bytes: int = 0
     suspect: bool = False
+    #: sety, w których utwór jest użyty — ich kopie zostają nietknięte
+    sety: list[str] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------
@@ -80,6 +89,8 @@ def _rank(info: FileInfo, corrupt: set[str]) -> tuple:
         -(info.bitrate or 0),                 # (2b) wyższy bitrate
         -(info.duration or 0.0),              # (3) dłuższy czas trwania
         -info.size,                           # (4) większy rozmiar
+        nazwa_kopii(info.path),               # czysta nazwa przed „… (1)”
+        info.path,                            # powtarzalnie
     )
 
 
@@ -109,16 +120,22 @@ def _describe(info: FileInfo) -> str:
 
 
 def _reason(keep: FileInfo, runner: FileInfo, n_remove: int,
-            suspect: bool) -> str:
+            suspect: bool, corrupt: dict[str, str] | None = None) -> str:
     """Uzasadnij wybór, wskazując regułę, która przesądziła (keep vs runner).
 
     ``runner`` to najlepsza z odrzucanych kopii — porównanie z nią pokazuje,
     który składnik priorytetu faktycznie zadecydował.
     """
+    corrupt = corrupt or {}
     k_ll = keep.ext in LOSSLESS_EXT
     r_ll = runner.ext in LOSSLESS_EXT
 
-    if k_ll and not r_ll:
+    if runner.path in corrupt and keep.path not in corrupt:
+        core = (f"zachowano zdrową kopię {_fmt(keep)} — {_fmt(runner)} jest "
+                f"uszkodzony ({corrupt[runner.path]})")
+    elif not runner.mutagen_ok and keep.mutagen_ok:
+        core = f"zachowano czytelną kopię {_fmt(keep)} — drugiej nie da się otworzyć"
+    elif k_ll and not r_ll:
         core = f"zachowano bezstratny {_fmt(keep)} nad stratnym {_fmt(runner)}"
     elif (k_ll and r_ll
           and FORMAT_PRIORITY.get(keep.ext, 9) != FORMAT_PRIORITY.get(runner.ext, 9)):
@@ -126,7 +143,9 @@ def _reason(keep: FileInfo, runner: FileInfo, n_remove: int,
         depth = f", ta sama głębia {keep.bits}-bit" if same_depth else ""
         core = (f"zachowano {_fmt(keep)} jako preferowany kontener bezstratny "
                 f"nad {_fmt(runner)}{depth}")
-    elif (keep.bits or 0) != (runner.bits or 0):
+    elif FORMAT_PRIORITY.get(keep.ext, 9) != FORMAT_PRIORITY.get(runner.ext, 9):
+        core = f"zachowano {_fmt(keep)} jako lepszy format niż {_fmt(runner)}"
+    elif (keep.bits or 0) != (runner.bits or 0) and keep.bits and runner.bits:
         core = (f"zachowano wyższą głębię bitową "
                 f"{keep.bits}-bit (nad {runner.bits}-bit)")
     elif (keep.bitrate or 0) != (runner.bitrate or 0):
@@ -138,6 +157,8 @@ def _reason(keep: FileInfo, runner: FileInfo, n_remove: int,
     elif keep.size != runner.size:
         core = (f"zachowano większy plik "
                 f"({_mb(keep.size)} MB nad {_mb(runner.size)} MB)")
+    elif nazwa_kopii(runner.path) and not nazwa_kopii(keep.path):
+        core = "kopie identyczne — zachowano plik z czystą nazwą"
     else:
         core = f"kopie równoważne — zachowano {_fmt(keep)} (pierwsza w kolejności)"
 
@@ -151,13 +172,21 @@ def _reason(keep: FileInfo, runner: FileInfo, n_remove: int,
     return core
 
 
-def _action_for(group: DuplicateGroup, corrupt: set[str],
-                suspect: bool) -> DupAction:
-    """Zbuduj ``DupAction`` dla jednej grupy duplikatów."""
-    ranked = sorted(group.files, key=lambda f: _rank(f, corrupt))
+def _action_for(group: DuplicateGroup, corrupt: dict[str, str],
+                suspect: bool) -> DupAction | None:
+    """Zbuduj ``DupAction`` dla jednej grupy duplikatów.
+
+    Kopie w folderach setów nie mogą trafić do kosza — gdyby jakimś cudem
+    znalazły się w grupie, odpadają tutaj (drugi bezpiecznik po ``health``).
+    """
+    kandydaci = [f for f in group.files if not getattr(f, "w_secie", False)]
+    if len(kandydaci) < 2:
+        return None
+    ranked = sorted(kandydaci, key=lambda f: _rank(f, set(corrupt)))
     keep = ranked[0]
     removed = ranked[1:]
-    reason = _reason(keep, removed[0], len(removed), suspect)
+    reason = _reason(keep, removed[0], len(removed), suspect, corrupt)
+    sety = sorted({s for f in group.files for s in getattr(f, "sety", [])}, key=str.lower)
     return DupAction(
         keep=keep.path,
         remove=[f.path for f in removed],
@@ -166,12 +195,28 @@ def _action_for(group: DuplicateGroup, corrupt: set[str],
         remove_desc=[_describe(f) for f in removed],
         reclaim_bytes=sum(f.size for f in removed),
         suspect=suspect,
+        sety=sety,
     )
 
 
 # --------------------------------------------------------------------------
 # plan
 # --------------------------------------------------------------------------
+
+def plan_z_raportu(report: HealthReport,
+                   include_suspect: bool = False) -> list[DupAction]:
+    """Plan z gotowego raportu ``health.scan`` (bez ponownego skanowania)."""
+    corrupt = {p: r for p, r in report.corrupt}
+    actions: list[DupAction] = []
+    groups = [(g, False) for g in report.duplicates]
+    if include_suspect:
+        groups += [(g, True) for g in report.suspect_duplicates]
+    for group, suspect in groups:
+        a = _action_for(group, corrupt, suspect=suspect)
+        if a is not None:
+            actions.append(a)
+    return actions
+
 
 def plan(folder: str, include_suspect: bool = False) -> list[DupAction]:
     """Zaplanuj rozwiązanie duplikatów w ``folder`` (nic nie zmienia na dysku).
@@ -189,16 +234,7 @@ def plan(folder: str, include_suspect: bool = False) -> list[DupAction]:
     Returns:
         Lista ``DupAction`` — po jednej na grupę duplikatów.
     """
-    report = scan(folder)
-    corrupt = {p for p, _ in report.corrupt}
-
-    actions: list[DupAction] = []
-    for group in report.duplicates:
-        actions.append(_action_for(group, corrupt, suspect=False))
-    if include_suspect:
-        for group in report.suspect_duplicates:
-            actions.append(_action_for(group, corrupt, suspect=True))
-    return actions
+    return plan_z_raportu(scan(folder), include_suspect=include_suspect)
 
 
 # --------------------------------------------------------------------------
@@ -219,43 +255,74 @@ def _unique_dest(trash_dir: str, name: str) -> str:
         i += 1
 
 
-def apply(actions: list[DupAction], trash_dir: str) -> dict:
-    """Wykonaj plan: PRZENIEŚ pliki ``remove`` do ``trash_dir`` (bez kasowania).
+def apply(actions: list[DupAction], trash_dir: str | None = None,
+          tylko: set[str] | None = None, korzen: str | None = None) -> dict:
+    """Wykonaj plan: PRZENIEŚ pliki ``remove`` do kosza (bez kasowania).
 
-    Plik ``keep`` z każdej akcji nie jest nigdy ruszany.  Nazwy w koszu są
-    deduplikowane, więc dwa różne pliki o tej samej nazwie się nie nadpiszą.
+    Plik ``keep`` z każdej akcji nie jest nigdy ruszany, tak samo jak każdy
+    plik z folderu setu.  Domyślnie kosz leży OBOK pliku
+    (``<folder pliku>/_selekta_kosz``), z notką o pochodzeniu — dzięki temu
+    przywrócenie wraca na właściwe miejsce, także z podfolderów.
 
     Args:
         actions: lista akcji z :func:`plan`.
-        trash_dir: katalog kosza (tworzony, jeśli nie istnieje).
+        trash_dir: jeden wspólny katalog kosza (CLI ``--trash``); ``None`` =
+            kosz obok każdego pliku.
+        tylko: gdy podane — przenieś wyłącznie te ścieżki (to, co użytkownik
+            widział i zatwierdził), pomijając resztę planu.
+        korzen: folder biblioteki — granica szukania folderu setu w górę
+            (sam korzeń z ``_selekta.json`` setem nie jest, jak w ``uklad``).
 
     Returns:
-        Słownik ``{"przeniesione": [...], "odzyskane_MB": float,
-        "błędy": [...]}``.  ``przeniesione`` to pary ``(źródło, cel)``,
-        ``błędy`` to pary ``(ścieżka, opis błędu)``.
+        Słownik ``{"przeniesione": [(źródło, cel)...], "odzyskane_MB": float,
+        "błędy": [(ścieżka, opis)...]}``.
     """
-    os.makedirs(trash_dir, exist_ok=True)
-    trash_abs = os.path.abspath(trash_dir)
+    from selekta import kosz
+    from selekta.uklad import jest_folderem_setu
 
+    granica = os.path.abspath(korzen) if korzen else None
+
+    def w_folderze_setu(path: str) -> bool:
+        d = os.path.dirname(path)
+        while d != granica:
+            if jest_folderem_setu(d):
+                return True
+            rodzic = os.path.dirname(d)
+            if rodzic == d:
+                return False
+            d = rodzic
+        return False
+
+    if trash_dir:
+        os.makedirs(trash_dir, exist_ok=True)
     keep_paths = {os.path.abspath(a.keep) for a in actions}
+    wybrane = {os.path.abspath(p) for p in tylko} if tylko is not None else None
     przeniesione: list[tuple[str, str]] = []
     bledy: list[tuple[str, str]] = []
     reclaimed = 0
 
     for action in actions:
+        if not os.path.exists(os.path.abspath(action.keep)):
+            for src in action.remove:
+                bledy.append((src, "pominięto — zniknęła kopia, która miała zostać"))
+            continue
         for src in action.remove:
             src_abs = os.path.abspath(src)
+            if wybrane is not None and src_abs not in wybrane:
+                continue
             # bezpiecznik: nigdy nie ruszaj pliku do zachowania
             if src_abs in keep_paths:
                 bledy.append((src, "pominięto — ścieżka pokrywa się z 'keep'"))
+                continue
+            if w_folderze_setu(src_abs):
+                bledy.append((src, "pominięto — plik należy do setu"))
                 continue
             if not os.path.exists(src_abs):
                 bledy.append((src, "plik nie istnieje"))
                 continue
             try:
                 size = os.path.getsize(src_abs)
-                dest = _unique_dest(trash_abs, os.path.basename(src_abs))
-                shutil.move(src_abs, dest)
+                dest = kosz.do_kosza(src_abs, trash_dir)
                 przeniesione.append((src_abs, dest))
                 reclaimed += size
             except OSError as exc:
@@ -300,6 +367,9 @@ def format_plan(actions: list[DupAction]) -> str:
         for path, desc in zip(action.remove, action.remove_desc):
             lines.append(f"   ✗ do kosza:      {path}")
             lines.append(f"                    [{desc}]")
+        if action.sety:
+            lines.append(f"   ♫ użyty w setach: {', '.join(action.sety)} "
+                         f"— kopie w setach zostają nietknięte")
 
     if sure:
         lines.append("")

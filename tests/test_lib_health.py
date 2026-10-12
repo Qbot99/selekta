@@ -44,8 +44,14 @@ def lib_dir(tmp_path_factory, real_lib) -> str:
 
 
 @pytest.fixture(scope="module")
-def report(lib_dir) -> health.HealthReport:
-    return health.scan(lib_dir)
+def report(lib_dir, tmp_path_factory) -> health.HealthReport:
+    # fixture modułu startuje PRZED autouse-izolacją z conftest (zakres
+    # funkcji), a skan zapamiętuje wynik dekodowania w cache — bez tego
+    # trafiałby do prawdziwego ~/.selekta/cache
+    from selekta import cache
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(cache, "CACHE_DIR", str(tmp_path_factory.mktemp("cache-zdrowie")))
+        return health.scan(lib_dir)
 
 
 # --------------------------------------------------------------------------
@@ -147,7 +153,7 @@ def test_scan_flags_corrupt_flac(tmp_path, real_lib):
     assert len(report.corrupt) == 1
     path, reason = report.corrupt[0]
     assert os.path.basename(path) == CORRUPT_FLAC
-    assert reason.startswith("ffmpeg:")
+    assert "ucięty" in reason or "uszkodzon" in reason or "błędy dekodowania" in reason
     # jedynym problemem jest uszkodzenie (plik ma tagi i okładkę)
     assert report.missing_tags == []
     assert report.missing_covers == []

@@ -1,0 +1,808 @@
+{
+ "opis": "Tonacja v3 na utworach z prawdą (>= 2 niezależne źródła zgodne, żadne przeciw). Źródła: RB = własna analiza rekordboxa, MIK = Mixed In Key, SERATO = TKEY od Serato, BP = Beatport (strona lub tag zakupu), SKLEP = tag sklepu/innego programu. Badanie: naprawy/tonacja-wynik.md (11.10.2026).",
+ "utwory": [
+  {
+   "plik": "01-voodoo_and_serano-blood_is_pumping_(extended_mix).flac",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Inne - poza playlistą/01-voodoo_and_serano-blood_is_pumping_(extended_mix).flac"
+   ],
+   "rozmiar": 56642232,
+   "prawda": "6A",
+   "prawda_nazwa": "G minor",
+   "zrodla": {
+    "RB": [
+     "G minor"
+    ],
+    "BP": [
+     "G minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "6A",
+   "pewnosc": 1.0
+  },
+  {
+   "plik": "76. Mr.Machine, Kaspar - Ballad of Doubt (Remix).flac",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Inne - poza playlistą/76. Mr.Machine, Kaspar - Ballad of Doubt (Remix).flac"
+   ],
+   "rozmiar": 37957222,
+   "prawda": "12B",
+   "prawda_nazwa": "E major",
+   "zrodla": {
+    "SKLEP": [
+     "E major"
+    ],
+    "BP": [
+     "E major"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "9A",
+   "pewnosc": 0.56
+  },
+  {
+   "plik": "Alt8 - On The Beat (Extended Mix) [www.dj-promo.org].mp3",
+   "kandydaci": [
+    "~/Music/selekta/super/Alt8 - On The Beat (Extended Mix) [www.dj-promo.org].mp3"
+   ],
+   "rozmiar": 11207816,
+   "prawda": "8A",
+   "prawda_nazwa": "A minor",
+   "zrodla": {
+    "MIK": [
+     "A minor"
+    ],
+    "BP": [
+     "A minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "8A",
+   "pewnosc": 0.72
+  },
+  {
+   "plik": "Aquagen Hard To Say I'm Sorry [Club Mix] [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Aquagen Hard To Say I'm Sorry [Club Mix] [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 3418797,
+   "prawda": "12A",
+   "prawda_nazwa": "C# minor",
+   "zrodla": {
+    "SERATO": [
+     "C# minor"
+    ],
+    "RB": [
+     "C# minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "12A",
+   "pewnosc": 0.93
+  },
+  {
+   "plik": "Billy Gillies, Nu-La - Crystallize (Extended Mix).flac",
+   "kandydaci": [
+    "~/Music/selekta/super/Billy Gillies, Nu-La - Crystallize (Extended Mix).flac"
+   ],
+   "rozmiar": 25042080,
+   "prawda": "10A",
+   "prawda_nazwa": "B minor",
+   "zrodla": {
+    "BP": [
+     "B minor"
+    ],
+    "RB": [
+     "B minor"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "10A",
+   "pewnosc": 0.55
+  },
+  {
+   "plik": "Captain Jack - Captain Jack (Oski & Citos Bootleg ) [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Captain Jack - Captain Jack (Oski & Citos Bootleg ) [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 4052483,
+   "prawda": "1A",
+   "prawda_nazwa": "G# minor",
+   "zrodla": {
+    "SERATO": [
+     "G# minor"
+    ],
+    "RB": [
+     "G# minor"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "1A",
+   "pewnosc": 1.0
+  },
+  {
+   "plik": "Cascada - What Hurts The Most (ARTBASSES & Calvin Shock Bootleg) [OUT NOW!] [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Cascada - What Hurts The Most (ARTBASSES & Calvin Shock Bootleg) [OUT NOW!] [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 4417286,
+   "prawda": "11A",
+   "prawda_nazwa": "F# minor",
+   "zrodla": {
+    "SERATO": [
+     "F# minor"
+    ],
+    "RB": [
+     "F# minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "12B",
+   "pewnosc": 0.38
+  },
+  {
+   "plik": "David Guetta - Titanium ft. Sia (Killer Bootleg) + DOWNLOAD [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/David Guetta - Titanium ft. Sia (Killer Bootleg) + DOWNLOAD [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 4523939,
+   "prawda": "5A",
+   "prawda_nazwa": "C minor",
+   "zrodla": {
+    "SERATO": [
+     "C minor"
+    ],
+    "RB": [
+     "C minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "5B",
+   "pewnosc": 1.0
+  },
+  {
+   "plik": "Delerium ft. Sarah McLachlan - Silence (Martin Vide Bootleg) (1).mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Delerium ft. Sarah McLachlan - Silence (Martin Vide Bootleg) (1).mp3"
+   ],
+   "rozmiar": 9106099,
+   "prawda": "8A",
+   "prawda_nazwa": "A minor",
+   "zrodla": {
+    "RB": [
+     "A minor"
+    ],
+    "SERATO": [
+     "A minor"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "8A",
+   "pewnosc": 1.0
+  },
+  {
+   "plik": "Dimitri Vegas & Like Mike, Marlon Hoffstadt, DJ Konik - Makina Time (Extended Mix).flac",
+   "kandydaci": [
+    "~/Music/selekta/super/Dimitri Vegas & Like Mike, Marlon Hoffstadt, DJ Konik - Makina Time (Extended Mix).flac"
+   ],
+   "rozmiar": 28250958,
+   "prawda": "5A",
+   "prawda_nazwa": "C minor",
+   "zrodla": {
+    "BP": [
+     "C minor"
+    ],
+    "RB": [
+     "C minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "4A",
+   "pewnosc": 0.08
+  },
+  {
+   "plik": "Dimitri Vegas, Sylver, Pat B - Turn The Tide (ft. Sylver).flac",
+   "kandydaci": [
+    "~/Music/selekta/super/Dimitri Vegas, Sylver, Pat B - Turn The Tide (ft. Sylver).flac"
+   ],
+   "rozmiar": 19214756,
+   "prawda": "2B",
+   "prawda_nazwa": "F# major",
+   "zrodla": {
+    "RB": [
+     "F# major"
+    ],
+    "BP": [
+     "F# major"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "2B",
+   "pewnosc": 0.48
+  },
+  {
+   "plik": "DJ IP, Pegassi - Wanna Feel (Extended).flac",
+   "kandydaci": [
+    "~/Music/selekta/super2.2/DJ IP, Pegassi - Wanna Feel (Extended).flac"
+   ],
+   "rozmiar": 59377663,
+   "prawda": "2A",
+   "prawda_nazwa": "D# minor",
+   "zrodla": {
+    "RB": [
+     "D# minor"
+    ],
+    "BP": [
+     "D# minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "2A",
+   "pewnosc": 0.53
+  },
+  {
+   "plik": "Fenrick - Make Me Sick (Extended Mix).mp3",
+   "kandydaci": [
+    "~/Music/selekta/super/Fenrick - Make Me Sick (Extended Mix).mp3"
+   ],
+   "rozmiar": 9879251,
+   "prawda": "6A",
+   "prawda_nazwa": "G minor",
+   "zrodla": {
+    "SKLEP": [
+     "G minor"
+    ],
+    "RB": [
+     "G minor"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "6A",
+   "pewnosc": 0.48
+  },
+  {
+   "plik": "Frankyeffe - Save Me (RiVid Remix).wav",
+   "kandydaci": [
+    "~/Music/selekta/super/Frankyeffe - Save Me (RiVid Remix).wav"
+   ],
+   "rozmiar": 51601168,
+   "prawda": "7A",
+   "prawda_nazwa": "D minor",
+   "zrodla": {
+    "RB": [
+     "D minor"
+    ],
+    "BP": [
+     "D minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "7A",
+   "pewnosc": 0.92
+  },
+  {
+   "plik": "Hardwell, Maddix, Luciana - ACID (Extended Mix).flac",
+   "kandydaci": [
+    "~/Music/selekta/super/Hardwell, Maddix, Luciana - ACID (Extended Mix).flac"
+   ],
+   "rozmiar": 34791561,
+   "prawda": "7A",
+   "prawda_nazwa": "D minor",
+   "zrodla": {
+    "RB": [
+     "D minor"
+    ],
+    "BP": [
+     "D minor"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "10B",
+   "pewnosc": 0.04
+  },
+  {
+   "plik": "Jeckyll & Hyde - Freefall (Official Video HQ) [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Jeckyll & Hyde - Freefall (Official Video HQ) [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 3705525,
+   "prawda": "8A",
+   "prawda_nazwa": "A minor",
+   "zrodla": {
+    "SERATO": [
+     "A minor"
+    ],
+    "RB": [
+     "A minor"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "8A",
+   "pewnosc": 0.97
+  },
+  {
+   "plik": "John Edrwxen - Is Not Sweet (ARTBASSES x Bartii Bootleg) [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/John Edrwxen - Is Not Sweet (ARTBASSES x Bartii Bootleg) [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 4304024,
+   "prawda": "12A",
+   "prawda_nazwa": "C# minor",
+   "zrodla": {
+    "SERATO": [
+     "C# minor"
+    ],
+    "RB": [
+     "C# minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "12A",
+   "pewnosc": 0.36
+  },
+  {
+   "plik": "Klaas - Ok Without You (Mr.Cheez Bootleg 2020) Free Download ! PREMIERA !! [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Klaas - Ok Without You (Mr.Cheez Bootleg 2020) Free Download ! PREMIERA !! [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 3750730,
+   "prawda": "6A",
+   "prawda_nazwa": "G minor",
+   "zrodla": {
+    "SERATO": [
+     "G minor"
+    ],
+    "RB": [
+     "G minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "6A",
+   "pewnosc": 0.75
+  },
+  {
+   "plik": "Lilly Palmer - All You Got To Do.flac",
+   "kandydaci": [
+    "~/Music/selekta/Spotify · 5 wrz/Lilly Palmer - All You Got To Do.flac"
+   ],
+   "rozmiar": 22267354,
+   "prawda": "8A",
+   "prawda_nazwa": "A minor",
+   "zrodla": {
+    "RB": [
+     "A minor"
+    ],
+    "BP": [
+     "A minor"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "9A",
+   "pewnosc": 0.26
+  },
+  {
+   "plik": "Loic D - Melody Of World (Ronald V Remix).flac",
+   "kandydaci": [
+    "~/Music/selekta/super/Loic D - Melody Of World (Ronald V Remix).flac"
+   ],
+   "rozmiar": 20662056,
+   "prawda": "10A",
+   "prawda_nazwa": "B minor",
+   "zrodla": {
+    "RB": [
+     "B minor"
+    ],
+    "BP": [
+     "B minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "10A",
+   "pewnosc": 0.81
+  },
+  {
+   "plik": "Lucid - I Can't Help Myself (ARTBASSES x Oski Bootleg) [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Lucid - I Can't Help Myself (ARTBASSES x Oski Bootleg) [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 4306898,
+   "prawda": "4A",
+   "prawda_nazwa": "F minor",
+   "zrodla": {
+    "SERATO": [
+     "F minor"
+    ],
+    "RB": [
+     "F minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "4A",
+   "pewnosc": 1.0
+  },
+  {
+   "plik": "Marlon Hoffstadt, FISHER (OZ), DJ Daddy Trance - It's That Time (FISHER Remix - Extended Mix) (Original Mix).flac",
+   "kandydaci": [
+    "~/Music/selekta/Spotify · 5 wrz/Marlon Hoffstadt, FISHER (OZ), DJ Daddy Trance - It's That Time (FISHER Remix - Extended Mix) (Original Mix).flac"
+   ],
+   "rozmiar": 31377074,
+   "prawda": "1A",
+   "prawda_nazwa": "G# minor",
+   "zrodla": {
+    "RB": [
+     "G# minor"
+    ],
+    "BP": [
+     "G# minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "4A",
+   "pewnosc": 0.11
+  },
+  {
+   "plik": "Mike Candys - Do My Ting (Dub Mix).flac",
+   "kandydaci": [
+    "~/Music/selekta/super/Mike Candys - Do My Ting (Dub Mix).flac"
+   ],
+   "rozmiar": 28280345,
+   "prawda": "1A",
+   "prawda_nazwa": "G# minor",
+   "zrodla": {
+    "RB": [
+     "G# minor"
+    ],
+    "BP": [
+     "G# minor"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "1A",
+   "pewnosc": 1.0
+  },
+  {
+   "plik": "MilleniumKid, JBS, The Boy The G - Unendlichkeit (Remix).flac",
+   "kandydaci": [
+    "~/Music/selekta/super/MilleniumKid, JBS, The Boy The G - Unendlichkeit (Remix).flac"
+   ],
+   "rozmiar": 39487038,
+   "prawda": "11A",
+   "prawda_nazwa": "F# minor",
+   "zrodla": {
+    "RB": [
+     "F# minor"
+    ],
+    "BP": [
+     "F# minor"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "11A",
+   "pewnosc": 0.1
+  },
+  {
+   "plik": "Novah - Rave Never Ends.flac",
+   "kandydaci": [
+    "~/Music/selekta/super/Novah - Rave Never Ends.flac"
+   ],
+   "rozmiar": 29361109,
+   "prawda": "8A",
+   "prawda_nazwa": "A minor",
+   "zrodla": {
+    "RB": [
+     "A minor"
+    ],
+    "BP": [
+     "A minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "8A",
+   "pewnosc": 1.0
+  },
+  {
+   "plik": "Odymel - Hot Stuff.wav",
+   "kandydaci": [
+    "~/Music/selekta/super/Odymel - Hot Stuff.wav"
+   ],
+   "rozmiar": 47119070,
+   "prawda": "8A",
+   "prawda_nazwa": "A minor",
+   "zrodla": {
+    "MIK": [
+     "A minor"
+    ],
+    "BP": [
+     "A minor"
+    ],
+    "RB": [
+     "A minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "8A",
+   "pewnosc": 1.0
+  },
+  {
+   "plik": "Pegassi - MOAA (Extended).wav",
+   "kandydaci": [
+    "~/Music/selekta/super2.2/Pegassi - MOAA (Extended).wav"
+   ],
+   "rozmiar": 72915378,
+   "prawda": "2A",
+   "prawda_nazwa": "D# minor",
+   "zrodla": {
+    "RB": [
+     "D# minor"
+    ],
+    "BP": [
+     "D# minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "2A",
+   "pewnosc": 1.0
+  },
+  {
+   "plik": "PRADA2000 - GoGoGo! (VIP Intro Mix).flac",
+   "kandydaci": [
+    "~/Music/selekta/super/PRADA2000 - GoGoGo! (VIP Intro Mix).flac"
+   ],
+   "rozmiar": 16897559,
+   "prawda": "5B",
+   "prawda_nazwa": "D# major",
+   "zrodla": {
+    "RB": [
+     "D# major"
+    ],
+    "BP": [
+     "D# major"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "5B",
+   "pewnosc": 0.97
+  },
+  {
+   "plik": "Protect the Innocent - Talk to Me (Artbasses & Seaven Bootleg) [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Protect the Innocent - Talk to Me (Artbasses & Seaven Bootleg) [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 3800029,
+   "prawda": "12A",
+   "prawda_nazwa": "C# minor",
+   "zrodla": {
+    "SERATO": [
+     "C# minor"
+    ],
+    "RB": [
+     "C# minor"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "12A",
+   "pewnosc": 0.09
+  },
+  {
+   "plik": "Rocco - One Two Three (DJ ENDRIU BOOTLEG) [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Rocco - One Two Three (DJ ENDRIU BOOTLEG) [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 4055808,
+   "prawda": "5A",
+   "prawda_nazwa": "C minor",
+   "zrodla": {
+    "SERATO": [
+     "C minor"
+    ],
+    "RB": [
+     "C minor"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "5B",
+   "pewnosc": 0.94
+  },
+  {
+   "plik": "Seaven & Bartii - Revolution ( Original Mix ) [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Seaven & Bartii - Revolution ( Original Mix ) [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 3969295,
+   "prawda": "1A",
+   "prawda_nazwa": "G# minor",
+   "zrodla": {
+    "SERATO": [
+     "G# minor"
+    ],
+    "RB": [
+     "G# minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "1A",
+   "pewnosc": 0.94
+  },
+  {
+   "plik": "Seaven & Polon - Millions Without You [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Seaven & Polon - Millions Without You [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 3941701,
+   "prawda": "2A",
+   "prawda_nazwa": "D# minor",
+   "zrodla": {
+    "SERATO": [
+     "D# minor"
+    ],
+    "RB": [
+     "D# minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "2A",
+   "pewnosc": 0.94
+  },
+  {
+   "plik": "Starsplash - I Believe 2016 (Calvin Shock Bootleg) [OUT NOW!] [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Starsplash - I Believe 2016 (Calvin Shock Bootleg) [OUT NOW!] [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 3627421,
+   "prawda": "2A",
+   "prawda_nazwa": "D# minor",
+   "zrodla": {
+    "SERATO": [
+     "D# minor"
+    ],
+    "RB": [
+     "D# minor"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "2A",
+   "pewnosc": 1.0
+  },
+  {
+   "plik": "Steve Modana, KYANU, Calvo - On Repeat [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Steve Modana, KYANU, Calvo - On Repeat [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 2675022,
+   "prawda": "6A",
+   "prawda_nazwa": "G minor",
+   "zrodla": {
+    "SERATO": [
+     "G minor"
+    ],
+    "RB": [
+     "G minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "9B",
+   "pewnosc": 0.33
+  },
+  {
+   "plik": "Subtrax - WFT.flac",
+   "kandydaci": [
+    "~/Music/selekta/super/Subtrax - WFT.flac"
+   ],
+   "rozmiar": 22091439,
+   "prawda": "5A",
+   "prawda_nazwa": "C minor",
+   "zrodla": {
+    "RB": [
+     "C minor"
+    ],
+    "BP": [
+     "C minor"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "5A",
+   "pewnosc": 0.35
+  },
+  {
+   "plik": "The Rocketman - Bounce Like That.flac",
+   "kandydaci": [
+    "~/Music/selekta/super2.2/The Rocketman - Bounce Like That.flac"
+   ],
+   "rozmiar": 22771971,
+   "prawda": "3A",
+   "prawda_nazwa": "A# minor",
+   "zrodla": {
+    "RB": [
+     "A# minor"
+    ],
+    "BP": [
+     "A# minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "3A",
+   "pewnosc": 0.66
+  },
+  {
+   "plik": "The Rocketman, Afem Syko - Make You Move (Extended Mix).mp3",
+   "kandydaci": [
+    "~/Music/selekta/super/The Rocketman, Afem Syko - Make You Move (Extended Mix).mp3"
+   ],
+   "rozmiar": 12010835,
+   "prawda": "10A",
+   "prawda_nazwa": "B minor",
+   "zrodla": {
+    "MIK": [
+     "B minor"
+    ],
+    "RB": [
+     "B minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "10A",
+   "pewnosc": 1.0
+  },
+  {
+   "plik": "The Rocketman, SHVDZ - The Creator (Extended Mix).flac",
+   "kandydaci": [
+    "~/Music/selekta/super/The Rocketman, SHVDZ - The Creator (Extended Mix).flac"
+   ],
+   "rozmiar": 46540837,
+   "prawda": "10B",
+   "prawda_nazwa": "D major",
+   "zrodla": {
+    "SKLEP": [
+     "D major"
+    ],
+    "RB": [
+     "D major"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "10B",
+   "pewnosc": 0.59
+  },
+  {
+   "plik": "TheWolf - Oblivion (ARTBASSES x Citos Bootleg) [ ezmp3.cc ].mp3",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/TheWolf - Oblivion (ARTBASSES x Citos Bootleg) [ ezmp3.cc ].mp3"
+   ],
+   "rozmiar": 3129476,
+   "prawda": "2A",
+   "prawda_nazwa": "D# minor",
+   "zrodla": {
+    "SERATO": [
+     "D# minor"
+    ],
+    "RB": [
+     "D# minor"
+    ]
+   },
+   "czesc": "kontrolna",
+   "wynik": "2B",
+   "pewnosc": 0.42
+  },
+  {
+   "plik": "tiesto - addagio for strings.flac",
+   "kandydaci": [
+    "~/.local/share/nicotine/downloads/Inne - poza playlistą/tiesto - addagio for strings.flac"
+   ],
+   "rozmiar": 44226070,
+   "prawda": "3A",
+   "prawda_nazwa": "A# minor",
+   "zrodla": {
+    "SKLEP": [
+     "A# minor"
+    ],
+    "RB": [
+     "A# minor"
+    ]
+   },
+   "czesc": "strojeniowa",
+   "wynik": "3A",
+   "pewnosc": 1.0
+  }
+ ]
+}

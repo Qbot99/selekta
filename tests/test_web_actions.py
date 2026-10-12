@@ -34,7 +34,9 @@ def test_import_text_tracklist_offline(client):
     assert d["counts"]["auto"] + d["counts"]["resolve"] >= 1
     assert d["counts"]["missing"] >= 1
     missing = d["missing"][0]
-    assert missing["buy"].startswith("https://www.beatport.com/search")
+    # kilka sklepów (pop: Qobuz/Apple przodem), „buy" = pierwszy z nich
+    assert missing["buy"] == missing["sklepy"][0]["url"]
+    assert {s["id"] for s in missing["sklepy"]} >= {"beatport", "qobuz", "apple", "bandcamp"}
 
 
 @pytest.mark.network
@@ -93,10 +95,12 @@ def test_export_rekordbox_parses(client, lib_copy):
     assert len(root.findall(".//COLLECTION/TRACK")) == d["count"]
 
 
-def test_usb_endpoint(client, tmp_path):
+def test_usb_endpoint(client, tmp_path_factory):
     bad = client.post("/api/usb", json={"dest": ""})
     assert bad.status_code == 400
-    dest = str(tmp_path / "usb")
+    # cel POZA biblioteką: lib_copy to samo tmp_path, a folder docelowy
+    # w bibliotece jest teraz odrzucany (kopie wracały do niej jako „(2)")
+    dest = str(tmp_path_factory.mktemp("usb-cel") / "usb")
     r = client.post("/api/usb", json={"dest": dest, "convert": "keep"})
     assert r.status_code == 200
     d = r.json()
@@ -106,7 +110,32 @@ def test_usb_endpoint(client, tmp_path):
 
 
 def test_redownload_queues_wishlist(client):
-    r = client.post("/api/redownload", json={"file": "Artysta X - Zaginiony.flac"})
+    # wpis z TAGÓW istniejącego pliku (Odymel / Gucci), nie z nazwy pliku;
+    # nieistniejący plik to błąd, a nie śmieciowy wpis na liście życzeń
+    r = client.post("/api/redownload", json={"file": GOOD_FLAC})
     assert r.status_code == 200
     items = client.get("/api/wishlist").json()["items"]
-    assert any(i["artist"] == "Artysta X" for i in items)
+    assert any(i["artist"] == "Odymel" and i["title"] == "Gucci" for i in items)
+    r = client.post("/api/redownload", json={"file": "Artysta X - Zaginiony.flac"})
+    assert r.status_code == 404
+
+
+def test_redownload_bierze_tagi_a_nie_numer_sciezki(client, lib_copy):
+    """Przegląd 0.4.2: „01 - Hung Up.flac" → artysta „01"."""
+    from tests.conftest import fast_copy
+    fast_copy(os.path.join(lib_copy, GOOD_FLAC), os.path.join(lib_copy, "01 - Cokolwiek.flac"))
+    r = client.post("/api/redownload", json={"file": "01 - Cokolwiek.flac"})
+    assert r.status_code == 200
+    assert (r.json()["artist"], r.json()["title"]) == ("Odymel", "Gucci")
+    r = client.post("/api/redownload", json={"file": "07 - Zaginiony Utwór.flac"})
+    assert r.status_code == 404, "nieistniejący plik — nie tworzymy wpisu bez artysty"
+    tytuly = [i["title"] for i in client.get("/api/wishlist").json()["items"]]
+    assert tytuly.count("Gucci") == 1
+
+
+def test_wishlist_api_zapisuje_czas_i_nie_dubluje(client):
+    for _ in range(2):
+        client.post("/api/wishlist", json={"artist": "Madonna", "title": "Hung Up",
+                                           "duration": 337.7})
+    items = client.get("/api/wishlist").json()["items"]
+    assert len(items) == 1 and items[0]["duration_s"] == 337.7

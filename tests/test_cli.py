@@ -55,8 +55,9 @@ def test_verify_reports_quality(lib_copy):
 
 
 @pytest.mark.slow
-def test_health_finds_duplicate(lib_copy):
-    r = run("health", "--folder", lib_copy)
+def test_health_finds_duplicate(lib_copy, tmp_path_factory):
+    # osobny HOME: skan zdrowia zapamiętuje wynik dekodowania w ~/.selekta/cache
+    r = run("health", "--folder", lib_copy, env_home=str(tmp_path_factory.mktemp("home")))
     assert r.returncode == 0
     assert "Duplikaty" in r.stdout and "Gucci" in r.stdout
 
@@ -83,8 +84,8 @@ def test_tagfix_preview_shows_repair(lib_copy):
     assert "ÅMRTÜM" in r.stdout and "podgląd" in r.stdout
 
 
-def test_dedupe_preview(lib_copy):
-    r = run("dedupe", "--folder", lib_copy)
+def test_dedupe_preview(lib_copy, tmp_path_factory):
+    r = run("dedupe", "--folder", lib_copy, env_home=str(tmp_path_factory.mktemp("home")))
     assert r.returncode == 0
     assert "zachowa" in r.stdout  # "zachowaj:"/"zachowano"
 
@@ -116,7 +117,10 @@ def test_organize_apply_text_source(lib_copy, tmp_path):
     (syntetyczne id → cover_bytes musi zwrócić None, nie wyjątek)."""
     src = tmp_path / "lista.txt"
     src.write_text("Odymel - Gucci\n", encoding="utf-8")
-    r = run("organize", str(src), "--folder", lib_copy, "--apply")
+    # osobny HOME: --apply zapisuje dziennik cofania w ~/.selekta — bez tego
+    # podproces pisał do prawdziwego stanu użytkownika
+    r = run("organize", str(src), "--folder", lib_copy, "--apply",
+            env_home=str(tmp_path / "home"))
     assert r.returncode == 0, r.stderr
     assert os.path.isfile(os.path.join(lib_copy, "Odymel - Gucci.flac"))
 
@@ -222,3 +226,69 @@ class TestNaprawyZastrzezen:
             f"wpis cache nie pasuje do mtime po zapisie tagów — "
             f"następna analiza liczyłaby wszystko od zera "
             f"(stderr sondy: {sonda.stderr[-400:]!r})")
+
+
+
+class TestDopasowanieWCli:
+    """Przegląd 0.4.2: `organize` oznaczył „✓ Frozen ← Like a Prayer" —
+    best_match brał najwyższy wynik ≥ 0,6 bez sprawdzenia tożsamości."""
+
+    def test_organize_nie_bierze_cudzego_pliku(self, lib_copy, tmp_path):
+        src = tmp_path / "lista.txt"
+        src.write_text("Odymel - Gucci Gang\nKtoś Inny - Gucci\nOdymel - Gucci\n",
+                       encoding="utf-8")
+        r = run("organize", str(src), "--folder", lib_copy)
+        assert r.returncode == 0, r.stderr
+        assert "1 dopasowanych, 2 brakujących" in r.stdout
+        assert "✓ Odymel — Gucci\n" in r.stdout
+
+    def test_hunt_pobiera_tylko_pewny_wynik(self, lib_copy, monkeypatch, capsys):
+        import argparse
+        from selekta import cli, wishlist
+        from selekta.slskd_client import SearchHit, SlskdClient
+
+        cudzy = SearchHit("u1", "Rick Astley\\Never Gonna Give You Up.flac",
+                          40_000_000, None, 213, True, True)
+        dobry = SearchHit("u2", "Madonna\\Madonna - Frozen.mp3", 9_000_000, 320, 372, False, True)
+
+        class Klient:
+            pobrane = []
+
+            def available(self):
+                return True
+
+            def search_track(self, artist, title, duration_s=None):
+                return [cudzy, dobry] if title == "Frozen" else [cudzy]
+
+            pewny_wynik = SlskdClient.pewny_wynik
+
+            def download(self, hit):
+                Klient.pobrane.append(hit.filename)
+
+        monkeypatch.setattr(cli, "SlskdClient", Klient)
+        src = os.path.join(lib_copy, "lista.txt")
+        with open(src, "w", encoding="utf-8") as fh:
+            fh.write("Madonna - Frozen\nOdymel - Gucci\nDonna Summer - Hot Stuff\n")
+        cli.cmd_hunt(argparse.Namespace(source=src, folder=lib_copy, download=True))
+        out = capsys.readouterr().out
+        assert Klient.pobrane == ["Madonna\\Madonna - Frozen.mp3"]
+        assert "Odymel — Gucci" not in out          # to już masz
+        assert "nie jest na pewno" in out           # Hot Stuff: tylko cudzy wynik
+        assert wishlist.items() == []
+        assert "Qobuz" in out                       # więcej sklepów niż Beatport
+
+
+class TestWishlistCli:
+    def test_lista_numerowana_i_usuwanie_po_numerze(self, tmp_path):
+        home = str(tmp_path)
+        for x in ("A - Jeden", "B - Dwa", "C - Trzy"):
+            assert run("wishlist", "--add", x, env_home=home).returncode == 0
+        lista = run("wishlist", env_home=home).stdout
+        assert " 1. · A — Jeden" in lista and " 3. · C — Trzy" in lista
+        r = run("wishlist", "--remove", "1", env_home=home)
+        assert "usunięto: A — Jeden" in r.stdout      # dawniej znikało „B — Dwa"
+        assert "A — Jeden" not in run("wishlist", env_home=home).stdout
+
+    def test_dodanie_bez_myslnika_to_czytelny_blad(self, tmp_path):
+        r = run("wishlist", "--add", "Bez myślnika", env_home=str(tmp_path))
+        assert r.returncode != 0 and "Artysta - Tytuł" in r.stderr

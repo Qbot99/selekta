@@ -4,16 +4,24 @@
 Komendy:
   organize   dopasuj pliki do playlisty, otaguj, dodaj okładki, zmień nazwy
   verify     raport jakości audio (detektor fałszywych FLAC-ów)
-  match      weryfikacja przez odsłuch: fingerprint pliku vs preview ze Spotify
+  check      pełna weryfikacja pobrań: integralność + tożsamość + jakość
+  match      weryfikacja przez odsłuch: plik vs próbka (Spotify, a bez niej iTunes)
   covers     audyt okładek; --fill dociąga brakujące z iTunes
   icons      pokaż okładki FLAC/WAV w Finderze (macOS)
   analyze    wykryj BPM i tonację, zapisz tagi; --order = kolejność harmoniczna
   health     dashboard biblioteki: duplikaty, braki, uszkodzenia, jakość
-  export     eksport do rekordbox (XML) lub Serato (.crate)
+  export     eksport do rekordbox (XML), Serato (.crate) lub M3U8
   usb        przygotuj płaski folder pod CDJ (nazwy FAT32, WAV→AIFF/FLAC)
   radar      nowe wydania Twoich artystów na Beatport/Bandcamp
   wishlist   lista życzeń + cykliczne szukanie na Soulseeku
   hunt       szukaj brakujących utworów na Soulseeku + linki zakupowe
+  loudness   głośność LUFS + tagi ReplayGain (spójny poziom setu)
+  cues       wykryj intro/outro/drop/pierwsze uderzenie
+  tagfix     napraw uszkodzone tagi (mojibake)
+  dedupe     znajdź duplikaty i przenieś słabsze kopie do kosza selekty
+  uchem      co warto sprawdzić uchem, zanim trafi do setu
+  doctor     sprawdź integracje (Spotify, Beatport, iTunes…) i narzędzia
+  serve      uruchom dashboard w przeglądarce
 """
 from __future__ import annotations
 
@@ -38,6 +46,7 @@ from . import (
     loudness,
     matcher,
     pipeline,
+    poszukiwacz,
     radar,
     spotify,
     stores,
@@ -60,7 +69,12 @@ def _load_tracks(source: str) -> list[spotify.Track]:
     tracks, origin = importers.resolve_any(text)
     if not tracks:
         sys.exit("nie znalazłem żadnych utworów w podanym źródle")
-    print(f"źródło: {origin} — {len(tracks)} utworów\n")
+    total = getattr(tracks, "zrodlo_total", None)
+    z = f" (z {total} w źródle)" if total and total > len(tracks) else ""
+    print(f"źródło: {origin} — {len(tracks)} utworów{z}")
+    for uwaga in getattr(tracks, "uwagi", []) or []:
+        print(f"⚠️ {uwaga}")
+    print()
     return tracks
 
 
@@ -75,30 +89,67 @@ def _audio_paths(folder: str) -> list[str]:
 # --------------------------------------------------------------------------
 
 def cmd_organize(args) -> None:
+    from . import tagger
+    if getattr(args, "cofnij", False):
+        wynik = tagger.cofnij_porzadkowanie()
+        if not wynik:
+            print("nie ma czego cofać")
+        for w in wynik:
+            znak = "↺" if w.get("cofniete") else "⚠"
+            print(f"{znak} {os.path.basename(w['do'])} → {os.path.basename(w['z'])}"
+                  + ("" if w.get("cofniete") else f"  ({w.get('powod', '')})"))
+        return
+    if not args.source:
+        sys.exit("podaj playlistę (link, plik albo tekst) albo --cofnij")
     tracks = _load_tracks(args.source)
-    matched, missing = [], []
+    # Przemianowujemy i tagujemy WYŁĄCZNIE ten sam utwór w tej samej wersji.
+    # Dawniej best_match brał najwyższy wynik ≥ 0,6: „✓ Frozen ← Like a
+    # Prayer", a --apply przepisałby cudzy plik na „Madonna - Frozen".
+    index = matcher.library_index(args.folder)
+    matched, missing, inne = [], [], {}
     for t in tracks:
-        cand = matcher.best_match(t, args.folder)
-        (matched.append((t, cand)) if cand else missing.append(t))
+        cand = matcher.classify_track(t, index)
+        pas = matcher.lane(cand)
+        if pas == "auto":
+            matched.append((t, cand))
+        else:
+            missing.append(t)
+            if pas == "version":
+                inne[id(t)] = cand
 
+    import time as _time
+    partia = _time.strftime("%Y-%m-%dT%H:%M:%S")
     for t, cand in matched:
         print(f"✓ {t.artist} — {t.title}")
         print(f"    ← {os.path.basename(cand.path)} (score {cand.score})")
         if args.apply:
             cover = spotify.cover_bytes(t) if t.id else None
-            tag_file(cand.path, t.artist, t.title, cover)
-            new_path = rename_file(cand.path, t.artist, t.title)
-            if cover and not covers.verify(new_path, cover):
-                print("    ⚠ okładka nie zapisała się poprawnie")
-            print(f"    → {os.path.basename(new_path)}")
+            # dopisek wersji zostaje, stare wartości idą do dziennika (--cofnij),
+            # a błąd jednego pliku nie przerywa całej operacji
+            w = tagger.uporzadkuj(cand.path, t.artist, t.title, cover, partia=partia)
+            if w.get("blad"):
+                print(f"    ⚠ pominięto: {w['blad']}")
+                continue
+            if w.get("uwaga"):
+                print(f"    · {w['uwaga']}")
+            if w["do"] != w["z"]:
+                print("    · nowa nazwa: analizy, ręczna siatka i historia idą za plikiem; "
+                      "playlisty wysłane wcześniej do rekordboxa wskażą starą nazwę — "
+                      "wyślij je ponownie")
+            print(f"    → {os.path.basename(w['do'])}")
 
     if missing:
         print(f"\nBrakuje {len(missing)} utworów:")
         for t in missing:
             print(f"  ✗ {t.artist} — {t.title}")
-            print(f"    kup: {stores.buy_links(t)['beatport']}")
+            if id(t) in inne:
+                print(f"    ≈ masz inną wersję: {os.path.basename(inne[id(t)].path)}"
+                      " (nie ruszam jej)")
+            sk = stores.sklepy(t)[:2]
+            print("    kup: " + " · ".join(f"{x['name']} {x['url']}" for x in sk))
     print(f"\n{len(matched)} dopasowanych, {len(missing)} brakujących"
-          + ("" if args.apply else "  (dry-run — dodaj --apply)"))
+          + ("  (cofnięcie: selekta organize --folder … --cofnij)" if args.apply
+             else "  (dry-run — dodaj --apply)"))
 
 
 def cmd_verify(args) -> None:
@@ -152,14 +203,29 @@ def cmd_match(args) -> None:
         if not cand:
             continue
         res = verify_match.verify_track(cand.path, t)
+        zrodlo = ""
         if res is None:
-            print(f"— {t.artist} — {t.title}: brak preview do porównania")
+            # Spotify coraz częściej nie daje próbki, a listy tekstowe, Apple
+            # i YouTube nie mają jej wcale — apka ma już próbki z iTunes
+            po_nazwie = verify_match.verify_by_name(cand.path, t.artist, t.title)
+            if po_nazwie:
+                res, zrodlo = po_nazwie
+                # wyszukiwarka iTunes potrafi oddać ten sam tytuł innego wykonawcy
+                # („El Diablo” Franko zamiast Fuego) — taka próbka niczego nie dowodzi
+                wykonawca = set(matcher.normalize(zrodlo.split(" — ")[0]))
+                if not (wykonawca & set(matcher.normalize(t.artist))):
+                    print(f"— {t.artist} — {t.title}: próbka z iTunes jest innego "
+                          f"wykonawcy ({zrodlo}) — nie porównuję")
+                    continue
+        if res is None:
+            print(f"— {t.artist} — {t.title}: brak próbki do porównania (Spotify ani iTunes)")
             continue
         checked += 1
         ok += res.verdict == "match"
         print(f"{VERDICT_ICON[res.verdict]} {t.artist} — {t.title}")
         print(f"    {os.path.basename(cand.path)} — podobieństwo {res.score:.2f} "
-              f"@ {res.offset_s:.0f}s {('· ' + res.note) if res.note else ''}")
+              f"@ {res.offset_s:.0f}s {('· ' + res.note) if res.note else ''}"
+              f"{(' · próbka: ' + zrodlo) if zrodlo else ''}")
     print(f"\n{ok}/{checked} plików potwierdzonych jako właściwy utwór")
 
 
@@ -171,26 +237,22 @@ def cmd_covers(args) -> None:
         print(f"  ✗ {name}")
         if not args.fill:
             continue
-        artist, _, title = os.path.splitext(name)[0].partition(" - ")
-        hit = covers.from_itunes(artist, title or artist)
-        if hit:
-            tag_file(p, artist, title or artist, hit.data)
-            status = "✓" if covers.verify(p, hit.data) else "⚠ zapis nieudany"
-            print(f"    {status} {hit.description} [{hit.source}]")
-        else:
-            print("    — nie znaleziono w iTunes")
+        # artysta/tytuł z tagów, tylko okładka do pliku, błąd jednego pliku
+        # nie przerywa pętli (wcześniej pierwszy M4A kończył całą komendę)
+        w = covers.uzupelnij(p)
+        znak = {"dodano": "✓", "brak": "—", "jest": "·"}.get(w["status"], "⚠")
+        print(f"    {znak} {w['opis']}")
 
 
 def cmd_icons(args) -> None:
     if not finder_icons.available():
         sys.exit("ta komenda działa tylko na macOS")
-    paths = [
-        os.path.join(args.folder, f)
-        for f in sorted(os.listdir(args.folder))
-        if f.lower().endswith(finder_icons.FINDER_BLIND)
-    ]
+    # wszystkie podfoldery (pobrania z Soulseeka leżą w katalogach albumów),
+    # łącznie z kopiami w setach — Finder pokazuje i te foldery
+    paths = [p for p in matcher.audio_files(args.folder, kopie_w_setach=True)
+             if p.lower().endswith(finder_icons.FINDER_BLIND)]
     if args.clear:
-        print(f"usunięto własne ikony z {finder_icons.clear(paths)} plików")
+        print(f"usunięto ikony postawione przez selektę z {finder_icons.clear(paths)} plików")
         return
     done, skipped = finder_icons.apply(paths)
     print(f"ustawiono ikonę Findera dla {done} plików FLAC/WAV")
@@ -249,7 +311,7 @@ def cmd_analyze(args) -> None:
         print(f"{ta.bpm:>5.1f} BPM  {ta.camelot:>3}  {ta.key:<8} {os.path.basename(p)}{flag}")
 
     if args.order:
-        print("\n— kolejność harmoniczna (koło Camelot, energia rosnąco) —")
+        print("\n— kolejność harmoniczna (koło Camelota, tempo rosnąco) —")
         for pos, (name, ta, note) in enumerate(harmonic.order_set(rows), 1):
             print(f"  {pos:>2}. {ta.camelot:>3}  {ta.bpm:>5.1f}  {name}   [{note}]")
     if args.apply:
@@ -270,7 +332,13 @@ def cmd_export(args) -> None:
         paths = [c.path for t in pl if (c := matcher.best_match(t, args.folder))]
         tracks = [dj_export.track_from_file(p) for p in paths] or dj_export.collect(args.folder)
     else:
-        tracks = dj_export.collect(args.folder)
+        # bez playlisty: ta sama kolejność harmoniczna co w aplikacji,
+        # nie alfabet (kolekcja to jeszcze nie set)
+        tracks = dj_export.w_kolejnosci_setu(dj_export.collect(args.folder))
+    if not tracks:
+        # pusty plik z rc=0 wyglądał jak sukces — a rekordbox dostawał 0 utworów
+        sys.exit(f"błąd: nie znalazłem żadnych utworów do eksportu w {args.folder} "
+                 "(szukałem też w podfolderach) — nic nie zapisano")
     name = args.name or os.path.basename(os.path.normpath(args.folder))
     if args.target == "rekordbox":
         # to samo wzbogacenie co eksport z aplikacji: siatka, cue i ręczna
@@ -298,12 +366,22 @@ def cmd_radar(args) -> None:
 
 def cmd_wishlist(args) -> None:
     if args.add:
-        artist, _, title = args.add.partition(" - ")
-        it = wishlist.add(artist.strip(), title.strip())
+        para = importers.split_artist_title(args.add)
+        if not para:
+            sys.exit('podaj utwór jako "Artysta - Tytuł" (z myślnikiem otoczonym spacjami)')
+        it = wishlist.add(*para)
         print(f"dodano do listy życzeń: {it['artist']} — {it['title']}")
     elif args.remove:
-        removed = wishlist.remove(args.remove)
-        print(f"usunięto: {removed['artist']} — {removed['title']}" if removed else "nie znaleziono")
+        # lista pokazuje numery od 1 (i id) — tak samo liczymy przy usuwaniu;
+        # dawniej numeracja szła od 0 i nigdzie jej nie było widać
+        cel: str | int = args.remove.strip()
+        if isinstance(cel, str) and cel.isdigit() and len(cel) < 6:
+            cel = int(cel) - 1
+            if cel < 0:
+                sys.exit("numer pozycji zaczyna się od 1 (patrz `selekta wishlist`)")
+        removed = wishlist.remove(cel)
+        print(f"usunięto: {removed['artist']} — {removed['title']}" if removed
+              else "nie znaleziono — sprawdź numer albo id w `selekta wishlist`")
     elif args.check:
         found, nieudane = wishlist.check(SlskdClient())
         if found:
@@ -321,33 +399,49 @@ def cmd_wishlist(args) -> None:
         print(f"wishlist daemon: sprawdzam co {args.interval//60} min (Ctrl+C przerywa)")
         wishlist.daemon(interval_s=args.interval, client=SlskdClient())
     else:
-        for it in wishlist.items():
-            print(f"  · {it['artist']} — {it['title']}")
+        wpisy = wishlist.items()
+        if not wpisy:
+            print("lista życzeń jest pusta")
+        for i, it in enumerate(wpisy, 1):
+            znak = "★" if it.get("found") else "·"
+            print(f"  {i:>2}. {znak} {it['artist']} — {it['title']}  [id {it['id']}]")
+        if wpisy:
+            print("\nusuń: selekta wishlist --remove NUMER (albo id)")
 
 
 def cmd_hunt(args) -> None:
     tracks = _load_tracks(args.source)
-    have = {t.id for t in tracks if args.folder and matcher.best_match(t, args.folder)}
+    # „mam" tylko gdy biblioteka ma TEN SAM utwór w tej samej wersji —
+    # dawniej best_match brał Like a Prayer za Frozen i hunt go pomijał
+    index = matcher.library_index(args.folder) if args.folder else None
     slskd = SlskdClient()
     online = slskd.available()
     if not online:
         print("(slskd niedostępny — pokazuję tylko linki zakupowe)\n")
     for t in tracks:
-        if t.id and t.id in have:
+        if index is not None and matcher.lane(matcher.classify_track(t, index)) == "auto":
             continue
         print(f"♪ {t.artist} — {t.title}")
         if online:
-            hits = slskd.rank(slskd.search(t.query), t.duration_s)[:3]
-            for h in hits:
+            # ta sama drabina zapytań i ranking z tożsamością co w aplikacji
+            hits = slskd.search_track(t.artist, t.title, t.duration_s)
+            pewny = slskd.pewny_wynik(hits, t.artist, t.title, t.duration_s) if hits else None
+            for h in hits[:3]:
                 kind = "lossless" if h.is_lossless else f"{h.bitrate or '?'} kbps"
-                print(f"    slsk: {os.path.basename(h.filename)} [{kind}, {h.size//1_000_000} MB]")
-            if hits and args.download:
-                slskd.download(hits[0])
-                print("    ⬇ zlecono pobieranie najlepszego wyniku")
+                znak = "✓" if h is pewny else " "
+                print(f"   {znak} slsk: {os.path.basename(h.filename.replace(chr(92), '/'))}"
+                      f" [{kind}, {h.size//1_000_000} MB]")
+            if pewny and args.download:
+                slskd.download(pewny)
+                print(f"    ⬇ zlecono pobieranie: {os.path.basename(pewny.filename.replace(chr(92), '/'))}")
+            elif hits and not pewny:
+                print("    slsk: żaden wynik nie jest na pewno tym utworem w tej wersji "
+                      "— wybierz ręcznie w aplikacji (nic nie pobieram)")
             elif not hits:
                 print("    slsk: brak wyników — dodaję do listy życzeń")
                 wishlist.add(t.artist, t.title, t.duration_s)
-        print(f"    kup: {stores.buy_links(t)['beatport']}")
+        sk = stores.sklepy(t)[:3]
+        print("    kup: " + " · ".join(f"{x['name']} {x['url']}" for x in sk))
 
 
 # --------------------------------------------------------------------------
@@ -389,9 +483,11 @@ def cmd_dedupe(args) -> None:
     actions = dedupe.plan(args.folder, include_suspect=args.suspect)
     print(dedupe.format_plan(actions))
     if args.apply and actions:
-        trash = args.trash or os.path.join(args.folder, "_selekta_kosz")
-        res = dedupe.apply(actions, trash)
-        print(f"\nprzeniesiono {len(res['przeniesione'])} plików do {trash} "
+        # domyślnie kosz obok każdego pliku — przywrócenie wraca na miejsce
+        # także z podfolderów; pliki z folderów setów nigdy nie są ruszane
+        res = dedupe.apply(actions, args.trash or None, korzen=args.folder)
+        gdzie = args.trash or "_selekta_kosz obok każdego pliku"
+        print(f"\nprzeniesiono {len(res['przeniesione'])} plików do {gdzie} "
               f"(odzyskane {res['odzyskane_MB']:.0f} MB)")
 
 
@@ -422,8 +518,10 @@ def main() -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     o = sub.add_parser("organize", help="dopasuj pliki do playlisty, otaguj, okładki")
-    o.add_argument("source"); o.add_argument("--folder", required=True)
+    o.add_argument("source", nargs="?", default=""); o.add_argument("--folder", required=True)
     o.add_argument("--apply", action="store_true", help="bez tej flagi tylko podgląd")
+    o.add_argument("--cofnij", action="store_true",
+                   help="przywróć tagi i nazwy sprzed ostatniego --apply")
     o.set_defaults(fn=cmd_organize)
 
     v = sub.add_parser("verify", help="raport jakości (detektor fałszywych FLAC-ów)")
@@ -482,7 +580,7 @@ def main() -> None:
 
     w = sub.add_parser("wishlist", help="lista życzeń + cykliczne szukanie na Soulseeku")
     w.add_argument("--add", metavar='"Artysta - Tytuł"')
-    w.add_argument("--remove", metavar="ID|INDEX")
+    w.add_argument("--remove", metavar="NUMER|ID", help="numer z listy (od 1) albo id wpisu")
     w.add_argument("--check", action="store_true", help="sprawdź teraz na Soulseeku")
     w.add_argument("--daemon", action="store_true", help="pętla w tle")
     w.add_argument("--interval", type=int, default=3600)

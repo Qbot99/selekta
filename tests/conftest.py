@@ -9,13 +9,92 @@ Zasady:
 from __future__ import annotations
 
 import os
+import pwd
 import shutil
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
 REAL_LIB = os.path.expanduser("~/.local/share/nicotine/downloads")
+
+# ---------------------------------------------------------------------------
+# Izolacja HOME dla CAŁEJ sesji — także dla podprocesów.
+#
+# Podmiany z fixture `_isolate_user_state` (monkeypatch) działają tylko w tym
+# procesie. Test CLI uruchamiający `selekta analyze` w podprocesie liczył HOME
+# po swojemu i dopisywał wpisy do prawdziwego ~/.selekta/cache (11.10.2026:
+# 15 martwych wpisów z katalogów pytesta). Dlatego HOME przestawiamy tutaj,
+# przy imporcie conftestu — zanim jakikolwiek moduł selekty policzy swoje
+# ścieżki i zanim wystartuje pierwszy podproces (dziedziczy os.environ).
+# ---------------------------------------------------------------------------
+PRAWDZIWY_DOM = pwd.getpwuid(os.getuid()).pw_dir      # niezależnie od $HOME
+PRAWDZIWY_STAN = os.path.join(PRAWDZIWY_DOM, ".selekta")
+DOM_TESTOW = tempfile.mkdtemp(prefix="selekta-test-home-")
+os.environ["HOME"] = DOM_TESTOW
+
+def znaczniki_sesji(*dodatkowe: str) -> tuple[str, ...]:
+    """Ścieżki, które w prawdziwym stanie mogą się pojawić tylko przez TEN przebieg.
+
+    Ogólne „pytest-of-” odpada: równolegle mogą biec testy z innych kopii
+    repozytorium, a stare martwe wpisy zawierają te same numery katalogów.
+    """
+    zn = {DOM_TESTOW, os.path.realpath(DOM_TESTOW)}
+    for d in dodatkowe:
+        zn |= {str(d), os.path.realpath(str(d))}
+    return tuple(sorted(z.rstrip(os.sep) + os.sep for z in zn if z))
+
+
+def migawka_stanu(znaczniki: tuple[str, ...] | None = None,
+                  katalog: str = PRAWDZIWY_STAN) -> dict:
+    """Tylko odczyt: {ścieżka względna: (mtime_ns, rozmiar, liczniki znaczników)}."""
+    wynik: dict = {}
+    if not os.path.isdir(katalog):
+        return wynik
+    znaczniki = znaczniki or znaczniki_sesji()
+    for korzen, _katalogi, pliki in os.walk(katalog):
+        for nazwa in pliki:
+            pelna = os.path.join(korzen, nazwa)
+            try:
+                st = os.stat(pelna)
+                with open(pelna, "rb") as fh:
+                    tresc = fh.read().decode("utf-8", errors="replace")
+            except OSError:
+                continue
+            liczniki = {z: tresc.count(z) for z in znaczniki}
+            wynik[os.path.relpath(pelna, katalog)] = (st.st_mtime_ns, st.st_size, liczniki)
+    return wynik
+
+
+def przecieki(przed: dict, po: dict) -> list[str]:
+    """Pliki prawdziwego stanu, do których test dopisał swoje ścieżki.
+
+    Sama zmiana pliku to jeszcze nie przeciek — w tle może pracować apka
+    użytkownika. Przeciek = przybyło ścieżek z katalogów tego przebiegu.
+    """
+    zle = []
+    for rel, (mt, rozmiar, liczniki) in po.items():
+        stare = przed.get(rel)
+        if stare and stare[:2] == (mt, rozmiar):
+            continue
+        stare_liczniki = stare[2] if stare else {}
+        if any(n > stare_liczniki.get(z, 0) for z, n in liczniki.items()):
+            zle.append(rel)
+    return zle
+
+
+_SESJA: dict = {}
+
+
+def pytest_sessionstart(session):
+    """Migawka prawdziwego stanu na starcie (tylko odczyt)."""
+    try:
+        baza = session.config._tmp_path_factory.getbasetemp()
+    except Exception:                       # noqa: BLE001 — bez basetemp też chronimy
+        baza = None
+    _SESJA["znaczniki"] = znaczniki_sesji(*([baza] if baza else []))
+    _SESJA["migawka"] = migawka_stanu(_SESJA["znaczniki"])
 
 # Realne pliki o znanych, zweryfikowanych własnościach:
 GOOD_FLAC = "Odymel - Gucci.flac"              # zdrowy, okładka, klucz 8A, ~146 BPM
@@ -153,3 +232,31 @@ def no_cover_mp3(tmp_path, real_lib) -> str:
     tags.delall("APIC")
     tags.save(str(dst))
     return str(dst)
+
+
+def pytest_unconfigure(config):
+    """Sprzątnij dom testów (tylko nasz katalog tymczasowy)."""
+    if os.path.basename(DOM_TESTOW).startswith("selekta-test-home-"):
+        shutil.rmtree(DOM_TESTOW, ignore_errors=True)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session, exitstatus):
+    """Strażnik końca sesji: prawdziwy ~/.selekta nie dostał nic od testów.
+
+    Tylko odczyt. Porównujemy z migawką z początku sesji; przeciek oblewa
+    cały przebieg, nawet gdy wszystkie testy przeszły.
+    """
+    if "migawka" not in _SESJA:
+        return
+    zle = przecieki(_SESJA["migawka"], migawka_stanu(_SESJA["znaczniki"]))
+    if not zle:
+        return
+    tr = session.config.pluginmanager.get_plugin("terminalreporter")
+    msg = ("STRAŻNIK IZOLACJI: testy dopisały ścieżki z katalogów tymczasowych do "
+           f"prawdziwego {PRAWDZIWY_STAN}: {', '.join(sorted(zle))}")
+    if tr is not None:
+        tr.write_line(msg, red=True, bold=True)
+    else:
+        print(msg, file=sys.stderr)
+    session.exitstatus = pytest.ExitCode.TESTS_FAILED

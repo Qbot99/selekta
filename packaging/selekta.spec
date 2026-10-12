@@ -74,6 +74,9 @@ app = BUNDLE(
         "CFBundleName": "Selekta",
         "CFBundleDisplayName": "Selekta",
         "CFBundleShortVersionString": os.environ.get("SELEKTA_VERSION", "0.0.0"),
+        # numer kompilacji — bez niego macOS i narzędzia aktualizacji nie
+        # odróżniają wydań (brak był zgłoszony w przeglądzie pakietu 0.4.2)
+        "CFBundleVersion": os.environ.get("SELEKTA_VERSION", "0.0.0"),
         "NSHighResolutionCapable": True,
         # apka otwiera przeglądarkę i sama nie ma okna — bez tego macOS
         # pokazuje ją w Docku jak zawieszoną

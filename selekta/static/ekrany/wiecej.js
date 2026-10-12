@@ -216,8 +216,11 @@
       if(dl.length) czas = fmtTime(dl.reduce((a, b) => a + b, 0) / dl.length);
     }
     const lufs = d.srednia_lufs ?? d.lufs ?? null;   // backend jeszcze nie oddaje średniej LUFS
+    // rozkład formatów z /api/statystyki (FLAC 120 · MP3 98 · WAV 40)
+    const formaty = (d.rozklad_formatow || []).map(f => `${f.format} ${f.ile}`).join(' · ');
     return kafel(med != null ? String(Math.round(med)) : '—', med != null ? 'BPM' : '', 'MEDIANA TEMPA')
-      + kafel(gb, gb !== '—' ? 'GB' : '', bezstr)
+      + kafel(gb, gb !== '—' ? 'GB' : '', formaty ? `${bezstr}<br><span style="letter-spacing:0;font-size:11px">${esc(formaty)}</span>` : bezstr,
+              (d.rozklad_formatow || []).map(f => `${f.format}: ${f.ile} utw., ${f.mb} MB`).join('\n'))
       + kafel(lufs != null ? fmtN(lufs, 1).replace('-', '−') : '—', lufs != null ? 'LUFS' : '', 'ŚREDNIA GŁOŚNOŚĆ',
               lufs == null ? 'głośność liczy się per utwór (Szczegóły) — średniej dla zakresu API jeszcze nie oddaje' : '')
       + kafel(czas, '', 'ŚREDNI CZAS UTWORU');
@@ -364,10 +367,14 @@
   // CZAS / BPM / TONACJE liczą się z utworów sesji; /api/historia oddaje w lista_sesji
   // tylko nazwę, datę i liczbę — gdy backend doda `sciezki`, kolumny same się wypełnią
   function histMetryki(s){
+    // backend liczy czas/BPM/tonacje sesji także dla utworów spoza biblioteki
+    // (czas_s, bpm_mediana, tonacje_opis) — gdy lokalnej mapy brak, bierzemy je
+    const zSerwera = (s.czas_s || s.bpm_mediana || s.tonacje_opis)
+      ? {czas: s.czas_s || 0, bpm: s.bpm_mediana, tonacje: s.tonacje_opis || '', utwory: []} : null;
     const sc = Array.isArray(s.sciezki) ? s.sciezki : null;
-    if(!sc || !sc.length || !hist.mapa) return null;
+    if(!sc || !sc.length || !hist.mapa) return zSerwera;
     const tr = sc.map(p => utworZMapy(hist.mapa, p)).filter(Boolean);
-    if(!tr.length) return null;
+    if(!tr.length) return zSerwera;
     const czas = tr.reduce((a, t) => a + (+t.duration || 0), 0);
     const bpm = mediana(tr.map(t => +t.bpm).filter(x => x > 0));
     const ton = tr.map(t => t.camelot).filter(Boolean);
@@ -561,7 +568,7 @@
       <div class="dim" style="font-size:13px;line-height:1.5;margin-top:-10px">selekta korzysta z Twojego własnego slskd. Nie hostuje ani nie udostępnia żadnych nagrań.</div>
       <div style="display:flex;flex-direction:column;gap:12px">
         ${linia(s.binary ? 'ok' : 'bad', s.binary ? `zainstalowany <span class="mono dim" style="font-size:11.5px">${esc(skroc(s.binary))}</span>` : 'nie znaleziono slskd', s.binary ? '' : `<button class="btn mini" data-a="instaluj" style="margin-left:auto">Zainstaluj (ok. 55 MB)</button>`)}
-        ${linia(s.running ? 'ok' : 'bad', s.running ? 'działa' : 'nie działa', `<span style="margin-left:auto;display:flex;gap:6px"><button class="btn mini" data-a="start">Uruchom</button><button class="btn mini cichy" data-a="stop">Zatrzymaj</button></span>`)}
+        ${linia(s.running || s.reachable ? 'ok' : 'bad', s.running || s.reachable ? 'działa' : 'nie działa', `<span style="margin-left:auto;display:flex;gap:6px"><button class="btn mini" data-a="start">Uruchom</button><button class="btn mini cichy" data-a="stop">Zatrzymaj</button></span>`)}
         ${linia(s.authorized ? 'ok' : 'warn', s.authorized ? 'klucz API działa' : (c.slskd_api_key_set ? 'klucz API zapisany, ale nie działa' : 'brak klucza API'), `<button class="btn mini" data-a="wykryj" style="margin-left:auto">Wykryj automatycznie</button>`)}
         ${linia(s.logged_in ? 'ok' : 'warn', s.logged_in ? 'zalogowany do sieci Soulseek — pobieranie działa' : 'nie zalogowany do sieci Soulseek', s.logged_in ? '' : `<button class="btn mini" data-a="konto" style="margin-left:auto">Podaj konto Soulseek…</button>`)}
         ${s.logged_in ? '' : `<div class="dim" style="font-size:12.5px;line-height:1.5">Hasło trafia wyłącznie do konfiguracji slskd na tym komputerze — apka go nie zapisuje. Możesz też wpisać je w <a href="${esc(s.url || '#')}" target="_blank" rel="noopener">panelu slskd</a> → Settings → Soulseek.</div>`}
@@ -684,7 +691,7 @@
     const analiz = tracks ? tracks.filter(t => t.analyzed).length : 0, czeka = tracks ? tracks.length - analiz : 0;
     let cacheStat = null; try{ cacheStat = await api('/api/cache', {cicho: true}); }catch(e){}
     $('#ustCache', host).innerHTML = `<div class="etyk">CACHE ANALIZ</div>
-      <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1">${S.fmtLicz(cacheStat ? (cacheStat.harmonic ?? analiz) : analiz)}</span><span class="dim" style="font-size:13px">utworów z BPM i tonacją${cacheStat && cacheStat._total_bytes ? ` · ${S.fmtMB(cacheStat._total_bytes)} na dysku` : ''}${czeka ? ` · <span class="warn">${czeka} bez analizy</span>` : ''}</span></div>
+      <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1">${S.fmtLicz(cacheStat && cacheStat.w_bibliotece ? (cacheStat.w_bibliotece.harmonic ?? analiz) : analiz)}</span><span class="dim" style="font-size:13px">utworów z BPM i tonacją${cacheStat && cacheStat._total_bytes ? ` · ${S.fmtMB(cacheStat._total_bytes)} na dysku` : ''}${czeka ? ` · <span class="warn">${czeka} bez analizy</span>` : ''}</span></div>
       <div class="dim" style="font-size:12.5px">Wyniki analiz są zapamiętane, więc druga analiza tego samego pliku trwa ułamek sekundy. Czyszczenie wymusza policzenie wszystkiego od nowa.</div>
       <button class="btn sr cichy" data-a="cache-wyczysc" style="margin-top:auto;align-self:flex-start" title="usuwa zapamiętane analizy — pliki zostają nietknięte">Wyczyść cache</button>`;
     $('#doktorBody', host).innerHTML = doktorHTML(dok);
@@ -707,8 +714,9 @@
       try{
         const d = await api('/api/setup/polaczenie', {cicho: true});
         if(d.stan === 'polaczony') return 'połączono z siecią Soulseek';
+        if(d.stan === 'zly-klucz') throw Object.assign(new Error(d.opis), {staly: true});   // czekanie nic nie da
         if(d.stan === 'niezalogowany' && i > 12) throw new Error(d.opis);
-      }catch(e){ if(i > 12) throw e; }
+      }catch(e){ if(e.staly || i > 12) throw e; }
     }
     throw new Error('nie udało się połączyć — sprawdź login i hasło');
   }
@@ -734,8 +742,9 @@
         if(!l || !h){ prog('<span class="warn">podaj nazwę i hasło</span>'); return; }
         q('zapisz').disabled = true; prog('<span class="spin"></span> zapisuję i restartuję slskd…');
         try{
-          await api('/api/setup/konto', {method: 'POST', body: {login: l, haslo: h}, cicho: true});
+          const zap = await api('/api/setup/konto', {method: 'POST', body: {login: l, haslo: h}, cicho: true});
           q('haslo').value = '';                       // nie trzymamy go w DOM
+          if(zap && zap.restart === false){ box.remove(); zwroc(zap.message); return; }   // cudzy slskd — nie czekamy na próżno
           const wynik = await czekajNaPolaczenie(prog);
           box.remove(); zwroc(wynik);
         }catch(e){ q('zapisz').disabled = false; prog('✗ ' + esc(e.message), true); }
@@ -844,7 +853,10 @@
         </div>
       </div></div>`;
     $('#zanimAuto', host).onclick = zanimAuto;
-    $('#zanimPomin', host).onclick = zanimZakoncz;
+    $('#zanimPomin', host).onclick = async () => {
+      try{ await api('/api/setup/pomin', {method: 'POST', body: {pominiety: true}, cicho: true}); }catch(e){}
+      zanimZakoncz();
+    };
     on(host, 'click', '.w-krok button[data-i]', (e, b) => zanimWykonaj(+b.dataset.i));
   }
   async function zanimLaduj(host){

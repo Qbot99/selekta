@@ -136,3 +136,47 @@ def test_acid_preview_vs_other_track_mismatch(acid_preview):
     res = verify_match.verify(real_path(GOOD_FLAC), acid_preview)
     assert res.verdict == "mismatch"
     assert res.score < 0.3
+
+
+class TestDrugieZrodloProbki:
+    """Przegląd 0.4.2: Dancing Queen — Spotify 0,25 („odrzuć"), iTunes 0,79."""
+
+    def _ustaw(self, monkeypatch, spotify_wynik, itunes_wynik):
+        from selekta import verify_match as vm
+        monkeypatch.setattr(vm, "preview_bytes", lambda t: b"spotify" if spotify_wynik else None)
+        monkeypatch.setattr(vm, "verify", lambda path, data: spotify_wynik)
+        monkeypatch.setattr(vm, "verify_by_name", lambda path, a, t: (
+            (itunes_wynik, "ABBA — Dancing Queen") if itunes_wynik else None))
+        return vm
+
+    def test_drugie_zrodlo_ratuje_wlasciwy_plik(self, monkeypatch):
+        from selekta.spotify import Track
+        from selekta.verify_match import MatchResult
+        vm = self._ustaw(monkeypatch, MatchResult(0.25, 10, "mismatch"),
+                         MatchResult(0.79, 40, "match"))
+        r = vm.verify_track("x.flac", Track(id="1", artist="ABBA", title="Dancing Queen",
+                                            preview_url="u"))
+        assert r.verdict == "match" and r.score == 0.79
+        assert "Spotify 0.25" in r.note and "iTunes 0.79" in r.note
+
+    def test_oba_zrodla_niezgodne_to_niezgodnosc(self, monkeypatch):
+        from selekta.spotify import Track
+        from selekta.verify_match import MatchResult
+        vm = self._ustaw(monkeypatch, MatchResult(0.04, 0, "mismatch"),
+                         MatchResult(0.05, 0, "mismatch"))
+        r = vm.verify_track("x.flac", Track(id="1", artist="A", title="B", preview_url="u"))
+        assert r.verdict == "mismatch" and "iTunes też nie potwierdza" in r.note
+
+    def test_zgodnosc_ze_spotify_nie_pyta_itunes(self, monkeypatch):
+        from selekta.spotify import Track
+        from selekta.verify_match import MatchResult
+        vm = self._ustaw(monkeypatch, MatchResult(0.8, 0, "match"), None)
+        monkeypatch.setattr(vm, "verify_by_name", lambda *a: pytest.fail("zbędne"))
+        assert vm.verify_track("x", Track(id="1", artist="A", title="B", preview_url="u")).verdict == "match"
+
+    def test_bez_probki_spotify_bierze_itunes(self, monkeypatch):
+        from selekta.spotify import Track
+        from selekta.verify_match import MatchResult
+        vm = self._ustaw(monkeypatch, None, MatchResult(0.7, 5, "match"))
+        r = vm.verify_track("x", Track(id="1", artist="A", title="B"))
+        assert r.verdict == "match" and "iTunes" in r.note

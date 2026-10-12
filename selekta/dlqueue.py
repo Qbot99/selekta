@@ -39,6 +39,11 @@ PUSTKI_BACKOFF_S = (30, 90, 180, 300)
 PLIK_KOLEJKI = os.path.join(config.STATE_DIR, "kolejka.json")
 
 
+# Ile sekund „zlecone" może nie mieć śladu w slskd, zanim uznamy, że
+# pobieranie przepadło (np. slskd zrestartowany, transfer usunięty ręcznie).
+ZNIKNIETE_PO_S = 120
+
+
 @dataclass
 class Job:
     artist: str
@@ -48,6 +53,9 @@ class Job:
     file: str = ""               # nazwa pliku zleconego do pobrania
     detail: str = ""
     attempts: int = 0
+    user: str = ""               # od kogo pobieramy (do powiązania z transferem)
+    path: str = ""               # pełna ścieżka pliku u tego użytkownika
+    queued_at: float = 0.0       # kiedy zlecono pobieranie
 
 
 class Queue:
@@ -100,23 +108,37 @@ class Queue:
         if not isinstance(dane, list):
             return 0
         wznowione = 0
+        pominiete = 0
         with self._lock:
             self._jobs = []
             for d in dane:
                 if not isinstance(d, dict):
                     continue
-                job = Job(artist=str(d.get("artist", "")),
-                          title=str(d.get("title", "")),
-                          duration=d.get("duration"),
-                          status=str(d.get("status", "waiting")),
-                          file=str(d.get("file", "")),
-                          detail=str(d.get("detail", "")),
-                          attempts=int(d.get("attempts", 0)))
+                # Jedna uszkodzona pozycja (attempts null/„2x”) rzucała wyjątek
+                # i apka nie wstawała wcale — pomijamy ją z ostrzeżeniem.
+                try:
+                    czas = d.get("duration")
+                    job = Job(artist=str(d.get("artist", "")),
+                              title=str(d.get("title", "")),
+                              duration=float(czas) if isinstance(czas, (int, float)) else None,
+                              status=str(d.get("status", "waiting")),
+                              file=str(d.get("file", "")),
+                              detail=str(d.get("detail", "")),
+                              attempts=int(d.get("attempts", 0)),
+                              user=str(d.get("user", "")),
+                              path=str(d.get("path", "")),
+                              queued_at=float(d.get("queued_at") or 0.0))
+                except (TypeError, ValueError):
+                    pominiete += 1
+                    continue
                 if job.status == "searching":
                     job.status, job.detail = "waiting", "wznowione po restarcie"
                 if job.status == "waiting":
                     wznowione += 1
                 self._jobs.append(job)
+        if pominiete:
+            self._note = (f"pominięto {pominiete} uszkodzonych pozycji z zapisanej kolejki")
+            print(f"  uwaga: {self._note}")
         if wznowione:
             self._ensure_worker()
         return wznowione
@@ -153,6 +175,57 @@ class Queue:
             "paused_for_s": max(0, round(self._paused_until - time.time())) if waiting else 0,
             "note": self._note,
         }
+
+    def uzgodnij(self, transfery: list[dict] | None,
+                 foldery: tuple[str, ...] | list[str] = ()) -> int:
+        """Powiąż zadania „zlecone" z tym, co naprawdę dzieje się w slskd.
+
+        Dawniej status „done" nie był nigdzie ustawiany: zlecone zadanie
+        wisiało w kolejce na zawsze, więc nie dało się go dodać ponownie
+        („już w kolejce"), a „Wyczyść zakończone" go nie usuwało — nawet
+        gdy transfer w slskd padł.
+
+        ``transfery`` to wiersze z SlskdClient.downloads() (None = slskd nie
+        odpowiedział — wtedy nic nie przesądzamy). ``foldery`` to miejsca,
+        w których może wylądować pobrany plik (pobrania, biblioteka).
+        Zwraca liczbę zmienionych zadań.
+        """
+        zmiany = 0
+        with self._lock:
+            zlecone = [j for j in self._jobs if j.status == "queued"]
+        if not zlecone:
+            return 0
+        teraz = time.time()
+        for job in zlecone:
+            row = _transfer_zadania(job, transfery or [])
+            if row is not None:
+                st = row.get("status")
+                if st == "done":
+                    job.status, job.detail = "done", "pobrane"
+                elif st == "failed":
+                    job.status = "failed"
+                    job.detail = ("pobieranie nie powiodło się"
+                                  + (f" ({row.get('state_raw')})" if row.get("state_raw") else "")
+                                  + " — dodaj ponownie albo wybierz inne źródło")
+                elif st == "active":
+                    job.detail = f"pobieram {row.get('percent', 0)}%"
+                    continue
+                else:
+                    job.detail = "czeka w kolejce u użytkownika"
+                    continue
+                zmiany += 1
+                continue
+            if job.file and _plik_na_dysku(job.file, foldery):
+                job.status, job.detail = "done", "pobrane"
+                zmiany += 1
+            elif (transfery is not None and job.queued_at
+                  and teraz - job.queued_at > ZNIKNIETE_PO_S):
+                job.status = "failed"
+                job.detail = "slskd nie ma już tego pobierania — dodaj ponownie"
+                zmiany += 1
+        if zmiany:
+            self._zapisz()
+        return zmiany
 
     def clear_finished(self) -> int:
         with self._lock:
@@ -223,11 +296,22 @@ class Queue:
             self._zapisz()
             try:
                 hits = client.search_track(job.artist, job.title, job.duration)
-                if hits:
+                # Automat pobiera tylko plik, który JEST tym utworem w tej
+                # wersji (ten sam test tożsamości co dopasowanie biblioteki).
+                pewny = (client.pewny_wynik(hits, job.artist, job.title, job.duration)
+                         if hits else None)
+                if pewny is not None:
                     self._pustki_streak = 0
-                    client.download(hits[0])
-                    job.file = hits[0].filename.replace("\\", "/").split("/")[-1]
+                    client.download(pewny)
+                    job.file = pewny.filename.replace("\\", "/").split("/")[-1]
+                    job.user, job.path = pewny.username, pewny.filename
+                    job.queued_at = time.time()
                     job.status, job.detail = "queued", "zlecone"
+                elif hits:
+                    self._pustki_streak = 0
+                    job.status = "failed"
+                    job.detail = ("są wyniki, ale żaden nie jest na pewno tym utworem "
+                                  "w tej wersji — wybierz ręcznie („Wybierz…”)")
                 elif client.network_down():
                     # Pustka zbiegła się z padnięciem serii — to nie dowód, że
                     # utworu nie ma; wraca do kolejki bez odliczania próby, ale
@@ -272,6 +356,31 @@ class Queue:
     def _pause(self, seconds: int, note: str) -> None:
         self._paused_until = time.time() + seconds
         self._note = note
+
+
+def _transfer_zadania(job: Job, transfery: list[dict]) -> dict | None:
+    """Transfer slskd odpowiadający zadaniu: po użytkowniku i pełnej ścieżce,
+    a dla starszych zadań (bez tych pól) — po samej nazwie pliku."""
+    if job.user and job.path:
+        for row in transfery:
+            if row.get("user") == job.user and row.get("path") == job.path:
+                return row
+    if job.file:
+        pasujace = [r for r in transfery if r.get("name") == job.file]
+        if pasujace:
+            # najnowszy transfer o tej nazwie (slskd pamięta też stare próby)
+            return max(pasujace, key=lambda r: str(r.get("requested_at") or ""))
+    return None
+
+
+def _plik_na_dysku(nazwa: str, foldery) -> bool:
+    for folder in foldery:
+        if not folder or not os.path.isdir(folder):
+            continue
+        for _root, _dirs, files in os.walk(folder):
+            if nazwa in files:
+                return True
+    return False
 
 
 QUEUE = Queue()

@@ -3,9 +3,9 @@
 Po tym, jak plik trafi do folderu, przepuszczamy go przez trzy bramki,
 każda z istniejącego modułu:
 
-  1. integralność — pełne dekodowanie ffmpeg wykrywa ucięte/uszkodzone
-     transfery z Soulseeka (to złapało Heaven & Hell, którego kontrolka
-     widmowa w środku utworu nie widziała);
+  1. integralność — pełne dekodowanie ffmpeg i porównanie z długością
+     z nagłówka wykrywa ucięte/uszkodzone transfery z Soulseeka (to złapało
+     Heaven & Hell, którego kontrolka widmowa w środku utworu nie widziała);
   2. tożsamość — fingerprint vs 30 s preview ze Spotify (to na pewno TEN
      utwór, nie podobnie nazwany);
   3. jakość — analiza widmowa wykrywa fałszywy lossless / słabe źródło.
@@ -16,13 +16,11 @@ Soulseeka od INNEGO użytkownika do ponownej próby.
 from __future__ import annotations
 
 import os
-import subprocess
 from dataclasses import dataclass, field
 
-from . import quality, verify_match
+from . import integralnosc, quality, verify_match
 from .slskd_client import SearchHit, SlskdClient
 from .spotify import Track
-from .narzedzia import ffmpeg_path, ffprobe_path
 
 
 @dataclass
@@ -60,21 +58,14 @@ class VerifyResult:
 # --------------------------------------------------------------------------
 
 def integrity(path: str) -> Check:
-    """Pełne dekodowanie: liczy błędy ramek i wykrywa ucięcie na końcu."""
-    proc = subprocess.run(
-        [ffmpeg_path(), "-v", "error", "-i", path, "-f", "null", "-"],
-        capture_output=True, text=True,
-    )
-    errs = [ln for ln in proc.stderr.splitlines() if ln.strip()]
-    n = len(errs)
-    if n == 0:
-        return Check("integralność", True, True, "dekoduje się bez błędów")
-    # zlokalizuj czy uszkodzenie jest przy końcu (sygnatura ucięcia)
-    dur = _duration(path)
-    tail = _errors_in_window(path, max(0.0, dur - 30), 30) if dur else 0
-    where = "przy końcu (ucięty transfer)" if tail else "w środku utworu"
-    return Check("integralność", False, True,
-                 f"{n} błędów dekodowania {where} — pobierz ponownie")
+    """Pełne dekodowanie + porównanie z długością zapowiadaną w nagłówku.
+
+    Same błędy dekodera nie wystarczały: MP3 ucięty na granicy ramki
+    dekoduje się „bez błędów” (przegląd 0.4.2: wykryte 38/75 ucięć).
+    Szczegóły w module integralnosc.
+    """
+    wynik = integralnosc.zbadaj(path)
+    return Check("integralność", wynik.ok, True, wynik.opis)
 
 
 def identity(path: str, track: Track | None) -> Check:
@@ -95,12 +86,12 @@ def identity(path: str, track: Track | None) -> Check:
 def sound_quality(path: str) -> Check:
     """Analiza widmowa: fałszywy lossless / słabe źródło.
 
-    Transkod z MP3 w kontenerze bezstratnym dostaje w quality.analyze
-    grade=bad po dyskryminatorze ciszy nad cięciem (ściana + cyfrowa cisza
-    = transkod; łagodne zbocze z energią = master z lowpassem, w bibliotece
-    to 1/5 legalnych plików). Dzięki temu bramka może jednolicie oblewać
-    tylko „bad": fałszywe FLAC-i odpadają, mastery przechodzą, a stratne
-    „warn" (256 kbps) to niższa półka, nie fałszerstwo.
+    Bramka oblewa „bad”: transkod z MP3/AAC w kontenerze bezstratnym
+    (ściana kodeka z ciszą nad nią i śladami kodeka pod nią — liczone
+    z ramek bez przesteru, więc głośne mastery nie chowają transkodu)
+    albo bardzo słaby plik stratny. „warn” przechodzi: ściana bez śladów
+    kodeka bywa konwersją częstotliwości przy masteringu, a MP3 256 to
+    niższa półka, nie fałszerstwo — takie pliki pokazuje „Sprawdź uchem”.
     """
     rep = quality.analyze(path)
     passed = rep.grade != "bad"
@@ -134,24 +125,3 @@ def next_source(hits: list[SearchHit], tried_users: set[str],
         if hit.username not in tried_users:
             return hit
     return None
-
-
-def _duration(path: str) -> float:
-    out = subprocess.run(
-        [ffprobe_path(), "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", path],
-        capture_output=True, text=True,
-    ).stdout.strip()
-    try:
-        return float(out)
-    except ValueError:
-        return 0.0
-
-
-def _errors_in_window(path: str, start: float, dur: float) -> int:
-    proc = subprocess.run(
-        [ffmpeg_path(), "-v", "error", "-ss", str(start), "-t", str(dur),
-         "-i", path, "-f", "null", "-"],
-        capture_output=True, text=True,
-    )
-    return len([ln for ln in proc.stderr.splitlines() if ln.strip()])
