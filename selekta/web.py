@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+import threading
 import time
 from dataclasses import asdict
 
@@ -98,8 +99,28 @@ LOSSLESS_EXT = (".flac", ".wav", ".aiff", ".aif")
 
 
 def _paths() -> list[str]:
-    """Biblioteka wraz z podfolderami — tam lądują pobrania z Soulseeka."""
+    """Biblioteka wraz z podfolderami — tam lądują pobrania z Soulseeka.
+
+    Każdy utwór raz: kopie w folderach setów to „użycia” utworu, nie osobne
+    utwory (``uklad``)."""
     return matcher.audio_files(_folder())
+
+
+def _uklad():
+    """Układ biblioteki (utwory vs kopie w setach); None, gdy folderu brak."""
+    from . import uklad
+    try:
+        return uklad.wczytaj(_folder())
+    except OSError:
+        return None
+
+
+def _rel(path: str) -> str:
+    """Ścieżka względem biblioteki — jednoznaczna, w odróżnieniu od samej nazwy."""
+    try:
+        return os.path.relpath(path, _folder())
+    except ValueError:
+        return path
 
 
 def _safe(path: str) -> str:
@@ -121,22 +142,15 @@ def _safe(path: str) -> str:
 
 
 def _tags(path: str) -> tuple[str, str]:
-    """Artysta i tytuł z pliku; przy uszkodzonym pliku puste zamiast wyjątku."""
-    try:
-        a = MutagenFile(path)
-        if a is None:
-            return ("", "")
-        if path.lower().endswith(".flac"):
-            return (str(a.get("ARTIST", [""])[0]), str(a.get("TITLE", [""])[0]))
-        t = getattr(a, "tags", None)
-        if t:
-            return (str(t.get("TPE1", "")), str(t.get("TIT2", "")))
-    except Exception:                          # noqa: BLE001
-        pass
-    return ("", "")
+    """Artysta i tytuł z pliku; przy uszkodzonym pliku puste zamiast wyjątku.
+
+    Wszystkie formaty (także M4A) i wszyscy artyści z tagu wielowartościowego
+    — wspólna funkcja z ekranem Zdrowie (``health.czytaj_tagi``).
+    """
+    return health.czytaj_tagi(path)
 
 
-def _track_row(path: str) -> dict:
+def _track_row(path: str, uk=None) -> dict:
     # Uszkodzony plik (np. przerwane pobieranie) nie może wywalić CAŁEGO
     # listowania biblioteki — pokazujemy go z adnotacją, żeby użytkownik
     # mógł go zobaczyć i usunąć, zamiast patrzeć na pustą apkę.
@@ -148,6 +162,23 @@ def _track_row(path: str) -> dict:
     artist, title = _tags(path)
     if not artist and " - " in name:
         artist, _, title = os.path.splitext(name)[0].partition(" - ")
+    duration = getattr(getattr(a, "info", None), "length", 0) or 0
+    uszkodzony = a is None
+    uwaga = None
+    # ucięty MP3: nagłówek Xing obiecuje pełny czas, a dźwięku jest mniej —
+    # pokazujemy to, co naprawdę zagra (szybka kontrola, bez dekodowania)
+    uciecie = health.uciecie_mp3(path) if not uszkodzony else None
+    if uciecie:
+        duration, uszkodzony = uciecie[1], True
+        uwaga = (f"ucięty — gra tylko {health._mm_ss(uciecie[1])} "
+                 f"z {health._mm_ss(uciecie[0])}")
+    integ = cache.get(path, "zdrowie")
+    if integ and not integ.get("ok", True):
+        uszkodzony = True
+        uwaga = uwaga or integ.get("opis")
+        if integ.get("uciety") and integ.get("zdekodowano_s"):
+            duration = integ["zdekodowano_s"]
+    uk = uk or _uklad()
     row = {
         "file": name,
         "rel": os.path.relpath(path, _folder()),
@@ -156,10 +187,12 @@ def _track_row(path: str) -> dict:
         "ext": os.path.splitext(name)[1].lower().lstrip("."),
         "sr": getattr(getattr(a, "info", None), "sample_rate", 0),
         "bits": getattr(getattr(a, "info", None), "bits_per_sample", None),
-        "duration": round(getattr(getattr(a, "info", None), "length", 0) or 0),
-        "uszkodzony": a is None,
+        "duration": round(duration),
+        "uszkodzony": uszkodzony,
+        "uwaga": uwaga,
         "size_mb": round(os.path.getsize(path) / 1_000_000, 1),
         "has_cover": covers.embedded_art(path) is not None,
+        "w_setach": uk.sety_utworu(path) if uk else [],
         "bpm": None, "camelot": None, "key": None, "key_conf": None,
         "quality": None, "quality_note": None, "analyzed": False,
     }
@@ -214,12 +247,15 @@ def stary_dashboard() -> str:
 
 @app.get("/api/tracks")
 def api_tracks() -> JSONResponse:
-    rows = [_track_row(p) for p in _paths()]
+    uk = _uklad()
+    rows = [_track_row(p, uk) for p in _paths()]
     total_mb = round(sum(r["size_mb"] for r in rows), 1)
     return JSONResponse({
         "folder": _folder(),
         "count": len(rows),
         "total_mb": total_mb,
+        # pliki w folderach setów, które są kopiami utworów z listy
+        "kopii_w_setach": (len(uk.wszystkie) - len(uk.utwory)) if uk else 0,
         "tracks": rows,
     })
 
@@ -229,7 +265,7 @@ def api_cover(file: str = Query(...)) -> Response:
     data = covers.embedded_art(_safe(file))
     if not data:
         raise HTTPException(404, "brak okładki")
-    return Response(content=data, media_type="image/jpeg")
+    return Response(content=data, media_type=covers.mime_obrazu(data))
 
 
 @app.post("/api/analyze")
@@ -338,41 +374,109 @@ def api_order() -> JSONResponse:
     ]})
 
 
-_HEALTH_CACHE: dict = {"sig": None, "report": None}
+_HEALTH_CACHE: dict = {"sig": None, "report": None, "raport": None}
+_PRZEGLAD: dict = {"watek": None, "sig": None, "zrobione": 0, "wszystkie": 0,
+                   "blad": None}
+_PRZEGLAD_LOCK = threading.Lock()
 
 
 def _folder_sig() -> str:
-    """Odcisk zawartości folderu (nazwa+mtime+rozmiar plików audio) —
-    zmienia się dokładnie wtedy, gdy trzeba przeskanować od nowa."""
-    parts = []
-    for root, _dirs, files in os.walk(_folder()):
-        for f in files:
-            if f.lower().endswith(matcher.AUDIO_EXT):
-                try:
-                    st = os.stat(os.path.join(root, f))
-                    parts.append((f, st.st_mtime_ns, st.st_size))
-                except OSError:
-                    pass
-    return hashlib.md5(repr(sorted(parts)).encode()).hexdigest()
+    """Odcisk zawartości biblioteki — zmienia się dokładnie wtedy, gdy trzeba
+    przeskanować od nowa.
+
+    Liczony z PEŁNYCH ścieżek (z folderem), rozmiarów i czasów modyfikacji,
+    z pominięciem kosza. Wcześniej obejmował kosz i same nazwy plików, więc
+    przeniesienie duplikatu do kosza (rename zachowuje mtime i rozmiar) dawało
+    identyczny odcisk i Zdrowie pokazywało stary raport z usuniętym plikiem.
+    """
+    uk = _uklad()
+    return uk.podpis if uk else "brak-folderu"
+
+
+def _health_json(rep: "health.HealthReport") -> dict:
+    uk = _uklad()
+
+    def grupa(g):
+        return {"keep": _rel(g.keep.path), "n": len(g.files),
+                "files": [_rel(f.path) for f in g.files],
+                "sety": sorted({x for f in g.files for x in f.sety}, key=str.lower)}
+
+    return {
+        "files": len(rep.files),
+        "kopii_w_setach": (len(uk.wszystkie) - len(uk.utwory)) if uk else 0,
+        "problems": rep.problem_count,
+        "duplicates": [grupa(g) for g in rep.duplicates],
+        "suspect_duplicates": [grupa(g) for g in rep.suspect_duplicates],
+        "corrupt": [_rel(p) for p, _ in rep.corrupt],
+        "corrupt_info": [{"file": _rel(p), "powod": r} for p, r in rep.corrupt],
+        "missing_covers": [_rel(p) for p in rep.missing_covers],
+        "missing_tags": [{"file": _rel(p), "brak": gaps} for p, gaps in rep.missing_tags],
+        "cached": False,
+    }
+
+
+def _zapamietaj(sig: str, rep) -> None:
+    _HEALTH_CACHE.update(sig=sig, raport=rep,
+                         report={**_health_json(rep), "cached": True})
+
+
+def _przeglad_w_tle(sig: str, folder: str) -> None:
+    def postep(i, n):
+        _PRZEGLAD.update(zrobione=i, wszystkie=n)
+    try:
+        rep = health.scan(folder, deep=False, postep=postep)
+        if folder == _folder():
+            _zapamietaj(sig, rep)
+        _PRZEGLAD["blad"] = None
+    except Exception as exc:                       # noqa: BLE001
+        _PRZEGLAD["blad"] = str(exc)
+    finally:
+        _PRZEGLAD["watek"] = None
+
+
+def _raport_zdrowia(czekaj: bool = True):
+    """Raport zdrowia dla bieżącej zawartości biblioteki.
+
+    ``czekaj=False`` (ekran w przeglądarce): gdy raportu nie ma, startuje
+    skan W TLE i od razu zwraca None — interfejs odpytuje o postęp, zamiast
+    trzymać jedno zapytanie HTTP przez minutę i dostać „Failed to fetch”.
+    """
+    sig = _folder_sig()
+    if _HEALTH_CACHE["sig"] == sig and _HEALTH_CACHE.get("raport") is not None:
+        return _HEALTH_CACHE["raport"]
+    if czekaj:
+        rep = health.scan(_folder(), deep=False)
+        _zapamietaj(sig, rep)
+        return rep
+    with _PRZEGLAD_LOCK:
+        w = _PRZEGLAD.get("watek")
+        if w is None or not w.is_alive():
+            _PRZEGLAD.update(sig=sig, zrobione=0, wszystkie=0, blad=None)
+            w = threading.Thread(target=_przeglad_w_tle, args=(sig, _folder()),
+                                 daemon=True, name="selekta-zdrowie")
+            _PRZEGLAD["watek"] = w
+            w.start()
+    return None
+
+
+def _w_toku() -> dict:
+    return {"w_toku": True, "zrobione": _PRZEGLAD.get("zrobione", 0),
+            "wszystkie": _PRZEGLAD.get("wszystkie", 0),
+            "blad": _PRZEGLAD.get("blad")}
 
 
 @app.get("/api/health")
-def api_health() -> JSONResponse:
+def api_health(tlo: int = 0, odswiez: int = 0) -> JSONResponse:
+    """Raport zdrowia. ``tlo=1``: nie blokuj — licz w tle i oddawaj postęp."""
+    if odswiez:
+        _HEALTH_CACHE.update(sig=None, report=None, raport=None)
     sig = _folder_sig()
     if _HEALTH_CACHE["sig"] == sig and _HEALTH_CACHE["report"] is not None:
         return JSONResponse(_HEALTH_CACHE["report"])
-    rep = health.scan(_folder(), deep=False)
-    result = {
-        "files": len(rep.files),
-        "problems": rep.problem_count,
-        "duplicates": [{"keep": os.path.basename(g.files[0].path),
-                        "n": len(g.files)} for g in rep.duplicates],
-        "corrupt": [os.path.basename(p) for p, _ in rep.corrupt],
-        "missing_covers": [os.path.basename(p) for p in rep.missing_covers],
-        "cached": False,
-    }
-    _HEALTH_CACHE.update(sig=sig, report={**result, "cached": True})
-    return JSONResponse(result)
+    rep = _raport_zdrowia(czekaj=not tlo)
+    if rep is None:
+        return JSONResponse(_w_toku())
+    return JSONResponse(_health_json(rep))
 
 
 # --------------------------------------------------------------------------
@@ -396,10 +500,17 @@ def api_track(file: str = Query(...)) -> JSONResponse:
     c = cache.get(p, "cues")
     if c is None:
         c = asdict(cues.analyze(p, bpm=h.get("bpm"))); cache.put(p, "cues", c)
-    integ = cache.get(p, "integrity")
-    if integ is None:
-        ch = pipeline.integrity(p)
-        integ = {"ok": ch.passed, "detail": ch.detail}; cache.put(p, "integrity", integ)
+    # integralność z tej samej funkcji co ekran Zdrowie: rozróżnia ucięty
+    # transfer (gra krócej niż obiecuje nagłówek) od pojedynczej uszkodzonej
+    # ramki w pliku, który gra do końca — wcześniej oba były „ucięty transfer”
+    try:
+        w = health.integralnosc(p)
+        integ = {"ok": w["ok"], "detail": w["opis"], "uciety": w.get("uciety", False)}
+    except Exception:                              # noqa: BLE001
+        integ = cache.get(p, "integrity")
+        if integ is None:
+            ch = pipeline.integrity(p)
+            integ = {"ok": ch.passed, "detail": ch.detail}; cache.put(p, "integrity", integ)
     row = _track_row(p)
     row.update(harmonic=h, quality_full=q, loudness=l, cues=c, integrity=integ)
     return JSONResponse(_clean(row))
@@ -409,77 +520,129 @@ def api_track(file: str = Query(...)) -> JSONResponse:
 # zdrowie — akcje naprawcze
 # --------------------------------------------------------------------------
 
+def _dedupe_json(a) -> dict:
+    return {"keep": _rel(a.keep),
+            "remove": [_rel(x) for x in a.remove],
+            "keep_desc": a.keep_desc,
+            "remove_desc": list(a.remove_desc),
+            "reason": a.reason,
+            "sety": list(getattr(a, "sety", []) or []),
+            "reclaim_mb": round(getattr(a, "reclaim_bytes", 0) / 1_000_000, 1)}
+
+
 @app.get("/api/dedupe")
-def api_dedupe() -> JSONResponse:
-    actions = dedupe.plan(_folder())
-    return JSONResponse({"actions": [
-        {"keep": os.path.basename(a.keep),
-         "remove": [os.path.basename(x) for x in a.remove],
-         "reason": a.reason,
-         "reclaim_mb": round(getattr(a, "reclaim_bytes", 0) / 1_000_000, 1)}
-        for a in actions]})
+def api_dedupe(tlo: int = 0) -> JSONResponse:
+    """Plan usunięcia duplikatów — z tego samego raportu co Zdrowie.
+
+    Wcześniej plan skanował całą bibliotekę drugi raz (pełne dekodowanie
+    każdego pliku, 152 s) i ekran dostawał „Failed to fetch”.
+    """
+    rep = _raport_zdrowia(czekaj=not tlo)
+    if rep is None:
+        return JSONResponse({**_w_toku(), "actions": []})
+    return JSONResponse({"actions": [_dedupe_json(a) for a in dedupe.plan_z_raportu(rep)]})
 
 
 @app.post("/api/dedupe/apply")
-def api_dedupe_apply() -> JSONResponse:
-    actions = dedupe.plan(_folder())
-    res = dedupe.apply(actions, os.path.join(_folder(), "_selekta_kosz"))
+def api_dedupe_apply(payload: dict | None = None) -> JSONResponse:
+    """Przenieś do kosza kopie z planu.
+
+    ``{"remove": [ścieżki względne]}`` — wykonaj DOKŁADNIE to, co użytkownik
+    widział na ekranie (tylko pliki, które nadal są w aktualnym planie).
+    Kosz leży obok każdego pliku, a odpowiedź podaje, co gdzie trafiło —
+    interfejs może to cofnąć przez /api/tracks/przywroc.
+    """
+    actions = dedupe.plan_z_raportu(_raport_zdrowia(czekaj=True))
+    tylko = None
+    wybrane = (payload or {}).get("remove")
+    if isinstance(wybrane, list):
+        tylko = set()
+        for r in wybrane:
+            p = os.path.abspath(os.path.join(_folder(), str(r)))
+            if os.path.commonpath([p, _folder()]) == _folder():
+                tylko.add(p)
+    res = dedupe.apply(actions, None, tylko=tylko, korzen=_folder())
     return JSONResponse({"moved": len(res.get("przeniesione", [])),
-                         "reclaimed_mb": round(res.get("odzyskane_MB", 0), 1)})
+                         "reclaimed_mb": round(res.get("odzyskane_MB", 0), 1),
+                         "przeniesione": [{"z": _rel(a), "w_koszu": _rel(b)}
+                                          for a, b in res.get("przeniesione", [])],
+                         "bledy": [{"file": _rel(p), "powod": r}
+                                   for p, r in res.get("błędy", [])]})
 
 
 @app.get("/api/tagfix")
 def api_tagfix() -> JSONResponse:
     hits = tagfix.scan(_folder())
     return JSONResponse({"hits": [
-        {"file": os.path.basename(p), "field": f, "current": c, "suggested": s}
+        {"file": _rel(p), "field": f, "current": c, "suggested": s}
         for p, f, c, s in hits]})
 
 
 @app.post("/api/tagfix/apply")
 def api_tagfix_apply() -> JSONResponse:
-    seen = set()
-    for p, *_ in tagfix.scan(_folder()):
-        if p not in seen:
-            tagfix.fix_file(p, dry_run=False); seen.add(p)
-    return JSONResponse({"fixed": len(seen)})
+    """Napraw krzaczki w tagach — w utworach i w ich kopiach w setach.
+
+    Policzone analizy (BPM, tonacja, siatka) zostają: zapis tagu nie zmienia
+    dźwięku, więc przenosimy je na nowy odcisk pliku.
+    """
+    uk = _uklad()
+    wynik = tagfix.napraw_utwory(_folder(), kopie=uk.kopie_utworu if uk else None)
+    return JSONResponse({"fixed": len(wynik["naprawione"]), "kopii": wynik["kopii"],
+                         "bledy": [{"file": _rel(p), "powod": r} for p, r in wynik["bledy"]]})
 
 
 @app.post("/api/covers/fill")
-def api_covers_fill(file: str = Query(...)) -> JSONResponse:
+def api_covers_fill(file: str = Query(...), nadpisz: int = 0) -> JSONResponse:
+    """Dociągnij okładkę z iTunes — po artyście i tytule z TAGÓW pliku.
+
+    Nie rusza artysty ani tytułu w pliku i nie podmienia istniejącej okładki
+    (chyba że ``nadpisz=1``). Ta sama okładka trafia do kopii utworu w setach.
+    """
     p = _safe(file)
-    artist, _, title = os.path.splitext(os.path.basename(p))[0].partition(" - ")
-    hit = covers.from_itunes(artist, title or artist)
-    if not hit:
-        raise HTTPException(404, "nie znaleziono okładki w iTunes")
-    tagger.tag_file(p, artist, title or artist, hit.data)
-    return JSONResponse({"ok": True, "desc": hit.description})
+    uk = _uklad()
+    wynik = covers.uzupelnij(p, nadpisz=bool(nadpisz),
+                             kopie=uk.kopie_utworu(p) if uk else [])
+    status = wynik.get("status")
+    if status == "jest":
+        raise HTTPException(409, wynik["opis"])
+    if status == "brak":
+        raise HTTPException(404, wynik["opis"])
+    if status != "dodano":
+        raise HTTPException(400, wynik.get("opis") or "nie udało się dodać okładki")
+    return JSONResponse({"ok": True, "desc": wynik["opis"], "kopii": wynik.get("kopii", 0)})
 
 
 @app.post("/api/redownload")
 def api_redownload(payload: dict) -> JSONResponse:
-    """Dopisz plik z biblioteki do listy życzeń (do ponownego pobrania).
+    """Dopisz uszkodzony utwór do listy życzeń — po artyście i tytule z TAGÓW.
 
-    Artysta i tytuł najpierw z tagów pliku; z nazwy dopiero awaryjnie i bez
-    numeru ścieżki — „01 - Hung Up.flac" dawało artystę „01".
+    Wcześniej wpis powstawał z nazwy pliku („Asia-Heat of the Moment” jako
+    artysta i tytuł, „03. Laherte” jako artysta), przyjmował puste i
+    nieistniejące pliki i dublował ten sam utwór przy każdym kliknięciu.
     """
-    plik = _field(payload, "file")
-    name = os.path.splitext(os.path.basename(plik))[0]
-    artist = title = ""
-    dur = None
-    path = matcher.resolve_in_library(_folder(), plik) if plik else None
-    if path and _within_allowed(path):
-        artist, title = _tags(path)
-        try:
-            dur = MutagenFile(path).info.length or None
-        except Exception:  # noqa: BLE001
-            dur = None
+    path = _safe(_field(payload, "file"))          # 400 pusty, 404 nie ma pliku
+    artist, title = _tags(path)
     if not (artist and title):
-        a2, t2 = matcher._split_stem(name)
-        artist, title = artist or a2, title or t2 or name
-    wishlist.add(artist.strip(), title.strip(), dur)
-    poszukiwacz.POSZUKIWACZ.obudz()        # lista życzeń jest naprawdę szukana w tle
-    return JSONResponse({"queued": name, "artist": artist, "title": title})
+        kand = tagfix.name_candidates(os.path.splitext(os.path.basename(path))[0])
+        if kand:
+            artist, title = kand[0]
+    artist, title = (artist or "").strip(), (title or "").strip()
+    if not (artist and title):
+        raise HTTPException(400, "nie wiem, jak ten utwór się nazywa — brak artysty i "
+                                 "tytułu w tagach i w nazwie pliku")
+    try:
+        dur = getattr(MutagenFile(path).info, "length", None)
+    except Exception:                              # noqa: BLE001
+        dur = None
+    klucz = (matcher.normalize(artist), matcher.normalize(title))
+    juz = next((w for w in wishlist.items()
+                if (matcher.normalize(w.get("artist", "")),
+                    matcher.normalize(w.get("title", ""))) == klucz), None)
+    if juz is None:
+        wishlist.add(artist, title, dur)
+        poszukiwacz.POSZUKIWACZ.obudz()    # lista życzeń jest naprawdę szukana w tle
+    return JSONResponse({"queued": f"{artist} — {title}", "artist": artist,
+                         "title": title, "juz_byl": juz is not None})
 
 
 # --------------------------------------------------------------------------
@@ -1145,24 +1308,50 @@ def api_audio(file: str = Query(...), request: Request = None) -> Response:
 
     zakres = (request.headers.get("range") or "") if request else ""
     m = re.match(r"bytes=(\d*)-(\d*)", zakres)
-    if not m:
-        with open(path, "rb") as fh:
-            return Response(fh.read(), media_type=mime,
-                            headers={**naglowki, "Content-Length": str(rozmiar)})
+    if not m or not (m.group(1) or m.group(2)):
+        # cały plik — strumieniem z dysku, nie wczytany naraz do pamięci
+        # (74 MB WAV-u w RAM przy każdym kliknięciu „odsłuchaj”)
+        from fastapi.responses import FileResponse
+        return FileResponse(path, media_type=mime, headers=naglowki)
 
-    poczatek = int(m.group(1)) if m.group(1) else 0
-    koniec = int(m.group(2)) if m.group(2) else rozmiar - 1
+    if not m.group(1):
+        # zakres końcowy „bytes=-N” = ostatnie N bajtów (RFC 7233), nie 0..N
+        n = int(m.group(2))
+        poczatek, koniec = max(0, rozmiar - n), rozmiar - 1
+        if n == 0:
+            return Response(status_code=416,
+                            headers={"Content-Range": f"bytes */{rozmiar}"})
+    else:
+        poczatek = int(m.group(1))
+        koniec = int(m.group(2)) if m.group(2) else rozmiar - 1
     koniec = min(koniec, rozmiar - 1)
     if poczatek > koniec or poczatek >= rozmiar:
         return Response(status_code=416,
                         headers={"Content-Range": f"bytes */{rozmiar}"})
-    with open(path, "rb") as fh:
-        fh.seek(poczatek)
-        dane = fh.read(koniec - poczatek + 1)
-    return Response(dane, status_code=206, media_type=mime,
-                    headers={**naglowki,
-                             "Content-Range": f"bytes {poczatek}-{koniec}/{rozmiar}",
-                             "Content-Length": str(len(dane))})
+    dlugosc = koniec - poczatek + 1
+    naglowki_zakresu = {**naglowki,
+                        "Content-Range": f"bytes {poczatek}-{koniec}/{rozmiar}",
+                        "Content-Length": str(dlugosc)}
+    if dlugosc <= 1 << 20:
+        with open(path, "rb") as fh:
+            fh.seek(poczatek)
+            dane = fh.read(dlugosc)
+        return Response(dane, status_code=206, media_type=mime, headers=naglowki_zakresu)
+
+    def kawalki():
+        with open(path, "rb") as fh:
+            fh.seek(poczatek)
+            zostalo = dlugosc
+            while zostalo > 0:
+                blok = fh.read(min(256 * 1024, zostalo))
+                if not blok:
+                    break
+                zostalo -= len(blok)
+                yield blok
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(kawalki(), status_code=206, media_type=mime,
+                             headers=naglowki_zakresu)
 
 
 @app.post("/api/playlist/from-selection")
@@ -1421,6 +1610,14 @@ def api_uchem() -> JSONResponse:
         except Exception:  # noqa: BLE001 — brak tagów nie psuje listy
             u["title"], u["artist"] = os.path.basename(u["file"]), ""
     return JSONResponse(w)
+
+
+@app.get("/api/uchem/bez-tempa")
+def api_uchem_bez_tempa() -> JSONResponse:
+    """Utwory z analizą, ale bez sprawdzenia stabilności tempa (do „Sprawdź tempo”)."""
+    pliki = [p for p in _paths()
+             if cache.get(p, "harmonic") is not None and cache.get(p, "tempo") is None]
+    return JSONResponse({"pliki": [_rel(p) for p in pliki]})
 
 
 @app.get("/api/doktor")
@@ -1912,17 +2109,10 @@ def api_tracks_usun(payload: dict) -> JSONResponse:
     Twarde kasowanie odpada: pomyłka w bibliotece DJ-a jest nieodwracalna,
     a plik w koszu kosztuje tylko miejsce na dysku.
     """
+    from . import kosz
     path = _safe(_field(payload, "file"))
-    katalog = os.path.join(os.path.dirname(path), decyzje.KOSZ)
-    os.makedirs(katalog, exist_ok=True)
-    cel = os.path.join(katalog, os.path.basename(path))
-    stem, ext = os.path.splitext(cel)
-    n = 2
-    while os.path.exists(cel):
-        cel = f"{stem} ({n}){ext}"
-        n += 1
     try:
-        shutil.move(path, cel)
+        cel = kosz.do_kosza(path)
     except OSError as exc:
         raise HTTPException(500, f"nie udało się przenieść do kosza: {exc}")
     return JSONResponse({"ok": True, "w_koszu": cel,
@@ -1931,18 +2121,37 @@ def api_tracks_usun(payload: dict) -> JSONResponse:
 
 @app.post("/api/tracks/przywroc")
 def api_tracks_przywroc(payload: dict) -> JSONResponse:
-    """Cofnij usunięcie — przywróć plik z kosza."""
-    zrodlo = os.path.abspath(_field(payload, "w_koszu"))
-    if os.path.commonpath([zrodlo, _folder()]) != _folder():
+    """Cofnij usunięcie — przywróć plik z kosza tam, skąd przyszedł.
+
+    Przywracamy WYŁĄCZNIE pliki z katalogu ``_selekta_kosz`` w bibliotece.
+    Wcześniej wystarczyło, że plik leżał w bibliotece: zwykły utwór „wracał”
+    do katalogu nadrzędnego, czyli poza bibliotekę.
+    """
+    from . import kosz
+    zrodlo = os.path.abspath(os.path.join(_folder(), _field(payload, "w_koszu")))
+    if not _field(payload, "w_koszu") or os.path.commonpath([zrodlo, _folder()]) != _folder():
         raise HTTPException(400, "ścieżka poza biblioteką")
-    if not os.path.isfile(zrodlo):
+    if not kosz.w_koszu(zrodlo):
+        raise HTTPException(400, "to nie jest plik z kosza selekty")
+    try:
+        cel = kosz.przywroc(zrodlo, korzen=_folder())
+    except FileNotFoundError:
         raise HTTPException(404, "nie ma takiego pliku w koszu")
-    cel = os.path.join(os.path.dirname(os.path.dirname(zrodlo)),
-                       os.path.basename(zrodlo))
-    if os.path.exists(cel):
+    except FileExistsError:
         raise HTTPException(409, "plik o tej nazwie już wrócił na miejsce")
-    shutil.move(zrodlo, cel)
-    return JSONResponse({"ok": True, "file": os.path.basename(cel)})
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return JSONResponse({"ok": True, "file": os.path.basename(cel), "rel": _rel(cel)})
+
+
+@app.get("/api/kosz")
+def api_kosz() -> JSONResponse:
+    """Co leży w koszach selekty w bibliotece — żeby przywrócić także po
+    odświeżeniu strony (wcześniej „Cofnij” żyło tylko do przeładowania)."""
+    from . import kosz
+    pozycje = kosz.zawartosc(_folder()) if os.path.isdir(_folder()) else []
+    return JSONResponse({"pliki": [{"w_koszu": _rel(x["w_koszu"]), "skad": _rel(x["skad"]),
+                                    "mb": x["mb"], "kiedy": x["kiedy"]} for x in pozycje]})
 
 
 @app.post("/api/decyzje/skanuj")
@@ -2363,8 +2572,16 @@ def api_radar() -> JSONResponse:
 def api_radar_sprawdz(payload: dict | None = None) -> JSONResponse:
     """Sprawdź porcję artystów w Beatporcie i Bandcampie (sieć, sekundy–minuty)."""
     p = payload or {}
-    limit = max(1, min(int(p.get("limit") or 10), 200))
-    offset = max(0, int(p.get("offset") or 0))
+    try:
+        limit = max(1, min(int(p.get("limit") or 10), 200))
+        # bez offsetu: następna porcja artystów po ostatnio sprawdzonej, żeby
+        # „Sprawdź teraz” nie pytało w kółko o tych samych 10 pierwszych
+        if p.get("offset") is None:
+            offset = (radar.wyniki().get("last") or {}).get("next_offset") or 0
+        else:
+            offset = max(0, int(p.get("offset")))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "limit i offset muszą być liczbami")
     try:
         return JSONResponse(_clean(radar.sprawdz(_folder(), limit=limit, offset=offset)))
     except Exception as exc:  # noqa: BLE001 — sklepy nie mogą wywalić UI

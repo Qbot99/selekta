@@ -15,6 +15,7 @@ or a truncated download, worth a human look but not an automatic delete.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -22,7 +23,7 @@ from dataclasses import dataclass, field
 from mutagen import File as MutagenFile
 
 from . import covers
-from .matcher import mix_signature, normalize
+from .matcher import MIX_WORDS, mix_signature, normalize
 from .quality import QualityReport, analyze
 from .narzedzia import ffmpeg_path, ffprobe_path
 
@@ -32,6 +33,13 @@ AUDIO_EXT = (".flac", ".mp3", ".wav", ".aiff", ".m4a")
 FORMAT_PRIORITY = {".flac": 0, ".wav": 1, ".aiff": 1, ".m4a": 2, ".mp3": 3}
 
 DUP_MAX_DELTA_S = 2.0
+
+#: o ile zdekodowany dźwięk może być krótszy od długości z nagłówka, zanim
+#: uznamy plik za ucięty (ta sama tolerancja co przy duplikatach)
+UCIECIE_TOLERANCJA_S = 2.0
+
+#: wersja wyniku dekodowania w cache — podbić przy zmianie sposobu oceny
+_WERSJA_DEKODU = 2
 
 GRADE_ICON = {"ok": "✅", "warn": "⚠️", "bad": "❌"}
 
@@ -51,6 +59,8 @@ class FileInfo:
     bitrate: int | None = None
     bits: int | None = None
     mutagen_ok: bool = True
+    w_secie: bool = False          # plik leży w folderze setu (kopia, nietykalna)
+    sety: list[str] = field(default_factory=list)   # sety, w których utwór jest użyty
 
 
 @dataclass
@@ -105,25 +115,57 @@ def _first(val) -> str:
     return str(val[0] if isinstance(val, (list, tuple)) else val)
 
 
+def _wszystkie(val) -> str:
+    """Wszystkie wartości pola naraz: ['Maddix', 'Feles'] → 'Maddix, Feles'.
+
+    Tag ARTIST bywa wielowartościowy (FLAC, MP4, ID3v2.4). Branie tylko
+    pierwszej wartości gubiło gościa z listy, z wyszukiwania i z okładek.
+    """
+    if isinstance(val, (list, tuple)):
+        czesci = [str(v).strip() for v in val if str(v).strip()]
+        return ", ".join(dict.fromkeys(czesci))
+    tekst = getattr(val, "text", None)            # ramka ID3
+    if tekst is not None:
+        return _wszystkie(list(tekst))
+    return str(val).strip()
+
+
 def _read_tags(audio) -> tuple[str | None, str | None]:
     """(artist, title) across tag flavours: Vorbis, ID3 (mp3/wav/aiff), MP4."""
     artist = title = None
-    if hasattr(audio, "get"):                       # FLAC / Vorbis comments
-        if audio.get("ARTIST"):
-            artist = _first(audio.get("ARTIST"))
-        if audio.get("TITLE"):
-            title = _first(audio.get("TITLE"))
     tags = getattr(audio, "tags", None)
+    if hasattr(audio, "get") and not hasattr(tags, "getall"):  # Vorbis / MP4
+        if audio.get("ARTIST"):
+            artist = _wszystkie(audio.get("ARTIST"))
+        if audio.get("TITLE"):
+            title = _wszystkie(audio.get("TITLE"))
     if tags is not None and hasattr(tags, "get"):
         if artist is None and tags.get("TPE1"):     # ID3
-            artist = str(tags["TPE1"])
+            artist = _wszystkie(tags["TPE1"])
         if title is None and tags.get("TIT2"):
-            title = str(tags["TIT2"])
+            title = _wszystkie(tags["TIT2"])
         if artist is None and tags.get("\xa9ART"):  # MP4 / m4a
-            artist = _first(tags["\xa9ART"])
+            artist = _wszystkie(tags["\xa9ART"])
         if title is None and tags.get("\xa9nam"):
-            title = _first(tags["\xa9nam"])
+            title = _wszystkie(tags["\xa9nam"])
     return artist or None, title or None
+
+
+def czytaj_tagi(path: str) -> tuple[str, str]:
+    """Artysta i tytuł z tagów pliku (puste, gdy brak albo plik nieczytelny).
+
+    Jedno miejsce dla wszystkich formatów: FLAC/OGG (Vorbis), MP3/WAV/AIFF
+    (ID3) i M4A (MP4: ©ART/©nam). Wcześniej lista utworów czytała tylko
+    Vorbis i ID3, więc każdy plik M4A był „?” bez tytułu.
+    """
+    try:
+        audio = MutagenFile(path)
+        if audio is None:
+            return "", ""
+        artist, title = _read_tags(audio)
+    except Exception:                              # noqa: BLE001
+        return "", ""
+    return artist or "", title or ""
 
 
 def _inspect(path: str) -> FileInfo:
@@ -161,63 +203,101 @@ def _identity(info: FileInfo) -> tuple[str, str]:
     return info.artist or artist, info.title or title
 
 
+def klucz_utworu(path: str, artist: str | None,
+                 title: str | None) -> tuple[frozenset, frozenset] | None:
+    """(rdzeń, wersja) — JEDNA reguła „to ten sam utwór w tej samej wersji”.
+
+    Używają jej Zdrowie, „Usuń duplikaty” i Porządki (``decyzje``). Wcześniej
+    każdy ekran miał swoją: Zdrowie uznawało pusty dopisek za zgodny z
+    każdym („Original Mix” łączył Extended z Radio Edit w jedną grupę
+    i Radio Edit szedł do kosza), a Porządki nie.
+
+    * rdzeń = słowa artysty i tytułu bez słów o wersji; z tagów, a z nazwy
+      pliku (bez numeru ścieżki i śmieci) tylko wtedy, gdy tagów brak;
+    * wersja = słowa o miksie (extended, radio, edit, remix…) z tytułu
+      w tagach ORAZ z nazwy pliku — dopisek „(Club Mix)” bywa tylko
+      w nazwie. Dwa pliki to ta sama wersja tylko przy RÓWNYCH wersjach
+      (równość jest przechodnia, więc nie powstają łańcuchy).
+    """
+    from .tagfix import clean_stem
+    stem = os.path.splitext(os.path.basename(path))[0]
+    stem_czysty = clean_stem(stem) or stem
+    if artist and title:
+        tokeny = normalize(artist) + normalize(title)
+    else:
+        tokeny = normalize(stem_czysty)
+    rdzen = frozenset(t for t in tokeny if t not in MIX_WORDS)
+    if not rdzen:
+        return None
+    wersja = mix_signature(tokeny) | mix_signature(normalize(stem))
+    return rdzen, frozenset(wersja)
+
+
 def _dup_key(info: FileInfo):
-    artist, title = _identity(info)
-    title_tokens = normalize(title)
-    sig = mix_signature(title_tokens)
-    key = (frozenset(normalize(artist)), frozenset(title_tokens) - sig)
-    return (key if key[1] else None), sig
+    return klucz_utworu(info.path, info.artist, info.title)
 
 
-def _mixes_compatible(a: frozenset[str], b: frozenset[str]) -> bool:
-    # same convention as matcher.score_file: only two *named* mixes with
-    # nothing in common are considered different versions
-    return not (a and b and not (a & b))
+_KOPIA_W_NAZWIE = re.compile(r"(\s\(\d+\)|_\d{6,})$")
+
+
+def nazwa_kopii(path: str) -> bool:
+    """Czy nazwa wygląda na kopię: „… (1).flac”, „…_639242269261972010.flac”."""
+    return bool(_KOPIA_W_NAZWIE.search(os.path.splitext(os.path.basename(path))[0]))
 
 
 def _pick_keep(files: list[FileInfo], corrupt: set[str]) -> FileInfo:
     return min(files, key=lambda f: (
         f.path in corrupt,
+        not f.mutagen_ok,
         FORMAT_PRIORITY.get(f.ext, 9),
         -(f.bits or 0),
         -(f.bitrate or 0),
-        -f.size,
+        nazwa_kopii(f.path),          # przy remisie czysta nazwa, nie „(1)”
+        f.path,
     ))
 
 
-def _components(items: list[int], linked) -> list[list[int]]:
-    """Connected components over items given a pairwise predicate."""
-    parent = {i: i for i in items}
+def _po_czasie(members: list[FileInfo]) -> list[list[FileInfo]]:
+    """Podziel pliki na kubełki o czasie trwania zgodnym co do DUP_MAX_DELTA_S.
 
-    def find(i):
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    for a in items:
-        for b in items:
-            if a < b and linked(a, b):
-                parent[find(a)] = find(b)
-    groups: dict[int, list[int]] = defaultdict(list)
-    for i in items:
-        groups[find(i)].append(i)
-    return [g for g in groups.values() if len(g) > 1]
+    Każdy kubełek mierzymy względem jego pierwszego pliku, więc nie powstają
+    łańcuchy (A≈B, B≈C, ale A≠C). Pliki bez czasu lądują osobno.
+    """
+    kubelki: list[list[FileInfo]] = []
+    for f in sorted(members, key=lambda x: (x.duration is None, x.duration or 0, x.path)):
+        if f.duration is not None:
+            for k in kubelki:
+                if (k[0].duration is not None
+                        and abs(k[0].duration - f.duration) <= DUP_MAX_DELTA_S):
+                    k.append(f)
+                    break
+            else:
+                kubelki.append([f])
+        else:
+            kubelki.append([f])
+    return kubelki
 
 
 def _find_duplicates(
     files: list[FileInfo], corrupt: set[str],
 ) -> tuple[list[DuplicateGroup], list[DuplicateGroup]]:
-    buckets: dict[tuple, list[tuple[FileInfo, frozenset[str]]]] = defaultdict(list)
-    for info in files:
-        key, sig = _dup_key(info)
-        if key is not None:
-            buckets[key].append((info, sig))
+    """Grupy duplikatów wśród plików biblioteki.
 
-    def make_group(members: list[tuple[FileInfo, frozenset[str]]], certain: bool):
-        infos = [m[0] for m in members]
+    Kopie w folderach setów NIE biorą udziału: to nie są zbędne pliki, tylko
+    zawartość setów (i ścieżki w XML-ach rekordboxa). Gdyby trafiły do grupy,
+    „Usuń duplikaty” rozbiłoby sety.
+    """
+    buckets: dict[tuple, list[FileInfo]] = defaultdict(list)
+    for info in files:
+        if info.w_secie:
+            continue
+        key = _dup_key(info)
+        if key is not None:
+            buckets[key].append(info)
+
+    def make_group(infos: list[FileInfo], certain: bool):
         keep = _pick_keep(infos, corrupt)
-        infos.sort(key=lambda f: (f is not keep, f.path))  # keep first
+        infos = sorted(infos, key=lambda f: (f is not keep, f.path))  # keep first
         artist, title = _identity(keep)
         return DuplicateGroup(artist, title, infos, keep, certain)
 
@@ -226,30 +306,14 @@ def _find_duplicates(
     for members in buckets.values():
         if len(members) < 2:
             continue
-        idx = list(range(len(members)))
-
-        def close(a: int, b: int) -> bool:
-            (fa, sa), (fb, sb) = members[a], members[b]
-            if not _mixes_compatible(sa, sb):
-                return False
-            if fa.duration is None or fb.duration is None:
-                return False
-            return abs(fa.duration - fb.duration) <= DUP_MAX_DELTA_S
-
-        def related(a: int, b: int) -> bool:
-            return _mixes_compatible(members[a][1], members[b][1])
-
-        strict = _components(idx, close)
-        for comp in strict:
-            sure.append(make_group([members[i] for i in comp], certain=True))
-        claimed = {i for comp in strict for i in comp}
-        for comp in _components(idx, related):
-            rest = [i for i in comp if i not in claimed]
-            if len(comp) > len(rest) > 0 or len(rest) > 1:
-                # same key, mixes compatible, but durations drifted apart:
-                # different edit or truncated copy — flag for a human
-                suspect.append(make_group([members[i] for i in comp],
-                                          certain=False))
+        kubelki = _po_czasie(members)
+        for k in kubelki:
+            if len(k) > 1 and all(f.duration is not None for f in k):
+                sure.append(make_group(k, certain=True))
+        if len(kubelki) > 1:
+            # ta sama nazwa i wersja, ale czasy się rozjechały: inna edycja
+            # albo ucięta kopia — do obejrzenia przez człowieka
+            suspect.append(make_group(members, certain=False))
     by_name = lambda g: (g.artist.lower(), g.title.lower())  # noqa: E731
     return sorted(sure, key=by_name), sorted(suspect, key=by_name)
 
@@ -258,41 +322,214 @@ def _find_duplicates(
 # corruption
 # --------------------------------------------------------------------------
 
-def _ffmpeg_check(path: str) -> str | None:
-    """Full decode; returns an error description or None when clean."""
+def _mm_ss(sekundy: float) -> str:
+    s = int(round(sekundy or 0))
+    return f"{s // 60}:{s % 60:02d}"
+
+
+def _dekoduj(path: str) -> tuple[list[str], float | None, str | None]:
+    """Pełne dekodowanie ścieżki dźwiękowej ffmpeg-iem.
+
+    Zwraca (linie błędów, zdekodowany czas w s, błąd uruchomienia). Czas
+    bierzemy z ``-progress`` — to, ile dźwięku NAPRAWDĘ dało się odczytać.
+    """
     try:
         proc = subprocess.run(
-            [ffmpeg_path(), "-v", "error", "-i", path, "-f", "null", "-"],
+            [ffmpeg_path(), "-nostdin", "-v", "error", "-i", path,
+             "-map", "0:a:0", "-f", "null", "-progress", "pipe:1", "-nostats", "-"],
             capture_output=True, text=True, timeout=300,
         )
     except (subprocess.TimeoutExpired, OSError) as e:
-        return f"ffmpeg: {type(e).__name__}"
-    err = proc.stderr.strip()
-    if proc.returncode != 0 or err:
-        first = err.splitlines()[0] if err else f"kod wyjścia {proc.returncode}"
-        return f"ffmpeg: {first}"
+        return [], None, f"ffmpeg: {type(e).__name__}"
+    czas = None
+    for linia in proc.stdout.splitlines():
+        if linia.startswith("out_time_us="):
+            try:
+                czas = int(linia.split("=", 1)[1]) / 1_000_000
+            except ValueError:
+                pass
+    bledy = [ln for ln in proc.stderr.splitlines() if ln.strip()]
+    if proc.returncode != 0 and not bledy:
+        bledy = [f"kod wyjścia {proc.returncode}"]
+    return bledy, czas, None
+
+
+def _naglowek_mp3(path: str) -> bool:
+    """Czy MP3 ma nagłówek Xing/Info/VBRI z liczbą ramek.
+
+    Tylko wtedy długość z nagłówka jest DEKLARACJĄ, z którą można porównać
+    dźwięk. Bez nagłówka mutagen zgaduje czas z rozmiaru pliku — dla VBR
+    potrafi się pomylić dwukrotnie i dałby fałszywe „ucięty”.
+    """
+    try:
+        from mutagen.mp3 import MP3
+        info = MP3(path).info
+        off = getattr(info, "frame_offset", None)
+        if off is None:
+            return False
+        with open(path, "rb") as fh:
+            fh.seek(off)
+            ramka = fh.read(256)
+        return any(m in ramka for m in (b"Xing", b"Info", b"VBRI"))
+    except Exception:                              # noqa: BLE001
+        return False
+
+
+def _koniec_dzwieku_mp3(path: str, info) -> float | None:
+    """Szacowany czas dźwięku, który FIZYCZNIE jest w pliku MP3 (bez dekodowania).
+
+    Nagłówek Xing/VBRI podaje liczbę ramek i bajtów całego strumienia. Gdy
+    pobieranie się urwie, nagłówek nadal obiecuje pełną długość, ale bajtów
+    jest mniej — mutagen pokazuje wtedy 40 s, a dźwięku jest 18,7 s.
+    """
+    try:
+        off = getattr(info, "frame_offset", None)
+        bitrate = getattr(info, "bitrate", 0) or 0
+        if off is None or bitrate <= 0:
+            return None
+        size = os.path.getsize(path)
+        koniec = size
+        with open(path, "rb") as fh:
+            if size > 128:
+                fh.seek(size - 128)
+                if fh.read(3) == b"TAG":          # ID3v1
+                    koniec -= 128
+            if koniec > 32:
+                fh.seek(koniec - 32)
+                stopka = fh.read(32)
+                if stopka[:8] == b"APETAGEX":     # APEv2 na końcu
+                    koniec -= int.from_bytes(stopka[12:16], "little") + 32
+        return max(0.0, (koniec - off) * 8 / bitrate)
+    except (OSError, ValueError):
+        return None
+
+
+def uciecie_mp3(path: str) -> tuple[float, float] | None:
+    """(czas z nagłówka, czas faktycznie w pliku), gdy MP3 jest ucięty; inaczej None.
+
+    Szybka kontrola bez dekodowania (odczyt nagłówka i rozmiaru) — nadaje się
+    do listy utworów. Pełną pewność daje ``integralnosc`` (dekodowanie).
+    """
+    if not path.lower().endswith(".mp3") or not _naglowek_mp3(path):
+        return None
+    try:
+        from mutagen.mp3 import MP3
+        info = MP3(path).info
+    except Exception:                              # noqa: BLE001
+        return None
+    deklarowany = getattr(info, "length", 0) or 0
+    realny = _koniec_dzwieku_mp3(path, info)
+    if realny is None or deklarowany <= 0:
+        return None
+    if deklarowany - realny > UCIECIE_TOLERANCJA_S:
+        return deklarowany, realny
     return None
+
+
+def _ocen(path: str, deklarowany: float | None, ufam_deklaracji: bool) -> dict:
+    bledy, czas, awaria = _dekoduj(path)
+    wynik = {"wersja": _WERSJA_DEKODU, "bledow": len(bledy), "zdekodowano_s": czas,
+             "deklarowano_s": deklarowany, "uciety": False, "ok": True, "opis": ""}
+    if awaria:
+        wynik.update(ok=False, opis=awaria)
+        return wynik
+    uciety = (ufam_deklaracji and deklarowany and czas is not None
+              and deklarowany - czas > UCIECIE_TOLERANCJA_S)
+    if uciety:
+        wynik.update(ok=False, uciety=True,
+                     opis=(f"ucięty — gra tylko {_mm_ss(czas)} z {_mm_ss(deklarowany)} "
+                           f"(przerwane pobieranie)"))
+    elif bledy:
+        pierwszy = bledy[0][:120]
+        if czas and deklarowany and abs(deklarowany - czas) <= UCIECIE_TOLERANCJA_S:
+            opis = (f"{len(bledy)} uszkodzonych miejsc w dźwięku — gra do końca, "
+                    f"ale możliwe trzaski ({pierwszy})")
+        else:
+            opis = f"błędy dekodowania ({len(bledy)}): {pierwszy}"
+        wynik.update(ok=False, opis=opis)
+    else:
+        wynik["opis"] = "dekoduje się w całości, bez błędów"
+    return wynik
+
+
+def integralnosc(path: str, uzyj_cache: bool = True) -> dict:
+    """Czy plik da się odczytać do końca — i czy „koniec” to naprawdę koniec.
+
+    Wspólna funkcja dla Zdrowia i (docelowo) bramki pobrań w ``pipeline``:
+    pełne dekodowanie ffmpeg + porównanie zdekodowanej długości z długością
+    zadeklarowaną w nagłówku (Xing/VBRI w MP3, STREAMINFO w FLAC, nagłówek
+    WAV). Sam brak komunikatów ffmpeg nie wystarcza: MP3 ucięty na granicy
+    ramki dekoduje się „bez błędów”, tylko krócej.
+
+    Zwraca słownik: ok, uciety, opis (po polsku), bledow, zdekodowano_s,
+    deklarowano_s. Wynik jest zapamiętywany (cache „zdrowie”, klucz =
+    plik + mtime + rozmiar), więc ponowny skan nie dekoduje wszystkiego od nowa.
+    """
+    from . import cache
+    if uzyj_cache:
+        hit = cache.get(path, "zdrowie")
+        if hit and hit.get("wersja") == _WERSJA_DEKODU:
+            return hit
+    deklarowany, ufam = None, False
+    try:
+        audio = MutagenFile(path)
+        if audio is not None:
+            deklarowany = getattr(audio.info, "length", None)
+            ufam = (not path.lower().endswith(".mp3")) or _naglowek_mp3(path)
+    except Exception:                              # noqa: BLE001
+        audio = None
+    wynik = _ocen(path, deklarowany, ufam)
+    try:
+        cache.put(path, "zdrowie", wynik)
+    except (OSError, TypeError, ValueError):
+        pass
+    return wynik
+
+
+def _ffmpeg_check(path: str) -> str | None:
+    """Opis problemu z dekodowaniem albo None, gdy plik jest cały."""
+    w = integralnosc(path)
+    return None if w["ok"] else w["opis"]
 
 
 # --------------------------------------------------------------------------
 # scan
 # --------------------------------------------------------------------------
 
-def scan(folder: str, deep: bool = False) -> HealthReport:
-    """Read-only health scan of folder + its immediate subfolders."""
+def scan(folder: str, deep: bool = False, postep=None) -> HealthReport:
+    """Skan zdrowia biblioteki (tylko odczyt).
+
+    Utwory = ``matcher.audio_files`` (każdy raz; kopie w folderach setów
+    nie są osobnymi utworami). ``postep(zrobione, wszystkie)`` — opcjonalne
+    wywołanie po każdym pliku (pasek postępu w aplikacji).
+    """
+    from .uklad import wczytaj
     root = os.path.abspath(os.path.expanduser(folder))
-    files = [_inspect(p) for p in _collect(root)]
+    paths = _collect(root)
+    uklad = wczytaj(root)
+    files = []
+    for p in paths:
+        info = _inspect(p)
+        info.w_secie = uklad.w_secie(p)
+        info.sety = uklad.sety_utworu(p)
+        files.append(info)
 
     corrupt: list[tuple[str, str]] = []
-    for info in files:
+    for i, info in enumerate(files, 1):
         reasons = []
         if not info.mutagen_ok:
-            reasons.append("mutagen nie otwiera pliku")
-        ffmpeg_err = _ffmpeg_check(info.path)
-        if ffmpeg_err:
-            reasons.append(ffmpeg_err)
+            reasons.append("nie da się otworzyć pliku (to nie jest poprawny plik audio)")
+        else:
+            ffmpeg_err = _ffmpeg_check(info.path)
+            if ffmpeg_err:
+                reasons.append(ffmpeg_err)
         if reasons:
             corrupt.append((info.path, "; ".join(reasons)))
+        if postep:
+            try:
+                postep(i, len(files))
+            except Exception:                      # noqa: BLE001
+                pass
     corrupt_paths = {p for p, _ in corrupt}
 
     duplicates, suspects = _find_duplicates(files, corrupt_paths)

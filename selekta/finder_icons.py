@@ -31,20 +31,59 @@ def _load_appkit():
     return NSImage, NSWorkspace
 
 
+MARKER = "pl.selekta.ikona"          # „tę ikonę postawiła selekta”
+_FINDER_INFO = "com.apple.FinderInfo"
+_RESOURCE_FORK = "com.apple.ResourceFork"
+_CUSTOM_ICON = 0x0400                  # kHasCustomIcon we flagach Findera
+
+
+def _xattr(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["xattr", *args], capture_output=True, text=True)
+
+
+def _finder_info(path: str) -> bytes | None:
+    r = _xattr("-px", _FINDER_INFO, path)
+    if r.returncode != 0:
+        return None
+    try:
+        return bytes.fromhex("".join(r.stdout.split()))
+    except ValueError:
+        return None
+
+
+def _ma_wlasna_ikone(path: str) -> bool:
+    fi = _finder_info(path)
+    return bool(fi and len(fi) >= 10 and int.from_bytes(fi[8:10], "big") & _CUSTOM_ICON)
+
+
+def nasza(path: str) -> bool:
+    """Czy ikonę tego pliku ustawiła selekta (znacznik w atrybucie)."""
+    return _xattr("-p", MARKER, path).returncode == 0
+
+
 def apply(paths: list[str]) -> tuple[int, list[str]]:
-    """Set each file's Finder icon from its embedded cover."""
+    """Set each file's Finder icon from its embedded cover.
+
+    Pliki, które mają już WŁASNĄ ikonę postawioną przez kogoś innego, zostają
+    nietknięte. Postawione przez nas dostają znacznik, żeby ``clear`` mógł
+    zdjąć tylko je.
+    """
     NSImage, NSWorkspace = _load_appkit()
     ws = NSWorkspace.sharedWorkspace()
     done, skipped = 0, []
     for p in paths:
         if not p.lower().endswith(FINDER_BLIND):
             continue                     # Finder already shows these
+        if _ma_wlasna_ikone(p) and not nasza(p):
+            skipped.append(p)            # cudza ikona — nie ruszamy
+            continue
         data = embedded_art(p)
         if not data:
             skipped.append(p)
             continue
         img = NSImage.alloc().initWithData_(data)
         if img and ws.setIcon_forFile_options_(img, p, 0):
+            _xattr("-w", MARKER, "1", p)
             done += 1
         else:
             skipped.append(p)
@@ -52,12 +91,26 @@ def apply(paths: list[str]) -> tuple[int, list[str]]:
 
 
 def clear(paths: list[str]) -> int:
-    """Remove custom icons (and the resource forks they live in)."""
+    """Zdejmij ikony postawione przez selektę — i tylko je.
+
+    Wcześniej kasowaliśmy cały ``com.apple.FinderInfo`` każdego pliku: znikały
+    też cudze ikony i KOLOROWE ETYKIETY Findera (siedzą w tym samym atrybucie).
+    Teraz: tylko pliki ze znacznikiem selekty, a w FinderInfo gasimy wyłącznie
+    bit „własna ikona”.
+    """
     n = 0
     for p in paths:
-        subprocess.run(["xattr", "-d", "com.apple.ResourceFork", p],
-                       capture_output=True)
-        subprocess.run(["xattr", "-d", "com.apple.FinderInfo", p],
-                       capture_output=True)
+        if not nasza(p):
+            continue
+        fi = _finder_info(p)
+        if fi and len(fi) >= 10:
+            flagi = int.from_bytes(fi[8:10], "big") & ~_CUSTOM_ICON
+            fi = fi[:8] + flagi.to_bytes(2, "big") + fi[10:]
+            if any(fi):
+                _xattr("-wx", _FINDER_INFO, fi.hex(), p)
+            else:
+                _xattr("-d", _FINDER_INFO, p)
+        _xattr("-d", _RESOURCE_FORK, p)
+        _xattr("-d", MARKER, p)
         n += 1
     return n

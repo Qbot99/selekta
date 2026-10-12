@@ -136,7 +136,8 @@ def _zapamietaj(nowe: list[dict], kiedy: str, sprawdzonych: int, offset: int,
     polaczone = nowe + [x for x in stare if (x.get("id") or x.get("url")) not in klucze]
     _save_results({"checked_at": kiedy, "items": polaczone[:MAX_WYNIKOW],
                    "last": {"checked": sprawdzonych, "offset": offset, "new": len(nowe),
-                            "total_artists": artystow}})
+                            "total_artists": artystow,
+                            "next_offset": offset + sprawdzonych if offset + sprawdzonych < artystow else None}})
 
 
 def _sprawdz_artyste(artist: str, kiedy: str) -> list[dict]:
@@ -306,6 +307,7 @@ _BC_RELEASE_HREF_RE = re.compile(
 )
 _BC_TITLE_RE = re.compile(r'<p class="title">\s*(.*?)\s*</p>', re.S)
 _BC_CLIENT_ITEMS_RE = re.compile(r'data-client-items="([^"]*)"')
+_BC_IMG_RE = re.compile(r'<img[^>]+(?:data-original|src)="(https://f\d\.bcbits\.com/img/[^"]+)"')
 
 
 def _norm_nazwa(s: str) -> str:
@@ -392,14 +394,18 @@ def fetch_bandcamp(artist: str) -> list[dict]:
     found: list[dict] = []
     seen_paths: set[str] = set()
 
-    def add(path: str, title: str | None) -> None:
+    def add(path: str, title: str | None, cover: str | None = None) -> None:
         if path in seen_paths:
             return
         seen_paths.add(path)
-        found.append(
-            {"id": base + path, "title": title or path,
-             "url": base + path, "source": "bandcamp"}
-        )
+        # bez tytułu: czytelna nazwa ze ścieżki („/track/body-beat” → „Body Beat”),
+        # a nie surowe „/track/…”, które trafiało na listę życzeń
+        tytul = title or path.rsplit("/", 1)[-1].replace("-", " ").strip().title()
+        item = {"id": base + path, "title": tytul, "url": base + path,
+                "source": "bandcamp"}
+        if cover:
+            item["cover"] = cover
+        found.append(item)
 
     # walk <li> chunks so each release href pairs with its own title
     for chunk in page.split("<li")[1:]:
@@ -407,7 +413,9 @@ def fetch_bandcamp(artist: str) -> list[dict]:
         if not m:
             continue
         t = _BC_TITLE_RE.search(chunk)
-        add(m.group(1), _strip_tags(t.group(1)) if t else None)
+        img = _BC_IMG_RE.search(chunk)
+        add(m.group(1), _strip_tags(t.group(1)) if t else None,
+            img.group(1) if img else None)
 
     # overflow releases not rendered in the grid
     m = _BC_CLIENT_ITEMS_RE.search(page)
@@ -416,7 +424,9 @@ def fetch_bandcamp(artist: str) -> list[dict]:
             for it in json.loads(html.unescape(m.group(1))):
                 path = it.get("page_url")
                 if path and path.startswith(("/album/", "/track/")):
-                    add(path, it.get("title"))
+                    art = it.get("art_id")
+                    add(path, it.get("title"),
+                        f"https://f4.bcbits.com/img/a{art}_2.jpg" if art else None)
         except (json.JSONDecodeError, AttributeError, TypeError):
             log.warning("radar: nieczytelne data-client-items dla '%s'", artist)
 
@@ -459,6 +469,17 @@ def _release_artists(rel: dict) -> list[str]:
             if n:
                 names.append(str(n))
     return names
+
+
+def _beatport_okladka(rel: dict) -> str | None:
+    """Adres okładki wydania z rekordu Beatportu (różne kształty JSON-a)."""
+    for klucz in ("release_image_uri", "image_uri", "image", "release_image"):
+        v = rel.get(klucz)
+        if isinstance(v, dict):
+            v = v.get("uri") or v.get("dynamic_uri")
+        if isinstance(v, str) and v.startswith("http"):
+            return v.replace("{w}x{h}", "500x500")
+    return None
 
 
 def _slug(name: str) -> str:
@@ -509,15 +530,23 @@ def fetch_beatport(artist: str) -> list[dict]:
             or rel.get("new_release_date")
             or rel.get("publish_date")
         )
-        found.append(
-            {
-                "id": key,
-                "title": title,
-                "url": f"https://www.beatport.com/release/{_slug(title)}/{rid}",
-                "date": str(date)[:10] if date else None,
-                "source": "beatport",
-            }
-        )
+        item = {
+            "id": key,
+            "title": title,
+            "url": f"https://www.beatport.com/release/{_slug(title)}/{rid}",
+            "date": str(date)[:10] if date else None,
+            "source": "beatport",
+        }
+        # okładka i wytwórnia — ekran Radar czyta it.cover i it.label, a
+        # dotąd ich nie było (każda karta miała zaślepkę „okładka wydania”)
+        okl = _beatport_okladka(rel)
+        if okl:
+            item["cover"] = okl
+        lab = rel.get("label")
+        nazwa_lab = (lab.get("label_name") or lab.get("name")) if isinstance(lab, dict) else lab
+        if nazwa_lab:
+            item["label"] = str(nazwa_lab)
+        found.append(item)
     if not releases:
         log.warning(
             "radar: struktura wyników Beatportu nieczytelna dla '%s'", artist

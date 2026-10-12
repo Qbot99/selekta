@@ -155,17 +155,37 @@ function podswietlGrane(){
 document.addEventListener('selekta:player', podswietlGrane);
 
 // /api/health liczy się długo przy dużej bibliotece — Porządki i Zdrowie
-// dzielą jeden wynik zamiast skanować dwa razy
+// dzielą jeden wynik zamiast skanować dwa razy. Skan idzie W TLE na serwerze
+// (?tlo=1): odpytujemy o postęp co sekundę, zamiast trzymać jedno zapytanie
+// przez minutę i dostać „Failed to fetch”.
+const czekaj = ms => new Promise(r => setTimeout(r, ms));
+async function wTle(url, postep){
+  for(let i = 0; i < 3600; i++){
+    const d = await api(url + (url.includes('?') ? '&' : '?') + 'tlo=1', {cicho: true});
+    if(!d.w_toku) return d;
+    if(d.blad) throw new Error(d.blad);
+    if(postep) postep(d.zrobione || 0, d.wszystkie || 0);
+    await czekaj(1000);
+  }
+  throw new Error('skan trwa zbyt długo');
+}
 const zdrowie = {
-  dane: null, kiedy: 0, wTrakcie: null,
+  dane: null, kiedy: 0, wTrakcie: null, postep: null,
   async pobierz(force = false){
     if(!force && this.dane && Date.now() - this.kiedy < 60000) return this.dane;
     if(this.wTrakcie) return this.wTrakcie;
-    this.wTrakcie = api('/api/health', {cicho: true}).then(d => { this.dane = d; this.kiedy = Date.now(); return d; })
+    this.wTrakcie = wTle('/api/health', (z, w) => { this.postep = w ? `${z}/${w}` : null; document.dispatchEvent(new CustomEvent('selekta:zdrowie-postep')); })
+      .then(d => { this.dane = d; this.kiedy = Date.now(); this.postep = null; return d; })
       .finally(() => { this.wTrakcie = null; });
     return this.wTrakcie;
   },
 };
+const powodUszkodzenia = f => {
+  const h = zdrowie.dane || {};
+  const x = (h.corrupt_info || []).find(c => c.file === f);
+  return x ? x.powod : 'plik nie daje się odczytać — najpewniej przerwane pobieranie';
+};
+const folderINazwa = f => { const i = String(f || '').lastIndexOf('/'); return i < 0 ? {folder: '', nazwa: f} : {folder: f.slice(0, i), nazwa: f.slice(i + 1)}; };
 
 /* ============================================================
    PORZĄDKI (3b)
@@ -209,7 +229,11 @@ function kartaDecyzji(d){
   const r = RODZAJ[d.rodzaj] || {tag: d.rodzaj, kolor: 'dim', cta: 'Zatwierdź', ctaKolor: ''};
   const dow = d.dowody || {}, zostaw = dow.zostaw, zam = dow.zamowiono;
   let usun = dow.usun || [];
-  if(d.stan === 'zatwierdzona') usun = usun.map((o, i) => ({...o, path: (d.w_koszu || [])[i] || o.path}));
+  if(d.stan === 'zatwierdzona'){
+    // pary skąd → dokąd (stare decyzje: dopasowanie po pozycji)
+    const gdzie = new Map((d.przeniesienia || []).map(p => [p.z, p.do]));
+    usun = usun.map((o, i) => ({...o, path: gdzie.get(o.path) || (d.przeniesienia ? o.path : ((d.w_koszu || [])[i] || o.path))}));
+  }
   const etyk = etykietyPlikow([zostaw, ...usun].filter(Boolean));
   const pierwszy = zostaw || usun[0] || {};
   let tytul, opis;
@@ -239,7 +263,8 @@ function kartaDecyzji(d){
     : d.stan === 'zatwierdzona'
       ? `${przyciskGraj(pierwszy.path)}
          <button class="pz-btn acc" data-akcja="cofnij" data-id="${esc(d.id)}" title="przywróć pliki z kosza — decyzja wróci do kolejki">Cofnij</button>`
-      : przyciskGraj(pierwszy.path);
+      : `${przyciskGraj(pierwszy.path)}
+         <button class="pz-btn" data-akcja="cofnij" data-id="${esc(d.id)}" title="pominięta propozycja wróci do kolejki">Przywróć do kolejki</button>`;
   return `<div class="pz-karta ${d.stan !== 'czeka' ? 'gotowa' : ''}" data-id="${esc(d.id)}">
     <span class="tag ${d.stan === 'czeka' ? r.kolor : 'dim'}">${esc(r.tag)}</span>
     <div style="min-width:0"><div class="tytul" title="${esc(tytul)}">${esc(tytul)}</div><div class="opis">${opis}</div>
@@ -255,8 +280,8 @@ function kartaZdrowia(typ, f){
   const klucz = (usz ? 'c:' : 'o:') + f;
   const zrob = pz.zrobione[klucz];
   const opis = zrob ? `<span class="ok">✓ ${esc(zrob)}</span>` : (usz
-    ? 'plik nie daje się odczytać do końca — najpewniej przerwane pobieranie. „Pobierz ponownie” dopisze go do listy życzeń; sam plik zostaje na miejscu'
-    : 'w tagach nie ma okładki — „Dociągnij” poszuka jej w iTunes po artyście i tytule z nazwy pliku');
+    ? `${esc(powodUszkodzenia(f))}. „Pobierz ponownie” dopisze go do listy życzeń; sam plik zostaje na miejscu`
+    : 'w tagach nie ma okładki — „Dociągnij” poszuka jej w iTunes po artyście i tytule z tagów (tylko przy zgodnym wykonawcy) i nie zmieni tagów');
   const akcje = zrob ? '' : `${przyciskGraj(f)}
       <button class="pz-btn" data-akcja="pomin" data-klucz="${esc(klucz)}" title="schowaj tę kartę, dopóki problem nie zniknie">Pomiń</button>
       <button class="pz-cta ${usz ? 'bad' : 'info'}" data-akcja="${usz ? 'pobierz' : 'okladka'}" data-plik="${esc(f)}" data-klucz="${esc(klucz)}">${usz ? 'Pobierz ponownie' : 'Dociągnij'}</button>`;
@@ -290,7 +315,7 @@ function pzRysuj(host){
     : (formaty.length ? `${odmiana(pod.length, ['ULEPSZENIE', 'ULEPSZENIA', 'ULEPSZEŃ'])} → LOSSLESS` : 'ULEPSZENIA MP3 → FLAC');
   const meta = S.stan.tracksMeta || {};
   $('#pzKafle', host).innerHTML =
-    kafel(h ? fmtLicz(h.files) : (meta.count ? fmtLicz(meta.count) : '<span class="dim2">…</span>'), 'PLIKÓW') +
+    kafel(h ? fmtLicz(h.files) : (meta.count ? fmtLicz(meta.count) : '<span class="dim2">…</span>'), 'UTWORÓW') +
     kafel(dup.length, `DUPLIKATY${mbDup ? ` · ${Math.round(mbDup)} MB` : ''}`, dup.length ? 'warn' : '') +
     kafel(h ? usz.length : '<span class="dim2">…</span>', odmiana(usz.length, ['USZKODZONY', 'USZKODZONE', 'USZKODZONYCH']), usz.length ? 'bad' : '') +
     kafel(pod.length, etykPod, pod.length ? 'ok' : '');
@@ -335,7 +360,9 @@ async function pzAkcja(host, id, akcja, btn){
     const r = await api(`/api/decyzje/${encodeURIComponent(id)}/${akcja}`, {method: 'POST'});
     const msg = {zatwierdz: `zatwierdzone — ${r.w_koszu || 0} w koszu, da się cofnąć w Historii`,
                  odrzuc: 'zostawione bez zmian — nie zapytam o to ponownie',
-                 cofnij: 'cofnięte — pliki wróciły z kosza, decyzja czeka od nowa'}[akcja];
+                 cofnij: (r.decyzja && (r.decyzja.nie_wrocily || []).length)
+                   ? `cofnięte, ale ${r.decyzja.nie_wrocily.length} plików nie dało się przywrócić — sprawdź kosz`
+                   : 'cofnięte — decyzja czeka od nowa (pliki z kosza wróciły na swoje miejsca)'}[akcja];
     toast(msg, akcja === 'zatwierdz' ? 'ok' : 'info');
     S.uniewaznTracks(); zdrowie.kiedy = 0;
     await pzOdswiez(host);
@@ -421,7 +448,8 @@ function zdRysuj(host){
   const mbDup = akcje ? akcje.reduce((s, a) => s + (a.reclaim_mb || 0), 0) : 0;
   const kopii = akcje ? akcje.reduce((s, a) => s + (a.remove || []).length, 0) : dups.reduce((s, g) => s + Math.max(0, (g.n || 1) - 1), 0);
 
-  $('#zdSub', host).textContent = `${h.problems} ${odmiana(h.problems, ['sprawa', 'sprawy', 'spraw'])} do uwagi w ${fmtLicz(h.files)} ${odmiana(h.files, ['pliku', 'plikach', 'plikach'])} · integralność, kopie, tagi, okładki · naprawy idą do kosza albo w tagi — nic nie znika na zawsze`;
+  const kopieSetow = h.kopii_w_setach ? ` (+ ${fmtLicz(h.kopii_w_setach)} ${odmiana(h.kopii_w_setach, ['kopia', 'kopie', 'kopii'])} w folderach setów — nietykalne)` : '';
+  $('#zdSub', host).textContent = `${h.problems} ${odmiana(h.problems, ['sprawa', 'sprawy', 'spraw'])} do uwagi w ${fmtLicz(h.files)} ${odmiana(h.files, ['utworze', 'utworach', 'utworach'])}${kopieSetow} · integralność, kopie, tagi, okładki · naprawy idą do kosza albo w tagi — nic nie znika na zawsze`;
   $('#zdKafle', host).innerHTML =
     kafel(corrupt.length, odmiana(corrupt.length, ['USZKODZONY', 'USZKODZONE', 'USZKODZONYCH']), corrupt.length ? 'bad' : '') +
     kafel(dups.length, `${odmiana(dups.length, ['DUPLIKAT', 'DUPLIKATY', 'DUPLIKATÓW'])}${mbDup ? ` · ${Math.round(mbDup)} MB` : ''}`, dups.length ? 'warn' : '') +
@@ -431,16 +459,21 @@ function zdRysuj(host){
   // uszkodzone
   $('#zdUszN', host).textContent = corrupt.length;
   $('#zdUsz', host).innerHTML = corrupt.length ? corrupt.map(f => `
-    <div class="zd-wiersz"><div style="min-width:0"><div class="t" title="${esc(f)}">${esc(f)}</div><div class="s">nie daje się odczytać do końca — najpewniej przerwane pobieranie</div></div>
+    <div class="zd-wiersz"><div style="min-width:0"><div class="t" title="${esc(f)}">${esc(f)}</div><div class="s" title="${esc(powodUszkodzenia(f))}">${esc(powodUszkodzenia(f))}</div></div>
       ${zd.zyczenia.has(f) ? '<span class="ok" style="font-size:12.5px;white-space:nowrap">✓ na liście życzeń</span>'
                            : `<button class="btn sr" data-akcja="pobierz" data-plik="${esc(f)}" title="dopisze utwór do listy życzeń — plik zostaje na miejscu">Pobierz ponownie</button>`}</div>`).join('')
     : '<div class="zd-pusto">brak — wszystkie pliki czytają się poprawnie</div>';
 
   // duplikaty
   $('#zdDupN', host).textContent = akcje ? `${dups.length} ${odmiana(dups.length, ['grupa', 'grupy', 'grup'])} · ${kopii} ${odmiana(kopii, ['kopia', 'kopie', 'kopii'])} do kosza · ${Math.round(mbDup)} MB` : `${dups.length} ${odmiana(dups.length, ['grupa', 'grupy', 'grup'])}`;
+  // pełne ścieżki (folder/nazwa): kopie w różnych folderach mają tę samą
+  // nazwę i „zostaje X / do kosza X” wyglądało identycznie
+  const sciezka = f => { const {folder, nazwa} = folderINazwa(f); return folder ? `<span class="dim2">${esc(folder)}/</span>${esc(nazwa)}` : esc(nazwa); };
   $('#zdDup', host).innerHTML = akcje
     ? (akcje.length ? akcje.map(a => `
-        <div class="zd-wiersz"><div style="min-width:0"><div class="t" title="${esc(a.keep)}">${esc(a.keep)}</div><div class="s" title="${esc(a.reason || '')}">${(a.remove || []).length} do kosza · ${fmtMb(a.reclaim_mb)} · ${esc(a.reason || '')}</div></div>
+        <div class="zd-wiersz"><div style="min-width:0"><div class="t" title="zostaje: ${esc(a.keep)}"><span class="ok">zostaje</span> ${sciezka(a.keep)}</div>
+          ${(a.remove || []).map((r, i) => `<div class="s" title="do kosza: ${esc(r)}"><span class="warn">do kosza</span> ${sciezka(r)}${(a.remove_desc || [])[i] ? ` · ${esc(a.remove_desc[i])}` : ''}</div>`).join('')}
+          <div class="s" title="${esc(a.reason || '')}">${fmtMb(a.reclaim_mb)} · ${esc(a.reason || '')}${(a.sety || []).length ? ` · użyty w setach: ${esc(a.sety.join(', '))} (kopie w setach zostają)` : ''}</div></div>
           <span class="etyk">×${(a.remove || []).length + 1}</span></div>`).join('')
       : `<div class="zd-pusto">${zd.dedupe.blad ? 'nie udało się zaplanować porządków' : (dups.length ? 'kopie są, ale różnią się czasem trwania — to mogą być inne edycje, więc nie planuję ich usuwania' : 'brak kopii')}</div>`)
     : (dups.length ? dups.map(g => `
@@ -449,11 +482,15 @@ function zdRysuj(host){
   $('#zdDedupe', host).disabled = !(akcje && akcje.length);
 
   // tagi
-  $('#zdTagN', host).textContent = plikiTagow ? `${plikiTagow.length} ${odmiana(plikiTagow.length, ['plik', 'pliki', 'plików'])}` : '…';
+  const bezTagow = h.missing_tags || [];
+  $('#zdTagN', host).textContent = plikiTagow ? `${plikiTagow.length} ${odmiana(plikiTagow.length, ['plik', 'pliki', 'plików'])} do naprawy${bezTagow.length ? ` · ${bezTagow.length} bez tagów` : ''}` : '…';
+  const wierszeBezTagow = bezTagow.map(x => `
+        <div class="zd-wiersz"><div style="min-width:0"><div class="t" title="${esc(x.file)}">${esc(x.file)}</div>
+          <div class="s">brak ${esc((x.brak || []).map(b => ({ARTIST: 'artysty', TITLE: 'tytułu'}[b] || b)).join(' i '))} w tagach — uzupełnij w szczegółach utworu albo w rekordboxie</div></div></div>`).join('');
   $('#zdTag', host).innerHTML = hits
-    ? (hits.length ? plikiTagow.map(f => `
+    ? ((hits.length || bezTagow.length) ? plikiTagow.map(f => `
         <div class="zd-wiersz"><div style="min-width:0"><div class="t" title="${esc(f)}">${esc(f)}</div>
-          <div class="s">${hits.filter(x => x.file === f).map(x => `${esc(x.field)}: ${esc(x.current || '∅')} → <span class="ok">${esc(x.suggested)}</span>`).join(' · ')}</div></div></div>`).join('')
+          <div class="s">${hits.filter(x => x.file === f).map(x => `${esc(x.field)}: ${esc(x.current || '∅')} → <span class="ok">${esc(x.suggested)}</span>`).join(' · ')}</div></div></div>`).join('') + wierszeBezTagow
       : `<div class="zd-pusto">${zd.tagfix.blad ? 'nie udało się sprawdzić tagów' : 'tagi w porządku'}</div>`)
     : '<div class="zd-pusto"><span class="spin"></span> sprawdzam tagi…</div>';
   $('#zdTagfix', host).disabled = !(hits && hits.length);
@@ -462,7 +499,7 @@ function zdRysuj(host){
   $('#zdOklN', host).textContent = covers.length;
   $('#zdOkl', host).innerHTML = covers.length ? covers.map(f => `
     <div class="zd-wiersz" data-plik="${esc(f)}"><div style="min-width:0"><div class="t" title="${esc(f)}">${esc(f)}</div><div class="s">brak okładki w tagach</div></div>
-      <button class="btn sr" data-akcja="okladka" data-plik="${esc(f)}" title="szuka w iTunes po artyście i tytule z nazwy pliku">Dociągnij</button></div>`).join('')
+      <button class="btn sr" data-akcja="okladka" data-plik="${esc(f)}" title="szuka w iTunes po artyście i tytule z tagów — tylko przy zgodnym wykonawcy; tagów nie zmienia">Dociągnij</button></div>`).join('')
     : '<div class="zd-pusto">wszystkie mają okładkę</div>';
   $('#zdCovers', host).disabled = !covers.length;
 
@@ -471,20 +508,67 @@ function zdRysuj(host){
 
 async function zdLoad(host, force = false){
   const sub = $('#zdSub', host);
-  if(!zdrowie.dane || force) sub.innerHTML = '<span class="spin"></span> skanuję bibliotekę — pełne sprawdzenie plików, przy dużej bibliotece to chwila…';
+  const napis = () => `<span class="spin"></span> skanuję bibliotekę — pełne sprawdzenie plików${zdrowie.postep ? ` (${zdrowie.postep})` : ''}; wynik zostaje zapamiętany, kolejne skany są szybkie…`;
+  const odswiezNapis = () => { if(zdrowie.wTrakcie) sub.innerHTML = napis(); };
+  document.addEventListener('selekta:zdrowie-postep', odswiezNapis);
+  if(!zdrowie.dane || force) sub.innerHTML = napis();
   try{ await zdrowie.pobierz(force); }
   catch(e){ sub.innerHTML = `<span class="bad">nie udało się sprawdzić zdrowia: ${esc(e.message)}</span>`; return; }
+  finally{ document.removeEventListener('selekta:zdrowie-postep', odswiezNapis); }
   zd.dedupe = null; zd.tagfix = null;
   zdRysuj(host);
-  api('/api/dedupe', {cicho: true}).then(d => { zd.dedupe = d; }).catch(() => { zd.dedupe = {actions: [], blad: true}; }).finally(() => zdRysuj(host));
+  wTle('/api/dedupe').then(d => { zd.dedupe = d; }).catch(() => { zd.dedupe = {actions: [], blad: true}; }).finally(() => zdRysuj(host));
   api('/api/tagfix', {cicho: true}).then(d => { zd.tagfix = d; }).catch(() => { zd.tagfix = {hits: [], blad: true}; }).finally(() => zdRysuj(host));
+}
+
+// cofnięcie przeniesienia do kosza: każdy plik wraca tam, skąd przyszedł
+async function przywrocZKosza(wKoszu){
+  let ok = 0;
+  for(const w of wKoszu){ try{ await api('/api/tracks/przywroc', {method: 'POST', body: {w_koszu: w}, cicho: true}); ok++; }catch(e){} }
+  return ok;
+}
+function toastCofnij(msg, wKoszu, poCofnieciu){
+  const el = toast(msg, 'ok', 15000);
+  if(!el || !wKoszu.length) return;
+  const b = document.createElement('button'); b.className = 'btn mini obrys'; b.style.marginLeft = '10px'; b.textContent = 'cofnij';
+  b.onclick = async () => {
+    b.disabled = true;
+    const ok = await przywrocZKosza(wKoszu);
+    el.remove();
+    toast(ok === wKoszu.length ? `przywrócono ${ok}` : `przywrócono ${ok} z ${wKoszu.length} — reszta jest w „Kosz”`, ok ? 'ok' : 'warn');
+    if(poCofnieciu) poCofnieciu();
+  };
+  el.appendChild(b);
+}
+
+// kosz: przywracanie także po odświeżeniu strony (wcześniej „Cofnij” żyło do przeładowania)
+async function pokazKosz(host){
+  const sheet = S.arkusz('<div class="pusto"><span class="spin"></span> czytam kosz…</div>', {szer: 820});
+  let d;
+  try{ d = await api('/api/kosz'); }catch(e){ sheet.innerHTML = `<div class="pusto bad">✗ ${esc(e.message)}</div>`; return; }
+  const pliki = d.pliki || [];
+  const rysuj = () => {
+    sheet.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:center;gap:12px"><h2 style="margin:0">Kosz</h2><span class="dim">${pliki.length} ${odmiana(pliki.length, ['plik', 'pliki', 'plików'])} · każdy wraca dokładnie tam, skąd przyszedł</span></div>
+      ${pliki.length ? pliki.map((x, i) => `<div class="zd-wiersz"><div style="min-width:0"><div class="t" title="${esc(x.skad)}">${esc(x.skad)}</div><div class="s">${fmtMb(x.mb)} · usunięty ${esc(dataKrotka(x.kiedy * 1000))} ${esc(godzina(x.kiedy * 1000))}</div></div>
+        ${x.wrocil ? '<span class="ok">✓ wrócił</span>' : `<button class="btn sr" data-kosz="${i}">Przywróć</button>`}</div>`).join('') : '<div class="zd-pusto">kosz jest pusty</div>'}</div>`;
+  };
+  rysuj();
+  sheet.addEventListener('click', async e => {
+    const b = e.target.closest('[data-kosz]'); if(!b) return;
+    const x = pliki[Number(b.dataset.kosz)]; b.disabled = true;
+    try{ await api('/api/tracks/przywroc', {method: 'POST', body: {w_koszu: x.w_koszu}}); x.wrocil = true; S.uniewaznTracks(); zdrowie.kiedy = 0; }
+    catch(err){ b.disabled = false; }
+    rysuj();
+  });
 }
 
 async function zdOkladka(btn, plik){
   return zajety(btn, 'szukam…', async () => {
     const r = await api('/api/covers/fill?file=' + encodeURIComponent(plik), {method: 'POST', cicho: true});
     const w = btn.closest('.zd-wiersz');
-    if(w){ w.querySelector('.s').innerHTML = `<span class="ok">✓ ${esc(r.desc || 'okładka zapisana')}</span>`; btn.replaceWith(Object.assign(document.createElement('span'), {className: 'ok', textContent: '✓', style: 'font-size:13px'})); }
+    const kopie = r.kopii ? ` · także ${r.kopii} ${odmiana(r.kopii, ['kopia', 'kopie', 'kopii'])} w setach` : '';
+    if(w){ w.querySelector('.s').innerHTML = `<span class="ok">✓ ${esc(r.desc || 'okładka zapisana')}${esc(kopie)}</span>`; btn.replaceWith(Object.assign(document.createElement('span'), {className: 'ok', textContent: '✓', style: 'font-size:13px'})); }
     return true;
   }).catch(e => {
     const w = btn.closest('.zd-wiersz');
@@ -502,7 +586,7 @@ S.ekran('zdrowie', {
     host.innerHTML = `
       <div class="naglowek">
         <div><h1>Zdrowie</h1><div class="sub" id="zdSub">…</div></div>
-        <div class="akcje" style="gap:16px"><button class="btn" id="zdSkanuj" title="pełne sprawdzenie plików od nowa">Skanuj ponownie</button></div>
+        <div class="akcje" style="gap:16px"><button class="btn" id="zdKosz" title="pliki przeniesione do kosza — przywróć, jeśli trzeba">Kosz</button><button class="btn" id="zdSkanuj" title="pełne sprawdzenie plików od nowa">Skanuj ponownie</button></div>
       </div>
       <div class="kafle c4" id="zdKafle"></div>
       <div class="zd-siatka">
@@ -513,11 +597,17 @@ S.ekran('zdrowie', {
       </div>`;
 
     on(host, 'click', '#zdSkanuj', (e, el) => bezpiecznie(() => zajety(el, 'skanuję…', () => zdLoad(host, true))));
+    on(host, 'click', '#zdKosz', () => bezpiecznie(() => pokazKosz(host)));
     on(host, 'click', '#zdDedupe', (e, el) => {
-      const n = (zd.dedupe && zd.dedupe.actions || []).reduce((s, a) => s + (a.remove || []).length, 0);
+      const akcje = (zd.dedupe && zd.dedupe.actions) || [];
+      const doKosza = akcje.flatMap(a => a.remove || []);
+      const n = doKosza.length;
       potwierdz(el, `Na pewno? ${n} ${odmiana(n, ['kopia', 'kopie', 'kopii'])} → kosz`, () => bezpiecznie(() => zajety(el, 'przenoszę do kosza…', async () => {
-        const r = await api('/api/dedupe/apply', {method: 'POST'});
-        toast(`przeniesiono ${r.moved} do kosza · odzyskano ${pl(r.reclaimed_mb)} MB`, 'ok');
+        // wykonujemy DOKŁADNIE to, co jest na ekranie — nie plan liczony od nowa
+        const r = await api('/api/dedupe/apply', {method: 'POST', body: {remove: doKosza}});
+        const wKoszu = (r.przeniesione || []).map(x => x.w_koszu);
+        toastCofnij(`przeniesiono ${r.moved} do kosza · odzyskano ${pl(r.reclaimed_mb)} MB`, wKoszu,
+                    () => { S.uniewaznTracks(); S.pollLiczniki(); zdLoad(host, true); });
         S.uniewaznTracks(); S.pollLiczniki();
         await zdLoad(host, true);
       })));
@@ -562,7 +652,7 @@ function uchWiersz(u){
   return `<div class="uch-wiersz w${w}" data-file="${esc(u.file)}">
     <span class="znak ${UCH_KL[w]}">${UCH_ZNAK[w]}</span>
     <img class="okladka" src="/api/cover?file=${encodeURIComponent(u.file)}" alt="" loading="lazy">
-    <div style="min-width:0"><div class="t" title="${esc(u.file)}">${esc(tytul)}<span>${esc(u.artist || '')}</span></div>
+    <div style="min-width:0"><div class="t" title="${esc(u.file)}">${esc(tytul)}<span>${esc(u.artist || '')}${u.kopii > 1 ? ` · ${u.kopii} identyczne kopie w bibliotece` : ''}</span></div>
       <ul class="powody">${(u.powody || []).map(p => `<li class="${UCH_KL[p.waga] || 'dim'}">– ${esc(p.opis)}</li>`).join('')}</ul></div>
     <span class="bpm">${u.bpm ? pl(u.bpm) : '—'}</span>
     <span class="cam" ${cam}>${esc(u.camelot || '—')}</span>
@@ -576,9 +666,13 @@ function uchRysuj(host){
   const n3 = u.filter(x => x.waga === 3).length, n2 = u.filter(x => x.waga === 2).length, n1 = u.filter(x => x.waga === 1).length;
   uch.mapa = new Map(u.map(x => [x.file, x]));
 
-  $('#uchSub', host).textContent = u.length
+  const bezTempa = d.bez_sprawdzenia_tempa || 0;
+  $('#uchSub', host).textContent = (u.length
     ? `${u.length} ${odmiana(u.length, ['utwór', 'utwory', 'utworów'])} do sprawdzenia · najpilniejsze na górze · apka podaje tempo i tonację, ale nie zawsze jest ich pewna — posłuchaj, zanim trafią do setu`
-    : `Nic do sprawdzania — ${d.sprawdzonych} ${odmiana(d.sprawdzonych, ['utwór', 'utwory', 'utworów'])} z pewnymi wynikami${d.bez_analizy ? ` · ${d.bez_analizy} jeszcze bez analizy (uruchom „Analizuj” w Bibliotece)` : ''}`;
+    : `Nic do sprawdzania — ${d.sprawdzonych} ${odmiana(d.sprawdzonych, ['utwór', 'utwory', 'utworów'])} z pewnymi wynikami${d.bez_analizy ? ` · ${d.bez_analizy} jeszcze bez analizy (uruchom „Analizuj” w Bibliotece)` : ''}`)
+    + (bezTempa ? ` · ${bezTempa} bez sprawdzenia stabilności tempa — zmienne tempo wyjdzie dopiero po „Sprawdź tempo”` : '');
+  const bt = $('#uchTempo', host);
+  if(bt){ bt.hidden = !bezTempa; if(!bt.disabled) bt.textContent = `Sprawdź tempo (${bezTempa})`; }
   $('#uchKafle', host).innerHTML =
     kafel(n3, 'NIE GRAJ BEZ SPRAWDZENIA', n3 ? 'bad' : '') +
     kafel(n2, 'SPRAWDŹ PRZY OKAZJI', n2 ? 'warn' : '') +
@@ -663,6 +757,7 @@ S.ekran('uchem', {
         <div><h1>Sprawdź uchem</h1><div class="sub" id="uchSub">…</div></div>
         <div class="akcje" style="gap:16px">
           <div class="seg" id="uchSeg"><button data-w="0" class="on">Wszystkie <span class="dim"></span></button><button data-w="3" title="nie graj bez sprawdzenia">‼ <span class="dim"></span></button><button data-w="2" title="sprawdź przy okazji">! <span class="dim"></span></button><button data-w="1" title="drobiazgi">· <span class="dim"></span></button></div>
+          <button class="btn" id="uchTempo" hidden title="sprawdza, czy tempo trzyma się przez cały utwór — po kolei, utwór po utworze">Sprawdź tempo</button>
           <button class="btn" id="uchOdswiez" title="czyta wyłącznie pamięć podręczną analiz — niczego nie liczy">Odśwież</button>
         </div>
       </div>
@@ -670,6 +765,22 @@ S.ekran('uchem', {
       <div class="panel lista" id="uchLista"></div>`;
     on(host, 'click', '#uchSeg button', (e, el) => { uch.filtr = Number(el.dataset.w); uchRysuj(host); });
     on(host, 'click', '#uchOdswiez', (e, el) => bezpiecznie(() => zajety(el, '…', () => uchOdswiez(host))));
+    on(host, 'click', '#uchTempo', (e, el) => bezpiecznie(async () => {
+      // stabilność tempa liczy się osobno — po jednym utworze, żeby nie
+      // trzymać jednego długiego zapytania (i żeby było widać postęp)
+      const d = await api('/api/uchem/bez-tempa');
+      const pliki = d.pliki || [];
+      el.disabled = true;
+      let ok = 0;
+      try{
+        for(let i = 0; i < pliki.length; i++){
+          el.innerHTML = `<span class="spin"></span> tempo ${i + 1}/${pliki.length}`;
+          try{ await api('/api/tempo', {method: 'POST', body: {file: pliki[i]}, cicho: true}); ok++; }catch(err){}
+        }
+      } finally { el.disabled = false; }
+      toast(`sprawdzono tempo w ${ok} ${odmiana(ok, ['utworze', 'utworach', 'utworach'])}`, 'ok');
+      await uchOdswiez(host);
+    }));
     on(host, 'click', '.uch-wiersz .graj', (e, el) => { const u = uch.mapa.get(el.dataset.graj) || {}; grajPlik(el.dataset.graj, {title: u.title, artist: u.artist, bpm: u.bpm, camelot: u.camelot}); });
     on(host, 'click', '[data-szczegoly]', (e, el) => { const u = uch.mapa.get(el.closest('.uch-wiersz').dataset.file); if(u) otworzSzczegoly(u); });
     // brak okładki w tagach = 404 → zamiast pustego obrazka pokaż wzorek z projektu
@@ -768,7 +879,9 @@ function rdZSerwera(d){
 }
 async function rdSprawdz(host, btn, limit){
   await zajety(btn, limit > 10 ? `pytam Beatport i Bandcamp o ${limit} artystów…` : 'pytam Beatport i Bandcamp…', async () => {
-    const d = await api('/api/radar/sprawdz', {method: 'POST', body: {limit, offset: 0}});
+    // „Sprawdź teraz” idzie dalej po liście artystów (serwer pamięta, gdzie
+    // skończył); „sprawdź wszystkich” zaczyna od początku
+    const d = await api('/api/radar/sprawdz', {method: 'POST', body: limit > 10 ? {limit, offset: 0} : {limit}});
     const nowe = d.new || [];
     rdZSerwera(await api('/api/radar', {cicho: true}));
     toast(nowe.length ? `${nowe.length} ${odmiana(nowe.length, ['nowe wydanie', 'nowe wydania', 'nowych wydań'])} · sprawdzono ${d.checked} z ${d.total_artists} artystów`

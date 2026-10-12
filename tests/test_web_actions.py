@@ -108,10 +108,14 @@ def test_usb_endpoint(client, tmp_path):
 
 
 def test_redownload_queues_wishlist(client):
-    r = client.post("/api/redownload", json={"file": "Artysta X - Zaginiony.flac"})
+    # wpis z TAGÓW istniejącego pliku (Odymel / Gucci), nie z nazwy pliku;
+    # nieistniejący plik to błąd, a nie śmieciowy wpis na liście życzeń
+    r = client.post("/api/redownload", json={"file": GOOD_FLAC})
     assert r.status_code == 200
     items = client.get("/api/wishlist").json()["items"]
-    assert any(i["artist"] == "Artysta X" for i in items)
+    assert any(i["artist"] == "Odymel" and i["title"] == "Gucci" for i in items)
+    r = client.post("/api/redownload", json={"file": "Artysta X - Zaginiony.flac"})
+    assert r.status_code == 404
 
 
 def test_redownload_bierze_tagi_a_nie_numer_sciezki(client, lib_copy):
@@ -122,7 +126,7 @@ def test_redownload_bierze_tagi_a_nie_numer_sciezki(client, lib_copy):
     assert r.status_code == 200
     assert (r.json()["artist"], r.json()["title"]) == ("Odymel", "Gucci")
     r = client.post("/api/redownload", json={"file": "07 - Zaginiony Utwór.flac"})
-    assert r.json()["artist"] == "" and r.json()["title"] == "Zaginiony Utwór"
+    assert r.status_code == 404, "nieistniejący plik — nie tworzymy wpisu bez artysty"
     tytuly = [i["title"] for i in client.get("/api/wishlist").json()["items"]]
     assert tytuly.count("Gucci") == 1
 

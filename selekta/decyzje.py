@@ -89,6 +89,14 @@ def _opis_pliku(path: str) -> dict:
     # bezstratność bierzemy z rozszerzenia — QualityReport jej nie podaje,
     # a to ono decyduje, czy plik w ogóle może być bezstratny
     lossless = path.lower().endswith((".flac", ".wav", ".aiff", ".aif", ".alac", ".ape"))
+    # integralność: ucięty FLAC ma „prawdziwe” pasmo i jakość „ok”, ale gra
+    # pół utworu — bez tej kontroli Porządki proponowały zamianę zdrowego MP3
+    # na uszkodzony FLAC (ta sama kontrola co na ekranie Zdrowie)
+    try:
+        from . import health
+        integ = health.integralnosc(path)
+    except Exception:                         # noqa: BLE001
+        integ = {"ok": True, "opis": ""}
     return {
         "path": path,
         "nazwa": os.path.basename(path),
@@ -100,20 +108,28 @@ def _opis_pliku(path: str) -> dict:
         "pasmo_khz": (round(q["cutoff_hz"] / 1000, 1) if q.get("cutoff_hz") else None),
         "bitrate": (round(rozmiar * 8 / 1000 / czas) if czas else None),
         "lossless": lossless,
+        "uszkodzony": not integ.get("ok", True),
+        "integralnosc": integ.get("opis", ""),
     }
+
+
+def _ranga(o: dict) -> tuple:
+    """Klucz sortowania kopii (mniejszy = lepsza). Uszkodzona zawsze na końcu."""
+    return (bool(o.get("uszkodzony")),
+            not o.get("lossless"),
+            {"ok": 0, "warn": 1, "bad": 2}.get(o.get("jakosc"), 3),
+            -(o.get("bitrate") or 0), -o.get("mb", 0),
+            _nazwa_kopii(o.get("path", "")), o.get("path", ""))
+
+
+def _nazwa_kopii(path: str) -> bool:
+    from .health import nazwa_kopii
+    return nazwa_kopii(path)
 
 
 def _lepszy(a: dict, b: dict) -> bool:
     """Czy `a` jest lepszą kopią niż `b`."""
-    if bool(a.get("lossless")) != bool(b.get("lossless")):
-        return bool(a.get("lossless"))
-    porzadek = {"ok": 0, "warn": 1, "bad": 2, None: 3}
-    ga, gb = porzadek.get(a.get("jakosc"), 3), porzadek.get(b.get("jakosc"), 3)
-    if ga != gb:
-        return ga < gb
-    if (a.get("bitrate") or 0) != (b.get("bitrate") or 0):
-        return (a.get("bitrate") or 0) > (b.get("bitrate") or 0)
-    return a.get("mb", 0) > b.get("mb", 0)
+    return _ranga(a) < _ranga(b)
 
 
 def _tagi(path: str) -> tuple[str, str]:
@@ -137,30 +153,33 @@ def _grupuj(folder: str) -> dict[tuple, list[str]]:
     jako „01 - Tytul.flac" i „Artysta - Tytul [www.dj-promo.org].mp3" —
     gdyby liczyła się nazwa, żaden z tych duplikatów by się nie połączył,
     a to właśnie one są sensem tej funkcji. Nazwy używamy tylko wtedy,
-    gdy tagów brak.
+    gdy tagów brak. Reguła jest wspólna ze Zdrowiem (``health.klucz_utworu``):
+    wersję czytamy z tagów I z nazwy pliku, a dwie wersje są tą samą tylko
+    wtedy, gdy są równe — „Original Mix” nie jest kopią „Extended Mix”.
+
+    Pliki w folderach setów nie biorą udziału — to zawartość setów, nie
+    zbędne kopie; zatwierdzenie propozycji rozbiłoby set.
     """
+    from .health import klucz_utworu
+    from .uklad import wczytaj
+    uklad = wczytaj(folder)
     grupy: dict[tuple, list[str]] = {}
     for path in matcher.audio_files(folder):
         if os.sep + KOSZ + os.sep in path or os.path.basename(
                 os.path.dirname(path)) == KOSZ:
             continue                          # kosza nie skanujemy
+        if uklad.w_secie(path):
+            continue                          # kopie w setach są nietykalne
         artysta, tytul = _tagi(path)
-        stem = os.path.splitext(os.path.basename(path))[0]
-        if artysta and tytul:
-            tokeny = matcher.normalize(artysta) + matcher.normalize(tytul)
-        else:
-            tokeny = matcher.normalize(stem)
-        rdzen = frozenset(t for t in tokeny if t not in matcher.MIX_WORDS)
-        if not rdzen:
+        klucz = klucz_utworu(path, artysta, tytul)
+        if klucz is None:
             continue
-        # WERSJĘ czytamy z tagów I z nazwy pliku naraz. Dopisek „(Club Mix)"
-        # albo „(Oski & Citos Bootleg)" bywa wyłącznie w nazwie, a tag
-        # zawiera goły tytuł — samo poleganie na tagach kazałoby uznać
-        # bootleg za kopię oryginału i zaproponować skasowanie jednego z nich.
-        wersja = (matcher.mix_signature(tokeny)
-                  | matcher.mix_signature(matcher.normalize(stem)))
-        grupy.setdefault((rdzen, frozenset(wersja)), []).append(path)
+        grupy.setdefault(klucz, []).append(path)
     return _rozdziel_po_czasie(grupy)
+
+
+#: ta sama tolerancja co na ekranie Zdrowie (health.DUP_MAX_DELTA_S)
+TOLERANCJA_CZASU_S = 2.0
 
 
 def _rozdziel_po_czasie(grupy: dict[tuple, list[str]]) -> dict[tuple, list[str]]:
@@ -168,7 +187,8 @@ def _rozdziel_po_czasie(grupy: dict[tuple, list[str]]) -> dict[tuple, list[str]]
 
     Ten sam tytuł u tego samego wykonawcy potrafi oznaczać dwie rzeczy:
     wersję radiową i klubową. Kopia to kopia dopiero wtedy, gdy trwa tyle
-    samo — inaczej zaproponowalibyśmy skasowanie innego miksu.
+    samo (do 2 s, jak w Zdrowiu — wcześniej 15 s łączyło różne edycje
+    i ucięte kopie). Plik bez znanego czasu nie jest z niczym łączony.
     """
     wynik: dict[tuple, list[str]] = {}
     for klucz, pliki in grupy.items():
@@ -180,11 +200,11 @@ def _rozdziel_po_czasie(grupy: dict[tuple, list[str]]) -> dict[tuple, list[str]]
             _tok, czas = matcher._file_tokens(p)
             czasy[p] = czas
         kubelki: list[list[str]] = []
-        for p in sorted(pliki, key=lambda x: czasy[x] or 0):
+        for p in sorted(pliki, key=lambda x: (czasy[x] is None, czasy[x] or 0, x)):
             for kubelek in kubelki:
                 wzorzec = czasy[kubelek[0]]
-                if (czasy[p] is None or wzorzec is None
-                        or abs((czasy[p] or 0) - (wzorzec or 0)) <= 15):
+                if (czasy[p] is not None and wzorzec is not None
+                        and abs(czasy[p] - wzorzec) <= TOLERANCJA_CZASU_S):
                     kubelek.append(p)
                     break
             else:
@@ -208,21 +228,27 @@ def skanuj(folder: str) -> list[dict]:
         if len(pliki) < 2:
             continue
         opisy = [_opis_pliku(p) for p in pliki]
-        opisy.sort(key=lambda o: (not o.get("lossless"),
-                                  {"ok": 0, "warn": 1, "bad": 2}.get(o.get("jakosc"), 3),
-                                  -(o.get("bitrate") or 0), -o.get("mb", 0)))
+        opisy.sort(key=_ranga)
         najlepszy, reszta = opisy[0], opisy[1:]
+        if najlepszy.get("uszkodzony"):
+            continue                          # wszystkie kopie uszkodzone — nie ma czego zostawić
         ident = _klucz(najlepszy["path"])
         if ident in znane:
             continue
         rodzaj = ("podmiana" if any(bool(najlepszy.get("lossless")) !=
-                                    bool(o.get("lossless")) for o in reszta)
+                                    bool(o.get("lossless")) for o in reszta
+                                    if not o.get("uszkodzony"))
                   else "duplikat")
         if rodzaj == "podmiana":
             powod = (f"{najlepszy['format']} jest lepszy niż "
                      f"{', '.join(sorted({o['format'] for o in reszta}))}")
         else:
             powod = f"{len(reszta)+1} kopie tego samego utworu"
+        uszkodzone = [o for o in reszta if o.get("uszkodzony")]
+        if uszkodzone:
+            powod += (f" — {len(uszkodzone)} z nich "
+                      f"{'jest uszkodzona' if len(uszkodzone) == 1 else 'są uszkodzone'}"
+                      f" ({uszkodzone[0].get('integralnosc', '')})")
         nowe.append(asdict(Decyzja(
             id=ident, rodzaj=rodzaj, zostaw=najlepszy["path"],
             usun=[o["path"] for o in reszta], powod=powod,
@@ -248,24 +274,32 @@ def _wolna_nazwa(katalog: str, nazwa: str) -> str:
 
 
 def zatwierdz(ident: str) -> dict:
-    """Wykonaj decyzję: przenieś odrzucone kopie do kosza (odwracalne)."""
+    """Wykonaj decyzję: przenieś odrzucone kopie do kosza (odwracalne).
+
+    Zapamiętujemy PARY (skąd → dokąd). Dawniej cofnięcie parowało listę
+    plików w koszu z listą „do usunięcia” po pozycji — gdy jeden plik zniknął
+    przed zatwierdzeniem, pozostałe wracały pod cudze nazwy.
+    """
+    from . import kosz
     dane = _wczytaj()
     for d in dane:
         if d["id"] != ident:
             continue
         if d["stan"] != "czeka":
             raise ValueError(f"ta decyzja jest już {d['stan']}")
-        przeniesione = []
+        zostaw = d.get("zostaw")
+        if zostaw and not os.path.isfile(zostaw):
+            raise ValueError("kopia, która miała zostać, zniknęła — przeskanuj ponownie")
+        przeniesione, pary = [], []
         for src in d["usun"]:
             if not os.path.isfile(src):
                 continue
-            katalog = _kosz_dla(src)
-            os.makedirs(katalog, exist_ok=True)
-            cel = _wolna_nazwa(katalog, os.path.basename(src))
-            shutil.move(src, cel)
+            cel = kosz.do_kosza(src)
             przeniesione.append(cel)
+            pary.append({"z": src, "do": cel})
         d["stan"] = "zatwierdzona"
         d["w_koszu"] = przeniesione
+        d["przeniesienia"] = pary
         _zapisz(dane)
         return d
     raise KeyError("nie ma takiej decyzji")
@@ -283,19 +317,40 @@ def odrzuc(ident: str) -> dict:
 
 
 def cofnij(ident: str) -> dict:
-    """Przywróć pliki z kosza tam, skąd zostały wzięte."""
+    """Przywróć pliki z kosza tam, skąd zostały wzięte — albo pominiętą
+    decyzję z powrotem do kolejki."""
+    from . import kosz
     dane = _wczytaj()
     for d in dane:
         if d["id"] != ident:
             continue
+        if d["stan"] == "odrzucona":
+            d["stan"] = "czeka"               # pominięta wraca do rozpatrzenia
+            _zapisz(dane)
+            return d
         if d["stan"] != "zatwierdzona":
-            raise ValueError("cofnąć można tylko zatwierdzoną decyzję")
-        for src, cel in zip(d.get("w_koszu", []), d["usun"]):
+            raise ValueError("cofnąć można tylko zatwierdzoną albo pominiętą decyzję")
+        pary = d.get("przeniesienia")
+        if pary is None:                      # decyzje zapisane przed poprawką
+            pary = [{"z": kosz.skad(c), "do": c} for c in d.get("w_koszu", [])]
+        nie_wrocily = []
+        for para in pary:
+            src, cel = para["do"], para["z"]
             if os.path.isfile(src) and not os.path.exists(cel):
                 os.makedirs(os.path.dirname(cel), exist_ok=True)
-                shutil.move(src, cel)
+                try:
+                    if kosz.w_koszu(src) and os.path.abspath(kosz.skad(src)) == os.path.abspath(cel):
+                        kosz.przywroc(src)
+                    else:
+                        shutil.move(src, cel)
+                except (OSError, ValueError):
+                    nie_wrocily.append(cel)
+            elif not os.path.exists(cel):
+                nie_wrocily.append(cel)
         d["stan"] = "czeka"
         d["w_koszu"] = []
+        d["przeniesienia"] = []
+        d["nie_wrocily"] = nie_wrocily
         _zapisz(dane)
         return d
     raise KeyError("nie ma takiej decyzji")

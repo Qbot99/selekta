@@ -55,8 +55,9 @@ def test_verify_reports_quality(lib_copy):
 
 
 @pytest.mark.slow
-def test_health_finds_duplicate(lib_copy):
-    r = run("health", "--folder", lib_copy)
+def test_health_finds_duplicate(lib_copy, tmp_path_factory):
+    # osobny HOME: skan zdrowia zapamiętuje wynik dekodowania w ~/.selekta/cache
+    r = run("health", "--folder", lib_copy, env_home=str(tmp_path_factory.mktemp("home")))
     assert r.returncode == 0
     assert "Duplikaty" in r.stdout and "Gucci" in r.stdout
 
@@ -83,8 +84,8 @@ def test_tagfix_preview_shows_repair(lib_copy):
     assert "ÅMRTÜM" in r.stdout and "podgląd" in r.stdout
 
 
-def test_dedupe_preview(lib_copy):
-    r = run("dedupe", "--folder", lib_copy)
+def test_dedupe_preview(lib_copy, tmp_path_factory):
+    r = run("dedupe", "--folder", lib_copy, env_home=str(tmp_path_factory.mktemp("home")))
     assert r.returncode == 0
     assert "zachowa" in r.stdout  # "zachowaj:"/"zachowano"
 
@@ -116,7 +117,10 @@ def test_organize_apply_text_source(lib_copy, tmp_path):
     (syntetyczne id → cover_bytes musi zwrócić None, nie wyjątek)."""
     src = tmp_path / "lista.txt"
     src.write_text("Odymel - Gucci\n", encoding="utf-8")
-    r = run("organize", str(src), "--folder", lib_copy, "--apply")
+    # osobny HOME: --apply zapisuje dziennik cofania w ~/.selekta — bez tego
+    # podproces pisał do prawdziwego stanu użytkownika
+    r = run("organize", str(src), "--folder", lib_copy, "--apply",
+            env_home=str(tmp_path / "home"))
     assert r.returncode == 0, r.stderr
     assert os.path.isfile(os.path.join(lib_copy, "Odymel - Gucci.flac"))
 

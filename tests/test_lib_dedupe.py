@@ -81,7 +81,8 @@ def test_apply_moves_remove_to_trash(lib_copy, tmp_path):
     # keep nietknięty, remove przeniesiony (nie skasowany)
     assert os.path.isfile(flac)
     assert not os.path.exists(wav)
-    assert os.listdir(trash) == [DUP_WAV_NAME]
+    # poza plikiem w koszu leży tylko ukryta notka „skąd przyszedł”
+    assert [n for n in os.listdir(trash) if not n.startswith(".")] == [DUP_WAV_NAME]
     assert result["błędy"] == []
     assert result["przeniesione"] == [(wav, os.path.join(trash, DUP_WAV_NAME))]
     assert result["odzyskane_MB"] == round(wav_size / 1_000_000, 2)
@@ -101,7 +102,8 @@ def test_apply_trash_name_collision(lib_copy, tmp_path):
     (src, dest), = result["przeniesione"]
     assert src == wav
     stem, ext = os.path.splitext(DUP_WAV_NAME)
-    assert os.path.basename(dest) == f"{stem} (1){ext}"
+    # ta sama konwencja co w Bibliotece i Porządkach: „ (2)”
+    assert os.path.basename(dest) == f"{stem} (2){ext}"
     # istniejący plik w koszu nie został nadpisany
     assert (trash / DUP_WAV_NAME).read_bytes() == b"zajete"
 

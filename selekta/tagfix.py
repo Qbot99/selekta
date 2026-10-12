@@ -222,50 +222,90 @@ def looks_mojibake(text: str) -> bool:
     return repaired is not None and _mojibake_score(repaired) < _mojibake_score(text)
 
 
+def _repair_po_kawalku(text: str) -> str | None:
+    """Napraw napis mieszany: krzaczki obok poprawnych liter.
+
+    „Ã…MRTÃœM & Öwes” nie da się odwrócić w całości — poprawne „Ö” po
+    ponownym zakodowaniu psuje UTF-8 — więc naprawiamy każde słowo osobno
+    i zostawiamy w spokoju te, które krzaczkami nie są.
+    """
+    czesci = re.split(r"(\s+)", text)
+    zmienione = False
+    for i, cz in enumerate(czesci):
+        if cz and not cz.isspace() and _mojibake_score(cz) > 0:
+            nowa = _decode_repair(cz)
+            if nowa is not None and _mojibake_score(nowa) < _mojibake_score(cz):
+                czesci[i] = nowa
+                zmienione = True
+    return "".join(czesci) if zmienione else None
+
+
 def repair(text: str) -> str:
     """Zwróć naprawioną wersję napisu lub oryginał, jeśli nie ma mojibake.
 
     Bezpieczne dla poprawnych napisów: ``repair("Öwes") == "Öwes"``,
     ``repair("Beyoncé") == "Beyoncé"``. Uszkodzone napisy są odwracane,
-    np. ``repair("Ã…MRTÃœM") == "ÅMRTÜM"``.
+    np. ``repair("Ã…MRTÃœM") == "ÅMRTÜM"``; mieszane — słowo po słowie
+    (``"Ã…MRTÃœM & Öwes"`` → ``"ÅMRTÜM & Öwes"``).
     """
-    if not text or not looks_mojibake(text):
+    if not text:
         return text
-    repaired = _decode_repair(text)
-    return repaired if repaired is not None else text
+    if looks_mojibake(text):
+        repaired = _decode_repair(text)
+        if repaired is not None:
+            return repaired
+    if _mojibake_score(text) > 0 or any(m in text for m in MOJIBAKE_MARKERS):
+        po_kawalku = _repair_po_kawalku(text)
+        if po_kawalku is not None:
+            return po_kawalku
+    return text
 
 
-def _read_fields(path: str) -> dict[str, str]:
-    """Odczytaj ARTIST/TITLE/ALBUM niezależnie od formatu pliku.
+def _read_values(path: str) -> dict[str, list[str]]:
+    """Odczytaj ARTIST/TITLE/ALBUM jako LISTY wartości, niezależnie od formatu.
 
-    Zwraca słownik {pole: wartość} tylko dla obecnych, niepustych pól.
-    Błędy odczytu tagów są ignorowane (zwracany pusty słownik).
+    Tag bywa wielowartościowy (ARTIST=['Maddix', 'Feles']). Czytanie tylko
+    pierwszej wartości i zapis jednej gubiło drugiego artystę przy naprawie.
     """
     ext = os.path.splitext(path)[1].lower()
-    values: dict[str, str] = {}
+    values: dict[str, list[str]] = {}
     try:
         if ext in _VORBIS_EXT:
             audio = FLAC(path) if ext == ".flac" else OggVorbis(path)
             for field in FIELDS:
                 val = audio.get(field) or audio.get(field.lower())
                 if val:
-                    values[field] = str(val[0])
+                    values[field] = [str(v) for v in val]
         elif ext in _MP4_EXT:
             audio = MP4(path)
             for field, key in _MP4_MAP.items():
                 val = audio.get(key)
                 if val:
-                    values[field] = str(val[0])
+                    values[field] = [str(v) for v in val]
         elif ext in _ID3_EXT:
             tags = _load_id3(path, ext)
             if tags is not None:
                 for field, key in _ID3_KEYS.items():
                     frame = tags.get(key)
                     if frame is not None and getattr(frame, "text", None):
-                        values[field] = str(frame.text[0])
+                        values[field] = [str(v) for v in frame.text]
     except Exception:
         return {}
     return values
+
+
+def _pokaz(wartosci: list[str]) -> str:
+    return "; ".join(wartosci)
+
+
+def _read_fields(path: str) -> dict[str, str]:
+    """Odczytaj ARTIST/TITLE/ALBUM niezależnie od formatu pliku.
+
+    Zwraca słownik {pole: wartość} tylko dla obecnych, niepustych pól; pole
+    wielowartościowe jako „a; b”. Błędy odczytu tagów są ignorowane (zwracany
+    pusty słownik).
+    """
+    return {k: _pokaz(v) for k, v in _read_values(path).items()}
 
 
 def _load_id3(path: str, ext: str) -> ID3 | None:
@@ -281,80 +321,82 @@ def _load_id3(path: str, ext: str) -> ID3 | None:
 
 
 def _iter_audio(folder: str) -> list[str]:
-    """Ścieżki plików audio w folderze i podfolderach jednego poziomu."""
-    paths: list[str] = []
+    """Utwory biblioteki — ten sam zbiór co lista utworów (``matcher.audio_files``).
+
+    Wcześniej: tylko jeden poziom podfolderów (pomijało pobrania Soulseeka
+    w katalogach album/CD) i bez pomijania ``_selekta_kosz`` (naprawiało
+    pliki w koszu). Kopie w folderach setów naprawiamy razem z utworem
+    (``kopie_do_naprawy``), więc nie liczą się tu osobno.
+    """
+    from .matcher import audio_files
     try:
-        entries = sorted(os.scandir(folder), key=lambda e: e.name)
-    except OSError:
-        return paths
-    subdirs: list[str] = []
-    for entry in entries:
-        if entry.is_file() and entry.name.lower().endswith(AUDIO_EXT):
-            paths.append(entry.path)
-        elif entry.is_dir():
-            subdirs.append(entry.path)
-    for sub in subdirs:
-        try:
-            for entry in sorted(os.scandir(sub), key=lambda e: e.name):
-                if entry.is_file() and entry.name.lower().endswith(AUDIO_EXT):
-                    paths.append(entry.path)
-        except OSError:
-            continue
-    return paths
+        return audio_files(folder)
+    except (FileNotFoundError, OSError):
+        return []
 
 
 def scan(folder: str) -> list[tuple[str, str, str, str]]:
     """Przeskanuj bibliotekę pod kątem mojibake w tagach.
 
-    Przechodzi pliki audio w ``folder`` i podfolderach jednego poziomu.
+    Przechodzi utwory biblioteki (wszystkie podfoldery, bez kosza).
     Zwraca listę krotek ``(ścieżka, pole, obecna_wartość, sugerowana_wartość)``
     dla pól ARTIST/TITLE/ALBUM, w których wykryto mojibake.
     """
     hits: list[tuple[str, str, str, str]] = []
     for path in _iter_audio(folder):
-        fields = _read_fields(path)
-        for field in FIELDS:
-            value = fields.get(field)
-            if value and looks_mojibake(value):
-                fixed = repair(value)
-                if fixed != value:
-                    hits.append((path, field, value, fixed))
-    return hits
+        for field, values in _read_values(path).items():
+            fixed = [repair(v) for v in values]
+            if fixed != values:
+                hits.append((path, field, _pokaz(values), _pokaz(fixed)))
+    order = {f: i for i, f in enumerate(FIELDS)}
+    return sorted(hits, key=lambda h: (h[0], order.get(h[1], 9)))
 
 
-def _write_fields(path: str, ext: str, fixes: dict[str, str]) -> None:
-    """Zapisz naprawione pola do pliku (format wybierany po rozszerzeniu)."""
-    if ext in _VORBIS_EXT:
-        audio = FLAC(path) if ext == ".flac" else OggVorbis(path)
-        for field, new in fixes.items():
-            audio[field] = new
-        audio.save()
-    elif ext in _MP4_EXT:
-        audio = MP4(path)
-        for field, new in fixes.items():
-            audio[_MP4_MAP[field]] = [new]
-        audio.save()
-    elif ext in _ID3_EXT:
-        if ext == ".wav":
-            container = WAVE(path)
-            if container.tags is None:
-                container.add_tags()
-            tags = container.tags
-        elif ext in (".aiff", ".aif"):
-            container = AIFF(path)
-            if container.tags is None:
-                container.add_tags()
-            tags = container.tags
-        else:  # .mp3
-            try:
-                tags = ID3(path)
-            except ID3NoHeaderError:
-                tags = ID3()
-            container = tags
-        for field, new in fixes.items():
-            frame_cls = _ID3_MAP[field]
-            tags.setall(_ID3_KEYS[field], [frame_cls(encoding=3, text=[new])])
-        container.save(path)
+def _write_fields(path: str, ext: str, fixes: dict[str, list[str]]) -> None:
+    """Zapisz naprawione pola do pliku (format wybierany po rozszerzeniu).
+
+    Wszystkie wartości pola wracają na miejsce (drugi artysta nie znika),
+    wersja ID3 zostaje taka, jaka była, a policzone analizy przechodzą na
+    nowy odcisk pliku (zapis tagu zmienia mtime, dźwięk zostaje ten sam).
+    """
+    from .tagger import zachowaj_analizy
+    fixes = {k: (v if isinstance(v, list) else [v]) for k, v in fixes.items()}
+    with zachowaj_analizy(path):
+        if ext in _VORBIS_EXT:
+            audio = FLAC(path) if ext == ".flac" else OggVorbis(path)
+            for field, new in fixes.items():
+                audio[field] = new
+            audio.save()
+        elif ext in _MP4_EXT:
+            audio = MP4(path)
+            for field, new in fixes.items():
+                audio[_MP4_MAP[field]] = new
+            audio.save()
+        elif ext in _ID3_EXT:
+            if ext == ".wav":
+                container = WAVE(path)
+                if container.tags is None:
+                    container.add_tags()
+                tags = container.tags
+            elif ext in (".aiff", ".aif"):
+                container = AIFF(path)
+                if container.tags is None:
+                    container.add_tags()
+                tags = container.tags
+            else:  # .mp3
+                try:
+                    tags = ID3(path)
+                except ID3NoHeaderError:
+                    tags = ID3()
+                container = tags
+            for field, new in fixes.items():
+                frame_cls = _ID3_MAP[field]
+                tags.setall(_ID3_KEYS[field], [frame_cls(encoding=3, text=new)])
+            wersja = 3 if getattr(tags, "version", (2, 4, 0))[1] == 3 else 4
+            if container is tags:
+                tags.save(path, v2_version=wersja)
+            else:
+                container.save(v2_version=wersja)
 
 
 def fix_file(path: str, dry_run: bool = True) -> list[tuple[str, str, str]]:
@@ -365,17 +407,41 @@ def fix_file(path: str, dry_run: bool = True) -> list[tuple[str, str, str]]:
     ``(pole, stare, nowe)``. Przy ``dry_run=False`` dodatkowo zapisuje je.
     """
     ext = os.path.splitext(path)[1].lower()
-    fields = _read_fields(path)
     changes: list[tuple[str, str, str]] = []
-    fixes: dict[str, str] = {}
+    fixes: dict[str, list[str]] = {}
+    wszystkie = _read_values(path)
     for field in FIELDS:
-        value = fields.get(field)
-        if not value:
+        values = wszystkie.get(field)
+        if not values:
             continue
-        fixed = repair(value)
-        if fixed != value:
-            changes.append((field, value, fixed))
+        fixed = [repair(v) for v in values]
+        if fixed != values:
+            changes.append((field, _pokaz(values), _pokaz(fixed)))
             fixes[field] = fixed
     if fixes and not dry_run:
         _write_fields(path, ext, fixes)
     return changes
+
+
+def napraw_utwory(folder: str, kopie=None) -> dict:
+    """Napraw wszystkie znalezione krzaczki — w utworze i w jego kopiach w setach.
+
+    ``kopie(path) -> list[str]`` podaje kopie utworu w folderach setów (z
+    ``uklad``); dostają te same poprawki, żeby set na pendrivie nie pokazywał
+    na CDJ-u krzaczków, które w bibliotece już naprawiono.
+    """
+    naprawione, kopii, bledy = [], 0, []
+    for path in dict.fromkeys(h[0] for h in scan(folder)):
+        try:
+            fix_file(path, dry_run=False)
+            naprawione.append(path)
+        except Exception as exc:               # noqa: BLE001
+            bledy.append((path, str(exc)))
+            continue
+        for k in (kopie(path) if kopie else []):
+            try:
+                if fix_file(k, dry_run=False):
+                    kopii += 1
+            except Exception:                  # noqa: BLE001
+                pass
+    return {"naprawione": naprawione, "kopii": kopii, "bledy": bledy}
