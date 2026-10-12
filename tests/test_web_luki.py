@@ -59,7 +59,7 @@ class TestHistoriaMetryki:
         s = sesje[0]
         assert s["sciezki"] == [a, b] and s["utworow"] == 2
         assert s["czas_s"] > 0
-        assert s["bpm_mediana"] in (126.0, 130.0)
+        assert s["bpm_mediana"] == 128.0      # prawdziwa mediana [126, 130]
         assert s["tonacje"] == ["7A", "9A"] and s["tonacje_opis"] == "7A → 9A"
 
 

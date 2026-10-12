@@ -39,11 +39,9 @@ class Sesja:
 
 
 def _sciezka_z_location(value: str) -> str:
-    if not value:
-        return ""
-    if value.startswith("file:"):
-        return urllib.parse.unquote(urllib.parse.urlparse(value).path)
-    return urllib.parse.unquote(value)
+    # ta sama funkcja co przy wymianie z rekordboxem — bez obcinania na „#"
+    from .rbimport import _sciezka_z_location as z_rekordboxa
+    return z_rekordboxa(value)
 
 
 def rozpoznaj_date(nazwa: str) -> str:
@@ -164,7 +162,9 @@ def dopisz(nowe: list[Sesja]) -> dict:
     znane = {(s.get("nazwa"), s.get("data")) for s in stare}
     dodane = [asdict(s) for s in nowe if (s.nazwa, s.data) not in znane]
     if dodane:
-        _zapisz(stare + dodane)
+        # chronologicznie — drugi plik ze STARSZĄ sesją nie może trafić na koniec
+        _zapisz(sorted(stare + dodane,
+                       key=lambda s: (s.get("data") or "0000", s.get("nazwa") or "")))
     return {"wczytane": len(nowe), "nowe": len(dodane),
             "juz_znane": len(nowe) - len(dodane), "razem": len(stare) + len(dodane)}
 
@@ -196,7 +196,10 @@ def podsumowanie(folder: str) -> dict:
         for a, b in zip(sciezki, sciezki[1:]):
             przejscia[(a, b)] += 1
 
-    w_bibliotece = matcher.audio_files(folder)
+    # ten sam indeks co eksport: kopia utworu w folderze setu nie jest
+    # osobnym utworem (dj_export.pliki_biblioteki)
+    from .dj_export import pliki_biblioteki
+    w_bibliotece = pliki_biblioteki(folder)
     grane = {p for p in licznik if os.path.isfile(p)}
     # rekordbox gra zwykle KOPIĘ z folderu setu — to ten sam utwór co jego
     # oryginał na liście biblioteki, więc oryginał nie jest „martwym balastem”
@@ -225,6 +228,8 @@ def podsumowanie(folder: str) -> dict:
         "ulubione_przejscia": [
             {"z": os.path.basename(a), "na": os.path.basename(b), "razy": n}
             for (a, b), n in przejscia.most_common(10) if n > 1],
-        "zakres_dat": [s.get("data") for s in zapisane if s.get("data")][:1]
-                      + [s.get("data") for s in reversed(zapisane) if s.get("data")][:1],
+        # najwcześniejsza i najpóźniejsza data, nie pierwsza i ostatnia na liście
+        "zakres_dat": ([min(daty), max(daty)]
+                       if (daty := [s.get("data") for s in zapisane if s.get("data")])
+                       else []),
     }

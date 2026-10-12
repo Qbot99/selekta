@@ -567,9 +567,19 @@ def audio_files(folder: str, kopie_w_setach: bool = False) -> list[str]:
 
 
 def resolve_in_library(folder: str, name: str) -> str | None:
-    """Znajdź plik po samej nazwie — gdziekolwiek w bibliotece leży."""
+    """Znajdź plik po samej nazwie — gdziekolwiek w bibliotece leży.
+
+    Ścieżka względna („speeding/Linds - Kick It.wav", tak wysyła UI) ma
+    pierwszeństwo: dwa różne pliki „01 - Intro.flac" z różnych albumów to
+    dwa różne utwory, a wyszukiwanie po samej nazwie brało pierwszy z brzegu.
+    """
     if os.path.isabs(name) and os.path.isfile(name):
         return name
+    if os.sep in name:
+        kandydat = os.path.abspath(os.path.join(folder, name))
+        korzen = os.path.abspath(folder)
+        if kandydat.startswith(korzen + os.sep) and os.path.isfile(kandydat):
+            return kandydat
     base = os.path.basename(name)
     direct = os.path.join(folder, base)
     if os.path.isfile(direct):

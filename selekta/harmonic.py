@@ -347,16 +347,9 @@ def route_cost(seq: list[tuple[str, TrackAnalysis]]) -> float:
 def _two_opt(seq: list[tuple[str, TrackAnalysis]],
              keep_first: bool = True, max_passes: int = 40
              ) -> list[tuple[str, TrackAnalysis]]:
-    """Wygładź trasę przez odwracanie odcinków (2-opt).
-
-    Zachłanny łańcuch zostawia najgorsze pary NA KOŃCU — zjada dobre
-    dopasowania po drodze, a resztki lądują na szarym końcu. 2-opt to
-    naprawia: odwraca fragment trasy, jeśli obniża to koszt całości.
-
-    Ponieważ to ścieżka (a nie cykl), odwrócenie odcinka [i..j] zmienia
-    tylko dwie krawędzie — na wejściu i wyjściu odcinka. `keep_first`
-    chroni pierwszy utwór, żeby set nadal zaczynał się od najniższego BPM.
-    """
+    """Wygładź trasę przez odwracanie odcinków (2-opt) — symetryczny koszt
+    `_pair_cost`. Zostaje jako narzędzie pomocnicze (punkt odniesienia);
+    `order_set` używa pełniejszej optymalizacji poniżej."""
     n = len(seq)
     if n < 4:
         return seq
@@ -381,34 +374,256 @@ def _two_opt(seq: list[tuple[str, TrackAnalysis]],
     return seq
 
 
+# Układanie setu — wagi funkcji celu (`_koszt_przejscia` + `_Uklad`).
+# Dobrane na secie speeding (51) i „DJ set 100lecie" (22), pomiar:
+# selekta-weryfikacja/naprawy/eksport/skrypty/b2_kolejnosc_przed_po.py.
+#   zgodne przejście (ta sama tonacja / ±1 na kole / A↔B) prawie darmowe,
+#   niezgodne kosztuje tyle, co skok tempa o ~4,5× zakres pitcha,
+#   zejście tempem w dół: liniowo, a ponad 3 % stromo (bez 150→129),
+#   dwa niezgodne przejścia z rzędu dostają dopłatę — seria „zgrzytów"
+#   jest gorsza niż te same zgrzyty rozrzucone; na końcu setu zgrzyt
+#   waży więcej; utwór daleko od swojego miejsca w profilu tempa kosztuje.
+K_SASIEDNIA = 0.4
+K_NIEZGODNA = 4.5
+K_KROK_DALEJ = 0.5
+K_SPADEK = 2.0
+K_SPADEK_DUZY = 20.0
+K_SERIA = 8.0
+K_PROFIL = 0.5                 # za każdą pozycję poza miejscem w profilu tempa
+PROFIL_TEMPA = 0.04            # ±4 % tempa: tyle zgrywa się samym pitchem (CDJ: ±6 %)
+K_KONCOWKA = 2.0               # zgrzyt na samym końcu setu waży (1 + K_KONCOWKA)×
+
+
+def _zgodne_tonacje(c1: str, c2: str) -> bool | None:
+    """True/False wg reguł koła Camelota; None, gdy tonacja nieznana."""
+    try:
+        n1, l1 = int(c1[:-1]), c1[-1]
+        n2, l2 = int(c2[:-1]), c2[-1]
+    except (ValueError, IndexError, TypeError):
+        return None
+    d = abs(n1 - n2)
+    d = min(d, 12 - d)
+    return (l1 == l2 and d <= 1) or (d == 0 and l1 != l2)
+
+
+def _koszt_przejscia(a: TrackAnalysis, b: TrackAnalysis) -> float:
+    """Koszt zagrania b po a: tonacja + tempo + kara za zejście tempem."""
+    zg = _zgodne_tonacje(a.camelot, b.camelot)
+    if zg is None:
+        ton = 2.0
+    elif zg:
+        ton = 0.0 if a.camelot == b.camelot else K_SASIEDNIA
+    else:
+        ton = K_NIEZGODNA + K_KROK_DALEJ * max(0.0, _camelot_distance(a.camelot, b.camelot) - 2)
+    tempo = _bpm_cost(a.bpm, b.bpm)
+    if a.bpm > 0 and b.bpm > 0 and b.bpm < a.bpm:
+        rel = (a.bpm - b.bpm) / ((a.bpm + b.bpm) / 2.0)
+        # zejście tempem: liniowo, a ponad 3 % (≈ 4–5 BPM) stromo — duże
+        # spadki w środku setu (150→129) mają nie wracać
+        tempo += K_SPADEK * rel / 0.06 + K_SPADEK_DUZY * max(0.0, rel - 0.03) / 0.03
+    return ton + tempo
+
+
+class _Uklad:
+    """Optymalizacja kolejności (indeksy utworów) na pełnej funkcji celu.
+
+    Funkcja celu = koszty przejść (`_koszt_przejscia`: tonacja, tempo,
+                   kara za zejście tempem)
+                 + K_SERIA za każde niezgodne przejście tuż po niezgodnym
+                 + dopłata za niezgodne przejścia w ostatniej ćwiartce setu
+                 + K_PROFIL za każdą pozycję, o którą utwór odszedł od
+                   swojego miejsca w profilu tempa.
+
+    Miejsce w profilu: pozycje, które w secie posortowanym po BPM zajmują
+    utwory w tempie ±PROFIL_TEMPA od tego utworu — w tym zakresie DJ
+    zgra je samym pitchem, więc kolejność jest dowolna (tu wygrywa
+    tonacja). Sam koszt przejść tego nie pilnował: dużo drobnych zejść
+    (155→152→150→147→144→140→138) było z osobna tanich, a razem dawało
+    „fale" zamiast narastania, zależnie nawet od kolejności wejścia.
+    """
+
+    def __init__(self, tas: list[TrackAnalysis]):
+        n = self.n = len(tas)
+        self.C = np.array([[_koszt_przejscia(a, b) if i != j else 0.0
+                            for j, b in enumerate(tas)] for i, a in enumerate(tas)])
+        self.Z = np.array([[_zgodne_tonacje(a.camelot, b.camelot) is False
+                            for b in tas] for a in tas], dtype=bool)
+        self.Cl, self.Zl = self.C.tolist(), self.Z.tolist()
+        znane = sorted(t.bpm for t in tas if t.bpm > 0)
+        import bisect
+        self.od, self.do = [], []
+        for t in tas:
+            if t.bpm <= 0 or not znane:          # bez tempa: gdziekolwiek
+                self.od.append(-1e9); self.do.append(1e9)
+                continue
+            self.od.append(bisect.bisect_left(znane, t.bpm * (1 - PROFIL_TEMPA)))
+            self.do.append(bisect.bisect_right(znane, t.bpm * (1 + PROFIL_TEMPA)) - 1)
+        self._od, self._do = np.array(self.od, dtype=float), np.array(self.do, dtype=float)
+        # waga zgrzytu na końcu setu: od 75 % długości rośnie liniowo do
+        # 1 + K_KONCOWKA — kulminacja ma iść gładko (przegląd: 5 niezgodnych
+        # przejść w ostatnich 6)
+        poczatek = 0.75 * (n - 1)
+        self.konc = [1.0 + K_KONCOWKA * max(0.0, (k + 1 - poczatek) / max(1.0, (n - 1) - poczatek))
+                     for k in range(max(1, n - 1))]
+        self._konc = np.array(self.konc)
+
+    def cel(self, seq) -> float:
+        s = np.asarray(seq)
+        if len(s) < 2:
+            return 0.0
+        z = self.Z[s[:-1], s[1:]]
+        poz = np.arange(len(s))
+        odejscie = np.maximum(0.0, np.maximum(self._od[s] - poz, poz - self._do[s]))
+        return float(self.C[s[:-1], s[1:]].sum()
+                     + K_NIEZGODNA * ((self._konc[:len(z)] - 1.0) * z).sum()
+                     + K_SERIA * np.count_nonzero(z[:-1] & z[1:])
+                     + K_PROFIL * odejscie.sum())
+
+    def _cel_okna(self, w: list[int], start: int) -> float:
+        """Część funkcji celu dla okna w, które zaczyna się na pozycji start."""
+        C, Z, od, do, konc = self.Cl, self.Zl, self.od, self.do, self.konc
+        tot, zly = 0.0, False
+        for k, (a, b) in enumerate(zip(w, w[1:]), start):
+            tot += C[a][b]
+            z = Z[a][b]
+            if z:
+                tot += K_NIEZGODNA * (konc[k] - 1.0)
+                if zly:
+                    tot += K_SERIA
+            zly = z
+        prof = 0.0
+        for k, x in enumerate(w, start):
+            if k < od[x]:
+                prof += od[x] - k
+            elif k > do[x]:
+                prof += k - do[x]
+        return tot + K_PROFIL * prof
+
+    def dopracuj(self, seq: list[int], okno: int = 10, max_przebiegow: int = 25) -> list[int]:
+        """Przenoszenie odcinków 1–3 utworów (także odwróconych) w promieniu
+        `okno` pozycji i odwracanie ich w miejscu (pierwszy utwór stoi).
+        Różnicę funkcji celu liczymy dokładnie na oknie wokół zmiany — poza
+        nim obie kolejności są identyczne, pozycje też."""
+        seq = list(seq)
+        n = len(seq)
+        for _ in range(max_przebiegow):
+            poprawa = False
+            for L in (1, 2, 3):
+                i = 1
+                while i + L <= n:
+                    e = i + L - 1
+                    seg = seq[i:e + 1]
+                    odw = seg[::-1]
+                    reszta = seq[:i] + seq[e + 1:]
+                    najlepsza, ruch = -1e-9, None
+                    for q in range(max(1, i - okno), min(len(reszta), i + okno) + 1):
+                        if q == i:
+                            if L == 1:
+                                continue
+                            warianty = (odw,)
+                        else:
+                            warianty = (seg, odw) if L > 1 else (seg,)
+                        lo = max(0, min(i, q) - 2)
+                        hi = min(n, max(e, q + L - 1) + 3)
+                        stary = self._cel_okna(seq[lo:hi], lo)
+                        for sg in warianty:
+                            okno_nowe = (reszta[lo:min(q, hi)]
+                                         + sg[max(0, lo - q):max(0, hi - q)]
+                                         + reszta[max(q, lo - L):max(q, hi - L)])
+                            d = self._cel_okna(okno_nowe, lo) - stary
+                            if d < najlepsza:
+                                najlepsza, ruch = d, (q, sg)
+                    if ruch is not None:
+                        q, sg = ruch
+                        seq = reszta[:q] + sg + reszta[q:]
+                        poprawa = True
+                    i += 1
+            if not poprawa:
+                break
+        return seq
+
+
+def _ulozenie(tas: list[TrackAnalysis], pierwszy: int) -> list[int]:
+    """Kolejność indeksów: rosnące tempo, dopracowanie, kilka kopnięć."""
+    import itertools
+    import random
+
+    n = len(tas)
+    u = _Uklad(tas)
+    reszta = [i for i in range(n) if i != pierwszy]
+    if n <= 8:                                   # mały set: pełny przegląd
+        return min(([pierwszy, *p] for p in itertools.permutations(reszta)), key=u.cel)
+    # Stałe ziarno — ekran i eksport zawsze dostają ten sam set; starty nie
+    # zależą od kolejności wejścia (remisy rozstrzyga tonacja i tempo).
+    rng = random.Random(20261011 + n)
+
+    def start(tasuj: bool) -> list[int]:
+        """Rosnące tempo; przy równym BPM zachłannie po tonacji."""
+        seq = [pierwszy]
+        zostaly = sorted(reszta, key=lambda i: (tas[i].bpm if tas[i].bpm > 0 else 1e9,
+                                                tas[i].camelot, i))
+        if tasuj:
+            rng.shuffle(zostaly)
+            zostaly.sort(key=lambda i: tas[i].bpm if tas[i].bpm > 0 else 1e9)
+        while zostaly:
+            a, prog = seq[-1], tas[zostaly[0]].bpm
+            grupa = [j for j, x in enumerate(zostaly) if tas[x].bpm == prog]
+            seq.append(zostaly.pop(min(grupa, key=lambda j: (u.Cl[a][zostaly[j]], j))))
+        return seq
+
+    best, best_c = None, float("inf")
+    for tasuj in ((False, True, True) if n <= 120 else (False,)):
+        kand = u.dopracuj(start(tasuj))
+        c = u.cel(kand)
+        if c < best_c - 1e-9:
+            best, best_c = kand, c
+    # „kopnięcia": zamiana dwóch sąsiednich odcinków (lokalny podwójny most)
+    # i ponowne dopracowanie
+    iteracji = 20 if n <= 80 else (6 if n <= 200 else 2)
+    for _ in range(iteracji):
+        p1 = rng.randint(1, n - 2)
+        p2 = min(n - 1, p1 + rng.randint(1, 6))
+        p3 = min(n, p2 + rng.randint(1, 6))
+        if not p1 < p2 < p3:
+            continue
+        kand = u.dopracuj(best[:p1] + best[p2:p3] + best[p1:p2] + best[p3:])
+        c = u.cel(kand)
+        if c < best_c - 1e-9:
+            best, best_c = kand, c
+    return best
+
+
 def order_set(
     items: list[tuple[str, TrackAnalysis]],
     optimize: bool = True,
 ) -> list[tuple[str, TrackAnalysis, str]]:
-    """Ułóż utwory do grania: zachłanny łańcuch + wygładzanie 2-opt.
+    """Ułóż utwory do grania: harmonicznie i z narastającym tempem.
 
-    Krok 1 (zachłanny, w literaturze „HAM-1"): start od najniższego BPM,
-    potem zawsze najbliższy nieodwiedzony utwór. Szybkie, ale zostawia
-    słabe przejścia na końcu.
-    Krok 2 (2-opt): odwraca odcinki, dopóki obniża to łączny koszt —
-    usuwa właśnie te końcowe skoki.
+    Funkcja celu (`_koszt_przejscia` + dopłata K_SERIA): zgodne przejścia
+    na kole Camelota są prawie darmowe, niezgodne drogie, zejście tempem
+    w dół droższe niż wejście w górę (set ma narastać — tak podpisuje go
+    ekran), a dwa niezgodne przejścia z rzędu dostają dopłatę. Stary
+    układ (zachłanny łańcuch + 2-opt na symetrycznym koszcie) zostawiał
+    na końcu serię 5 niezgodnych przejść i zjeżdżał w środku 150→129 BPM.
+
+    Start: najniższe BPM (rozgrzewka), dalej rosnące tempo; potem
+    dopracowanie na pełnej funkcji celu (`_Uklad`: przejścia, serie
+    niezgodnych, profil tempa) i kilka deterministycznych „kopnięć"
+    (iterowane przeszukiwanie lokalne). Do 8 utworów — pełny przegląd.
 
     Każdy wpis niesie adnotację przejścia DO niego, np. „8A->9A, 146->148"
     (pierwszy: „start").
     """
     if not items:
         return []
-    remaining = list(items)
-    remaining.sort(key=lambda it: it[1].bpm if it[1].bpm > 0 else 1e9)
-    current = remaining.pop(0)
-    chain = [current]
-    while remaining:
-        costs = [_pair_cost(current[1], cand[1]) for cand in remaining]
-        current = remaining.pop(int(np.argmin(costs)))
-        chain.append(current)
-
-    if optimize:
-        chain = _two_opt(chain)
+    kolejnosc = sorted(range(len(items)),
+                       key=lambda i: items[i][1].bpm if items[i][1].bpm > 0 else 1e9)
+    pierwszy = kolejnosc[0]
+    if optimize and len(items) > 2:
+        idx = _ulozenie([ta for _n, ta in items], pierwszy)
+    else:
+        idx = kolejnosc
+    chain = [items[i] for i in idx]
 
     ordered = [(chain[0][0], chain[0][1], "start")]
     for k in range(1, len(chain)):

@@ -15,6 +15,7 @@ import math
 import os
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -354,13 +355,16 @@ def api_import(payload: dict) -> JSONResponse:
 
 
 def _harmonic_items() -> list[tuple[str, harmonic.TrackAnalysis]]:
-    """(nazwa, analiza) dla przeanalizowanych plików — jedno źródło prawdy
-    dla ekranu „Kolejność setu" i dla eksportu, żeby dawały ten sam set."""
+    """(ścieżka, analiza) dla przeanalizowanych utworów — jedno źródło prawdy
+    dla ekranu „Kolejność setu" i dla eksportu, żeby dawały ten sam set.
+
+    Ten sam indeks co eksport całej biblioteki: każdy utwór raz, kopie
+    z folderów setów się nie dublują (wcześniej 54 pozycje, 53 utwory)."""
     items = []
-    for p in _paths():
+    for p in dj_export.pliki_biblioteki(_folder()):
         h = cache.get(p, "harmonic")
         if h:
-            items.append((os.path.basename(p), harmonic.TrackAnalysis(**h)))
+            items.append((p, harmonic.TrackAnalysis(**h)))
     return items
 
 
@@ -368,9 +372,9 @@ def _harmonic_items() -> list[tuple[str, harmonic.TrackAnalysis]]:
 def api_order() -> JSONResponse:
     ordered = harmonic.order_set(_harmonic_items())
     return JSONResponse({"order": [
-        {"pos": i + 1, "file": name, "camelot": ta.camelot,
-         "bpm": ta.bpm, "note": note}
-        for i, (name, ta, note) in enumerate(ordered)
+        {"pos": i + 1, "file": os.path.basename(path), "path": path,
+         "camelot": ta.camelot, "bpm": ta.bpm, "note": note}
+        for i, (path, ta, note) in enumerate(ordered)
     ]})
 
 
@@ -650,22 +654,29 @@ def api_redownload(payload: dict) -> JSONResponse:
 # --------------------------------------------------------------------------
 
 def _in_set_order(tracks: list[dict]) -> list[dict]:
-    """Ułóż utwory w kolejności harmonicznej (koło Camelot, energia rosnąco).
+    """Ułóż utwory w kolejności harmonicznej (koło Camelota, tempo rosnąco).
 
     Bez tego rekordbox dostaje playlistę alfabetyczną — czyli kolekcję,
     a nie set do zagrania. Utwory bez policzonej analizy lądują na końcu.
     """
-    by_name = {os.path.basename(t["path"]): t for t in tracks}
+    # Po pełnej ścieżce, nie po nazwie: „01 - Intro.flac" z dwóch albumów
+    # to dwa różne utwory.
+    by_path = {os.path.abspath(t["path"]): t for t in tracks}
     # Wejście budujemy dokładnie tak jak /api/order — przy remisach kosztu
     # kolejność wejścia rozstrzyga wybór, więc inne sortowanie dałoby inny
     # (też poprawny) set niż ten pokazany na ekranie.
     items = _harmonic_items()
     if not items:
         return tracks
-    ordered = [by_name[name] for name, _ta, _note in harmonic.order_set(items)
-               if name in by_name]
+    ordered = [by_path[path] for path, _ta, _note in harmonic.order_set(items)
+               if path in by_path]
     seen = {id(t) for t in ordered}
     return ordered + [t for t in tracks if id(t) not in seen]
+
+
+def _nazwa_eksportu(payload: dict | None, domyslna: str) -> str:
+    """Nazwa pliku eksportu bez ścieżek: „../../x" nie wyjdzie z biblioteki."""
+    return playlists.safe_name(_field(payload, "name") or domyslna)
 
 
 @app.post("/api/export")
@@ -673,20 +684,25 @@ def api_export(payload: dict) -> JSONResponse:
     target = _field(payload, "target") or "rekordbox"
     if target not in EXPORT_TARGETS:
         raise HTTPException(400, f"nieznany cel eksportu: {target}")
-    name = _field(payload, "name") or os.path.basename(os.path.normpath(_folder()))
+    name = _nazwa_eksportu(payload, os.path.basename(os.path.normpath(_folder())))
     tracks = dj_export.collect(_folder())
     if not tracks:
         raise HTTPException(400, "biblioteka jest pusta — nie ma czego eksportować")
     if _field(payload, "order") == "set":
         tracks = _in_set_order(tracks)
+    bez_analizy = 0
     if target == "rekordbox":
-        out = dj_export.to_rekordbox_xml(dj_export.wzbogac_o_siatke(tracks), name,
+        tracks = dj_export.wzbogac_o_siatke(tracks, licz_brakujace=False)
+        bez_analizy = sum(1 for t in tracks if t.get("bez_analizy"))
+        out = dj_export.to_rekordbox_xml(tracks, name,
                                          os.path.join(_folder(), f"{name}.xml"))
     elif target == "m3u8":
         out = dj_export.to_m3u8(tracks, os.path.join(_folder(), f"{name}.m3u8"))
     else:
-        out = dj_export.install_serato_crate(tracks, os.path.expanduser("~/Music"), name)
-    return JSONResponse({"path": out, "count": len(tracks)})
+        wszystkie = dj_export.install_serato_crates(tracks, os.path.expanduser("~/Music"), name)
+        out = wszystkie[0]
+        return JSONResponse({"path": out, "paths": wszystkie, "count": len(tracks)})
+    return JSONResponse({"path": out, "count": len(tracks), "bez_analizy": bez_analizy})
 
 
 @app.post("/api/queue")
@@ -1685,8 +1701,8 @@ def api_rekordbox_wczytaj_sciezke(payload: dict) -> JSONResponse:
 @app.get("/api/rekordbox/stan")
 def api_rekordbox_stan() -> JSONResponse:
     """Ile utworów ma zapamiętaną pracę z rekordboxa i jaką."""
-    stan = rbimport._wczytaj_stan()
-    utworow, hot, kolorow, ocen = 0, 0, 0, 0
+    stan = rbimport.wszystkie()
+    utworow, hot, kolorow, ocen, zmienne = 0, 0, 0, 0, 0
     rozbieznosci = []
     for path, dane in stan.items():
         if not os.path.isfile(path):
@@ -1697,6 +1713,8 @@ def api_rekordbox_stan() -> JSONResponse:
             kolorow += 1
         if dane.get("ocena"):
             ocen += 1
+        if len(dane.get("tempa") or []) > 1:
+            zmienne += 1
         # rozbieżności między naszą analizą a rekordboxem — informacyjnie,
         # niczego nie poprawiamy automatycznie
         h = cache.get(path, "harmonic") or {}
@@ -1708,15 +1726,19 @@ def api_rekordbox_stan() -> JSONResponse:
                 "file": os.path.basename(path), "pole": "BPM",
                 "nasze": round(nasze_bpm, 1), "rekordbox": round(ich_bpm, 1),
                 "polowa_lub_podwojenie": podwojone})
+        # porównujemy TONACJĘ, nie napis: rekordbox zapisuje „F" albo „Am",
+        # my „7B"/„8A" — to te same tonacje (wcześniej fałszywe alarmy)
+        ich_cam = dj_export.tonacja_camelot(dane.get("tonality"))
         if (h.get("camelot") and dane.get("tonality")
-                and h["camelot"] != dane["tonality"]):
+                and dj_export.tonacja_camelot(h["camelot"]) != ich_cam):
             rozbieznosci.append({
                 "file": os.path.basename(path), "pole": "tonacja",
                 "nasze": h["camelot"], "rekordbox": dane["tonality"],
                 "polowa_lub_podwojenie": False})
     return JSONResponse(_clean({
         "utworow": utworow, "hot_cue": hot, "z_kolorem": kolorow,
-        "z_ocena": ocen, "rozbieznosci": rozbieznosci[:40],
+        "z_ocena": ocen, "zmienne_tempo": zmienne,
+        "rozbieznosci": rozbieznosci[:40],
         "rozbieznosci_razem": len(rozbieznosci),
     }))
 
@@ -1725,7 +1747,11 @@ def api_rekordbox_stan() -> JSONResponse:
 def api_rekordbox_zapomnij(payload: dict | None = None) -> JSONResponse:
     """Skasuj zapamiętane dane z rekordboxa."""
     plik = _field(payload or {}, "file")
-    ile = rbimport.wyczysc(_safe(plik) if plik else None)
+    if plik and os.path.isabs(plik) and _within_allowed(plik) and os.path.isfile(plik):
+        cel = os.path.abspath(plik)       # kopia w folderze playlisty też się liczy
+    else:
+        cel = _safe(plik) if plik else None
+    ile = rbimport.wyczysc(cel)
     return JSONResponse({"ok": True, "usunietych": ile})
 
 
@@ -1830,8 +1856,9 @@ def _metryki_sesji(sciezki: list[str]) -> dict:
             czas += float(getattr(getattr(a, "info", None), "length", 0) or 0)
         except Exception:  # noqa: BLE001 — plik mógł zniknąć
             pass
-    bpmy.sort()
-    mediana = bpmy[len(bpmy) // 2] if bpmy else None
+    # prawdziwa mediana: przy parzystej liczbie średnia dwóch środkowych
+    # (wcześniej górny element — [129, 150] dawało 150 zamiast 139,5)
+    mediana = statistics.median(bpmy) if bpmy else None
     return {"czas_s": round(czas), "bpm_mediana": round(mediana, 1) if mediana else None,
             "tonacje": tonacje, "tonacje_opis": (f"{tonacje[0]} → {tonacje[-1]}" if tonacje else "")}
 
@@ -1981,6 +2008,7 @@ def api_statystyki_zakres(payload: dict | None = None) -> JSONResponse:
                        "artist": artysta, "title": tytul})
     d = statystyki.policz(utwory)
     d.update(_glosnosc_zbiorcza(sciezki))
+    d["rozklad_formatow"] = statystyki.rozklad_formatow(sciezki)
     d["bez_analizy"] = len(sciezki) - d["przeanalizowanych"]
     d["zakres"] = opis
     return JSONResponse(_clean(d))
@@ -2017,6 +2045,7 @@ def api_statystyki() -> JSONResponse:
     d = statystyki.policz(utwory)
     d["bez_analizy"] = len(matcher.audio_files(_folder())) - d["przeanalizowanych"]
     d.update(_glosnosc_zbiorcza(matcher.audio_files(_folder())))
+    d["rozklad_formatow"] = statystyki.rozklad_formatow(matcher.audio_files(_folder()))
     return JSONResponse(_clean(d))
 
 
@@ -2382,8 +2411,7 @@ def api_playlist_review(payload: dict) -> JSONResponse:
 
     # utwory odstające tempem — mediana setu jako punkt odniesienia
     if bpms:
-        srt = sorted(bpms)
-        median = srt[len(srt) // 2]
+        median = statistics.median(bpms)
         for r in rows:
             if not r["bpm"]:
                 continue
@@ -2419,7 +2447,7 @@ def api_playlist_review(payload: dict) -> JSONResponse:
     return JSONResponse(_clean({
         "name": name, "count": len(rows), "z_problemami": problemowe,
         "pominiete": pominiete,
-        "mediana_bpm": (sorted(bpms)[len(bpms)//2] if bpms else None),
+        "mediana_bpm": (statistics.median(bpms) if bpms else None),
         "tracks": rows,
     }))
 
@@ -2448,10 +2476,17 @@ def api_playlist_fix(payload: dict) -> JSONResponse:
 
     # brak tagów — uzupełniamy je z OCZYSZCZONEJ nazwy pliku, bo to ona
     # trafia potem do rekordboxa jako artysta i tytuł
+    # tagger zapisuje tylko FLAC/MP3/WAV — dla M4A/AIFF/OGG mówimy to wprost
+    # zamiast wywalić się błędem 500
+    nie_umiem = ("tagów w tym formacie nie zapisuję automatycznie — "
+                 "popraw je w Muzyce albo w Mp3tag")
     if not (artist and title) and z_nazwy:
         artist, title = z_nazwy[0]
-        tagger.tag_file(path, artist, title, covers.embedded_art(path))
-        zrobione.append(f"uzupełniono nazwę: {artist} — {title}"[:60])
+        try:
+            tagger.tag_file(path, artist, title, covers.embedded_art(path))
+            zrobione.append(f"uzupełniono nazwę: {artist} — {title}"[:60])
+        except ValueError:
+            nieudane.append(nie_umiem)
 
     if covers.embedded_art(path) is None:
         proby: list[tuple[str, str]] = []
@@ -2470,8 +2505,12 @@ def api_playlist_fix(payload: dict) -> JSONResponse:
                 artist, title = a, t
                 break
         if hit:
-            tagger.tag_file(path, artist, title, hit.data)
-            zrobione.append(f"dodano okładkę ({hit.description[:40]})")
+            try:
+                tagger.tag_file(path, artist, title, hit.data)
+                zrobione.append(f"dodano okładkę ({hit.description[:40]})")
+            except ValueError:
+                if nie_umiem not in nieudane:
+                    nieudane.append(nie_umiem)
         else:
             nieudane.append("nie znaleziono okładki w sieci — wgraj ją ręcznie")
 
@@ -2500,7 +2539,7 @@ def api_playlist_export(payload: dict) -> JSONResponse:
         [dj_export.track_from_file(path) for path, _ta, _n in ordered])
     out = os.path.join(playlists.folder_for(name), f"{playlists.safe_name(name)}.xml")
     dj_export.to_rekordbox_xml(tracks, playlists.safe_name(name), out)
-    res = rekordbox.install(out)
+    res = rekordbox.install_set(out, playlists.safe_name(name))
     return JSONResponse({
         "ok": res.ok, "message": res.message, "path": out,
         "count": len(tracks), "playlist": playlists.safe_name(name),
@@ -2524,16 +2563,22 @@ def api_rekordbox_status() -> JSONResponse:
 @app.post("/api/rekordbox/install")
 def api_rekordbox_install(payload: dict | None = None) -> JSONResponse:
     """Zbuduj playlistę w kolejności setu i podepnij ją do rekordboxa."""
-    name = _field(payload, "name") or "selekta-set"
+    name = _nazwa_eksportu(payload, "selekta-set")
     tracks = _in_set_order(dj_export.collect(_folder()))
     if not tracks:
         raise HTTPException(400, "biblioteka jest pusta — nie ma czego wysłać")
+    # Ta sama ścieżka co eksport setu: siatka, cue i ręczna praca z
+    # rekordboxa. Wcześniej XML szedł bez TEMPO i POSITION_MARK, a wczytane
+    # hot cue przepadały. Z całej biblioteki bierzemy tylko to, co już
+    # policzone — liczenie setek utworów zawiesiłoby zapytanie na godziny.
+    tracks = dj_export.wzbogac_o_siatke(tracks, licz_brakujace=False)
+    bez_analizy = sum(1 for t in tracks if t.get("bez_analizy"))
     xml_path = dj_export.to_rekordbox_xml(
         tracks, name, os.path.join(_folder(), f"{name}.xml"))
-    res = rekordbox.install(xml_path)
+    res = rekordbox.install_set(xml_path, name)
     return JSONResponse({
         "ok": res.ok, "message": res.message, "path": xml_path,
-        "count": len(tracks), "playlist": name,
+        "count": len(tracks), "playlist": name, "bez_analizy": bez_analizy,
         "previous": res.previous, "running": rekordbox.is_running(),
     })
 
@@ -2544,16 +2589,84 @@ def api_rekordbox_restore() -> JSONResponse:
     return JSONResponse({"ok": res.ok, "message": res.message})
 
 
-@app.post("/api/usb")
-def api_usb(payload: dict) -> JSONResponse:
-    dest = os.path.expanduser(_field(payload, "dest"))
+def _usb_zrodlo(payload: dict | None) -> tuple[list[str], str, bool]:
+    """(pliki, opis, numeruj): set/playlista, zaznaczenie albo cała biblioteka.
+
+    Wcześniej źródłem był zawsze GŁÓWNY folder biblioteki bez podfolderów —
+    u użytkownika 0 plików. Set i zaznaczenie idą w kolejności harmonicznej
+    z numerami, bo CDJ sortuje folder po nazwie.
+    """
+    dane = payload or {}
+    nazwa = _field(dane, "name")
+    if nazwa:
+        pliki = [f for f in playlists.load_manifest(nazwa) if os.path.isfile(f)]
+        if not pliki:
+            raise HTTPException(404, f"nie znam playlisty „{nazwa}”")
+        return [p for p, _ta, _n in harmonic.order_set(_harmonic_for(pliki))], f"set „{nazwa}”", True
+    if dane.get("files"):
+        pliki, _opis = _zakres({"files": dane.get("files")})
+        return [p for p, _ta, _n in harmonic.order_set(_harmonic_for(pliki))], "zaznaczenie", True
+    return dj_export.pliki_biblioteki(_folder()), "cała biblioteka", False
+
+
+def _usb_parametry(payload: dict | None) -> tuple[str, str | None]:
+    dest = os.path.abspath(os.path.expanduser(_field(payload, "dest"))) if _field(payload, "dest") else ""
     if not dest:
         raise HTTPException(400, "podaj folder docelowy albo pendrive")
-    conv = (payload or {}).get("convert", "aiff")
-    rep = usb.prepare(_folder(), dest, convert_wav=(None if conv == "keep" else conv))
-    return JSONResponse({"copied": len(rep.copied), "converted": len(rep.converted),
-                         "skipped": len(rep.skipped),
-                         "mb": round(rep.total_bytes / 1_000_000)})
+    conv = _field(payload, "convert") or "aiff"
+    if conv not in ("aiff", "flac", "keep"):
+        raise HTTPException(400, "konwersja WAV: wybierz aiff, flac albo keep (bez konwersji)")
+    lib = os.path.abspath(_folder())
+    if os.path.commonpath([dest, lib]) == lib:
+        raise HTTPException(400, "folder docelowy leży w bibliotece — kopie wróciłyby "
+                                 "do niej jako duplikaty „(2)”. Wskaż pendrive albo "
+                                 "folder poza biblioteką.")
+    return dest, (None if conv == "keep" else conv)
+
+
+@app.post("/api/usb/plan")
+def api_usb_plan(payload: dict) -> JSONResponse:
+    """Ile utworów i miejsca — zanim cokolwiek skopiujemy."""
+    pliki, opis, _num = _usb_zrodlo(payload)
+    dest = os.path.abspath(os.path.expanduser(_field(payload, "dest") or "/"))
+    conv = _field(payload, "convert") or "aiff"
+    p = usb.plan(pliki, dest, None if conv == "keep" else conv)
+    return JSONResponse(_clean({
+        **p, "zrodlo": opis,
+        "wav": sum(1 for f in pliki if f.lower().endswith(".wav")),
+        "bez_okladki": sum(1 for f in pliki if covers.embedded_art(f) is None),
+        "mb": round(sum(os.path.getsize(f) for f in pliki) / 1_000_000),
+        "co_powstaje": usb.CO_POWSTAJE,
+    }))
+
+
+@app.post("/api/usb")
+def api_usb(payload: dict) -> JSONResponse:
+    dest, conv = _usb_parametry(payload)
+    pliki, opis, numeruj = _usb_zrodlo(payload)
+    if not pliki:
+        raise HTTPException(400, "nie ma czego kopiować — w źródle nie ma utworów")
+    try:
+        rep = usb.prepare(None, dest, convert_wav=conv, pliki=pliki, numeruj=numeruj)
+    except usb.BrakMiejsca as exc:
+        raise HTTPException(400, exc.strerror or str(exc))
+    except OSError as exc:
+        raise HTTPException(400, f"nie da się zapisać w {dest}: {exc.strerror or exc}")
+    weryf = usb.zweryfikuj(rep.pary)
+    return JSONResponse(_clean({
+        "copied": len(rep.copied), "converted": len(rep.converted),
+        "skipped": len(rep.skipped),
+        "pominiete": [{"plik": n, "powod": r} for n, r in rep.skipped[:20]],
+        "przerwano": rep.przerwano,
+        "mb": round(rep.total_bytes / 1_000_000),
+        "zrodlo": opis, "numerowane": numeruj,
+        "weryfikacja": {"ok": weryf["ok"], "sprawdzonych": weryf["sprawdzonych"],
+                        "zgodne": weryf["zgodne"],
+                        "rozne": [os.path.basename(p) for p in weryf["rozne"]],
+                        "brakujace": [os.path.basename(p) for p in weryf["brakujace"]]},
+        "usuniete_appledouble": rep.usuniete_appledouble,
+        "co_powstaje": usb.CO_POWSTAJE,
+    }))
 
 
 # --------------------------------------------------------------------------

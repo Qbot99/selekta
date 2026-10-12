@@ -118,9 +118,12 @@ function zapytaj({kicker, tytul, opis, wartosc='', placeholder='', cta='OK'}){
 }
 // wspólny komunikat po wysyłce do rekordboxa (install / playlist/export)
 function pokazWynikRekordboxa(j){
-  if(j.ok) toast(`✓ ${j.count} ${lm(j.count,'utwór','utwory','utworów')} w rekordboksie jako playlista „${j.playlist}”. Odpal rekordbox — będzie w panelu bocznym pod „rekordbox xml”.`, 'ok', 7000);
-  else toast(`⚠ playlista zapisana (${j.count} utworów), ale nie podpięta: ${j.message||'—'}. Ręcznie: File → Import Collection → ${j.path}`, 'warn', 12000);
-  if(j.running) toast('rekordbox jest uruchomiony — zamknij go i otwórz ponownie, inaczej nadpisze ustawienia przy wyjściu.', 'warn', 8000);
+  const bez = j.bez_analizy ? ` ${j.bez_analizy} ${lm(j.bez_analizy,'utwór nie ma','utwory nie mają','utworów nie ma')} policzonej analizy — rekordbox ustawi im siatkę sam („Analizuj wszystko” w Bibliotece to naprawi).` : '';
+  if(j.ok) toast(`✓ ${j.count} ${lm(j.count,'utwór','utwory','utworów')} jako playlista „${j.playlist}” — ${j.message || 'odpal rekordbox, będzie w panelu bocznym pod „rekordbox xml”'}.${bez}`, 'ok', 9000);
+  else{
+    toast(`⚠ playlista zapisana (${j.count} utworów), ale nie podpięta: ${j.message||'—'}. Ręcznie: File → Import Collection → ${j.path}`, 'warn', 12000);
+    if(j.running) toast('rekordbox jest uruchomiony — zamknij go i kliknij ponownie, inaczej nadpisze ustawienia przy wyjściu.', 'warn', 8000);
+  }
 }
 
 /* ============================================================
@@ -181,7 +184,7 @@ function kolRysuj(host){
   const m = KOL.model = kolModel(); if(!m) return;
   const {us, peak} = m, n = us.length;
   const med = mediana(us.map(u=>u.bpm));
-  $('#kolSub', host).innerHTML = `Koło Camelot, energia rosnąco${peak!=null ? ` · kulminacja na pozycji <b style="color:${K.txt}">${peak+1}</b>` : ''}${med!=null ? ` · mediana ${Math.round(med)} BPM` : ''}`;
+  $('#kolSub', host).innerHTML = `Koło Camelota, tempo rosnąco${peak!=null ? ` · kulminacja na pozycji <b style="color:${K.txt}">${peak+1}</b>` : ''}${med!=null ? ` · mediana ${Math.round(med)} BPM` : ''}`;
   const czas = us.reduce((s,u)=>s+(u.duration||0), 0);
   if(S.biezacy()==='kolejnosc') S.tytul(`${m.opis} · ${n} ${lm(n,'utwór','utwory','utworów')}${czas ? ' · '+czasSetu(czas) : ''}`);
 
@@ -261,7 +264,7 @@ async function kolLaduj(host){
   let body = {};
   if(z.tryb==='zaznaczenie'){
     const w = wybrane();
-    if(!w.length){ lista.innerHTML = `<div class="pusto">Najpierw zaznacz utwory w Bibliotece.</div>`; $('#kolSub', host).textContent = 'Koło Camelot, energia rosnąco'; return; }
+    if(!w.length){ lista.innerHTML = `<div class="pusto">Najpierw zaznacz utwory w Bibliotece.</div>`; $('#kolSub', host).textContent = 'Koło Camelota, tempo rosnąco'; return; }
     body = {files:w};
   }else if(z.tryb==='playlista' && z.playlista){
     body = {name:z.playlista};
@@ -307,7 +310,7 @@ S.ekran('kolejnosc', {
     host.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 320px;grid-template-rows:auto minmax(0,1fr);gap:20px 24px';
     host.innerHTML = `
       <div style="grid-column:1/3;display:flex;align-items:flex-end;gap:16px">
-        <div><h1 class="h1">Kolejność setu</h1><div class="sub" id="kolSub">Koło Camelot, energia rosnąco</div></div>
+        <div><h1 class="h1">Kolejność setu</h1><div class="sub" id="kolSub">Koło Camelota, tempo rosnąco</div></div>
         <div class="seg" id="kolZakres" style="margin-left:auto" title="Zakres setu: cała biblioteka, zaznaczenie z Biblioteki albo playlista z apki">
           <span data-z="biblioteka" class="on">Cała biblioteka</span><span data-z="zaznaczenie">Zaznaczenie</span>
           <select id="kolPlaylista" class="setSeg" data-z="playlista" style="appearance:none;-webkit-appearance:none;background:transparent;border:0;padding:6px 12px;border-radius:7px;font-weight:600;font-size:12.5px;color:${K.dim};cursor:pointer;font-family:inherit"></select>
@@ -533,7 +536,7 @@ S.ekran('import', {
 /* ============================================================
    4b · EKSPORT
    ============================================================ */
-const EXP = {cel:'rekordbox', zakres:'set', playlista:'', konw:S.pref.get('usbKonw','aiff'), playlisty:[], rb:null, stan:null, tracks:[], meta:{}};
+const EXP = {cel:'rekordbox', zakres:'set', playlista:'', konw:S.pref.get('usbKonw','aiff'), playlisty:[], rb:null, stan:null, tracks:[], meta:{}, usbZrodlo:'', usbNr:0};
 const CELE = [['rekordbox','rekordbox','XML · hot cue, kolory i oceny zachowane'], ['serato','Serato','.crate w folderze _Serato_'], ['m3u8','M3U8','Traktor, VLC, wszystko inne']];
 const CTA = {rekordbox:'▶ WYŚLIJ DO REKORDBOXA', serato:'▶ ZAPISZ CRATE SERATO', m3u8:'▶ ZAPISZ M3U8'};
 const zwinDiakrytyki = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g,'l').replace(/Ł/g,'L').replace(/[^\x20-\x7e]/g, '_');
@@ -593,7 +596,7 @@ async function rbPokazStan(host){
           <div style="font-size:12.5px;color:${K.warn}">⚠ ${d.rozbieznosci_razem} ${lm(d.rozbieznosci_razem,'rozbieżność','rozbieżności','rozbieżności')} między naszą analizą a rekordboxem <span class="dim">— pokazuję, nie poprawiam</span></div>
           ${d.rozbieznosci.slice(0,8).map(r => `<div style="font:500 11px var(--mono);color:${K.dim};${ELIP}" title="${esc(r.file)}">${esc(r.file)} — ${esc(r.pole)}: my <b style="color:${K.txt}">${esc(r.nasze)}</b>, rekordbox <b style="color:${K.txt}">${esc(r.rekordbox)}</b>${r.polowa_lub_podwojenie ? ` <span class="warn">(połowa/podwojenie tempa)</span>` : ''}</div>`).join('')}</div>` : '';
       box.innerHTML = `<div style="display:flex;gap:18px;font-size:12.5px;color:${K.dim}"><span><b style="color:${K.txt}">${d.utworow}</b> utworów</span><span><b style="color:${K.ok}">${d.hot_cue}</b> hot cue</span><span><b style="color:${K.txt}">${d.z_kolorem}</b> z kolorem</span><span><b style="color:${K.txt}">${d.z_ocena}</b> z oceną</span></div>
-        <div style="font-size:12px;color:${K.dim2};margin-top:4px">Ta praca ma pierwszeństwo przed wyliczeniami apki.</div>${roz}`;
+        <div style="font-size:12px;color:${K.dim2};margin-top:4px">Ta praca ma pierwszeństwo przed wyliczeniami apki.</div>${d.zmienne_tempo ? `<div style="font-size:12px;color:${K.warn};margin-top:4px">⚠ ${d.zmienne_tempo} ${lm(d.zmienne_tempo,'utwór ma','utwory mają','utworów ma')} w rekordboksie zmienne tempo — eksport odda tylko pierwszy znacznik siatki; po wysłaniu sprawdź siatkę tych utworów.</div>` : ''}${roz}`;
     }
   }catch(e){ pill.style.color = K.bad; pill.textContent = 'BŁĄD'; box.innerHTML = `<span class="bad" style="font-size:12.5px">✗ ${esc(e.message)}</span>`; }
   expRysujCel(host);
@@ -603,43 +606,65 @@ async function rbWczytaj(host, zapytanie){
   prog.innerHTML = '<span class="spin"></span> czytam XML…'; prog.style.color = K.dim;
   try{
     const d = await zapytanie();
-    prog.innerHTML = `wczytano <b style="color:${K.txt}">${d.dopasowane}</b> z ${d.w_xml} utworów` + (d.z_reczna_praca ? ` · <b style="color:${K.txt}">${d.z_reczna_praca}</b> z ręczną pracą` : '') + (d.nieodnalezionych ? ` · <span class="warn">${d.nieodnalezionych} nie ma w bibliotece</span>` : '');
+    prog.innerHTML = `wczytano <b style="color:${K.txt}">${d.dopasowane}</b> z ${d.w_xml} utworów` + (d.z_reczna_praca ? ` · <b style="color:${K.txt}">${d.z_reczna_praca}</b> z ręczną pracą` : '') + (d.cue_selekty_pominiete ? ` · ${d.cue_selekty_pominiete} cue ${d.plik_selekty ? 'z tego pliku to nasza analiza' : 'to nasze intro/drop/outro'} — nie liczę ich jako Twojej pracy` : '') + (d.nieodnalezionych ? ` · <span class="warn">${d.nieodnalezionych} nie ma w bibliotece</span>` : '');
     rbPokazStan(host);
   }catch(e){ prog.style.color = K.bad; prog.textContent = `✗ ${e.message}`; }
 }
 async function expRb(host){
   try{ EXP.rb = await api('/api/rekordbox', {cicho:true}); }catch(e){ EXP.rb = null; }
   if(S.biezacy()==='eksport') S.tytul(EXP.rb && EXP.rb.installed ? `Eksport · rekordbox wykryty${EXP.rb.running ? ' · uruchomiony' : ''}` : 'Eksport');
+  const odp = $('#rbOdepnij', host); if(odp) odp.classList.toggle('hide', !(EXP.rb && EXP.rb.linked));
   expRysujCel(host);
 }
-function usbRysuj(host){
-  const tr = EXP.tracks, glowne = tr.filter(t => !String(t.rel||'').includes('/'));
-  const wav = glowne.filter(t => t.ext==='wav').length, bezOkladki = glowne.filter(t => !t.has_cover).length;
-  const zDiak = tr.map(t => t.file).find(f => /[^\x00-\x7f]/.test(f));
+function usbZrodlo(){ return EXP.usbZrodlo || ''; }
+function usbBody(dest){ const z = usbZrodlo(); return z ? {dest, convert:EXP.konw, name:z} : {dest, convert:EXP.konw}; }
+async function usbRysuj(host){
+  const dost = EXP.playlisty.filter(p => p.utworow>0);
+  if(EXP.usbZrodlo && !dost.some(p => p.name===EXP.usbZrodlo)) EXP.usbZrodlo = '';
+  const sel = $('#usbZrodlo', host);
+  sel.innerHTML = `<option value="">Cała biblioteka</option>` + dost.map(p => `<option value="${esc(p.name)}" ${p.name===EXP.usbZrodlo ? 'selected' : ''}>Set „${esc(p.name)}” · ${p.utworow}</option>`).join('');
+  $$('#usbKonw span', host).forEach(s => { const onn = s.dataset.k===EXP.konw; s.style.background = onn ? K.panel2 : 'transparent'; s.style.color = onn ? K.txt : K.dim; });
+  const nr = EXP.usbNr = (EXP.usbNr||0) + 1;
+  const dest = $('#usbDest', host).value.trim();
+  const w = (kolor, tekst, prawa='') => `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid ${K.line2};font-size:13.5px">${kropka(kolor)}<span style="min-width:0;${ELIP}">${tekst}</span>${prawa ? `<span style="margin-left:auto;font:500 11.5px var(--mono);color:${K.dim};white-space:nowrap">${prawa}</span>` : ''}</div>`;
+  $('#usbLista', host).innerHTML = w(K.dim2, '<span class="spin"></span> liczę…');
+  let d;
+  try{ d = await api('/api/usb/plan', {method:'POST', body:usbBody(dest||'/'), cicho:true}); }
+  catch(e){ if(nr===EXP.usbNr) $('#usbLista', host).innerHTML = w(K.bad, `✗ ${esc(e.message)}`); return; }
+  if(nr!==EXP.usbNr) return;
+  const mb = b => fmtLicz(Math.round((b||0)/1048576));
+  const zDiak = EXP.tracks.map(t => t.file).find(f => /[^\x00-\x7f]/.test(f));
   let przyklad = '—';
   if(zDiak){ const seg = zDiak.replace(/\.[a-z0-9]{2,5}$/i,'').split(' - ').find(s => /[^\x00-\x7f]/.test(s)) || zDiak; przyklad = `${seg} → ${zwinDiakrytyki(seg)}`; }
-  const w = (kolor, tekst, prawa='') => `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid ${K.line2};font-size:13.5px">${kropka(kolor)}<span style="min-width:0;${ELIP}">${tekst}</span>${prawa ? `<span style="margin-left:auto;font:500 11.5px var(--mono);color:${K.dim};white-space:nowrap">${prawa}</span>` : ''}</div>`;
-  const mb = glowne.reduce((s,t) => s+(t.size_mb||0), 0);
-  const nicWGlownym = tr.length && !glowne.length;
   $('#usbLista', host).innerHTML =
-    (nicWGlownym ? w(K.warn, 'wszystkie pliki leżą w podfolderach — na USB idzie tylko główny folder biblioteki', `0 z ${tr.length}`)
-                 : w(K.ok, 'płaski folder, bez podkatalogów', glowne.length!==tr.length ? `${glowne.length} z ${tr.length} plików leży w głównym folderze` : '')) +
+    w(K.ok, d.zrodlo==='cała biblioteka' ? 'płaski folder — cała biblioteka razem z podfolderami, kopie z setów raz' : 'płaski folder w kolejności setu — numery 01, 02… (CDJ sortuje po nazwie)') +
     w(K.ok, 'nazwy FAT32-safe, diakrytyki zwinięte', esc(przyklad)) +
-    (wav ? (EXP.konw==='keep' ? w(K.warn, `${wav} ${lm(wav,'plik WAV zostaje','pliki WAV zostają','plików WAV zostaje')} bez konwersji`, 'CDJ czyta WAV, ale bez tagów') : w(K.warn, `${wav} ${lm(wav,'plik WAV zostanie przekonwertowany','pliki WAV zostaną przekonwertowane','plików WAV zostanie przekonwertowanych')}`, `~${wav*20} s`))
-         : w(K.ok, 'brak plików WAV — nic do konwersji')) +
-    w(bezOkladki ? K.warn : K.ok, bezOkladki ? `${bezOkladki} ${lm(bezOkladki,'plik bez okładki','pliki bez okładki','plików bez okładki')} — dociągnij w Porządkach` : 'okładki osadzone, tagi po naprawie').replace('border-bottom:1px solid '+K.line2, 'border-bottom:0');
-  $('#usbN', host).textContent = glowne.length;
-  $('#usbMb', host).textContent = `${lm(glowne.length,'utwór','utwory','utworów')} · ${fmtLicz(Math.round(mb))} MB${nicWGlownym ? ' · nic do skopiowania' : ''}`;
-  const go = $('#usbGo', host); go.disabled = !!nicWGlownym; go.title = nicWGlownym ? 'przenieś utwory do głównego folderu biblioteki albo wskaż go jako folder' : '';
-  $$('#usbKonw span', host).forEach(s => { const onn = s.dataset.k===EXP.konw; s.style.background = onn ? K.panel2 : 'transparent'; s.style.color = onn ? K.txt : K.dim; });
+    (d.wav ? (EXP.konw==='keep' ? w(K.warn, `${d.wav} ${lm(d.wav,'plik WAV zostaje','pliki WAV zostają','plików WAV zostaje')} bez konwersji`, 'CDJ czyta WAV, ale bez tagów')
+                                : w(K.warn, `${d.wav} ${lm(d.wav,'plik WAV zostanie przekonwertowany','pliki WAV zostaną przekonwertowane','plików WAV zostanie przekonwertowanych')} — BPM, tonacja i okładka zostają`, `~${d.wav*20} s`))
+           : w(K.ok, 'brak plików WAV — nic do konwersji')) +
+    w(d.bez_okladki ? K.warn : K.ok, d.bez_okladki ? `${d.bez_okladki} ${lm(d.bez_okladki,'plik bez okładki','pliki bez okładki','plików bez okładki')} — dociągnij w Porządkach` : 'okładki osadzone') +
+    (d.wolne_bajtow==null ? w(K.dim2, 'nie widzę jeszcze nośnika — sprawdzę miejsce przed kopiowaniem')
+       : w(d.miesci_sie ? K.ok : K.bad, d.miesci_sie ? 'zmieści się na nośniku' : 'NIE zmieści się na nośniku — nic nie skopiuję', `potrzeba ~${mb(d.potrzeba_bajtow)} MB · wolne ${mb(d.wolne_bajtow)} MB`)) +
+    w(K.dim2, 'bez bazy rekordboxa: CDJ przegląda foldery; playlisty, siatka i hot cue — przez „Eksportuj na urządzenie” w rekordboksie').replace(/border-bottom:1px solid [^;"]+;?/, 'border-bottom:0;');
+  $('#usbN', host).textContent = d.utworow;
+  $('#usbMb', host).textContent = `${lm(d.utworow,'utwór','utwory','utworów')} · ${fmtLicz(d.mb)} MB${d.utworow ? '' : ' · nic do skopiowania'}`;
+  const go = $('#usbGo', host); go.disabled = !d.utworow || d.miesci_sie===false; go.title = !d.utworow ? 'w źródle nie ma utworów' : (d.miesci_sie===false ? 'za mało miejsca na nośniku' : '');
 }
 async function usbGo(host, btn){
   const dest = $('#usbDest', host).value.trim(), wynik = $('#usbWynik', host);
   if(!dest){ wynik.style.color = K.warn; wynik.textContent = 'Podaj folder docelowy albo pendrive.'; return; }
   S.pref.set('usbDest', dest);
-  btn.disabled = true; wynik.style.color = K.dim; wynik.innerHTML = '<span class="spin"></span> kopiuję na USB…';
-  try{ const j = await api('/api/usb', {method:'POST', body:{dest, convert:EXP.konw}, cicho:true});
-    wynik.style.color = K.ok; wynik.textContent = `✓ skopiowane ${j.copied}, skonwertowane ${j.converted}, pominięte ${j.skipped} · ${fmtLicz(j.mb)} MB`; }
+  btn.disabled = true; wynik.style.color = K.dim; wynik.innerHTML = '<span class="spin"></span> kopiuję na USB i sprawdzam sumy kontrolne…';
+  try{ const j = await api('/api/usb', {method:'POST', body:usbBody(dest), cicho:true});
+    const wer = j.weryfikacja || {}, zle = (wer.rozne||[]).concat(wer.brakujace||[]);
+    const ok = wer.ok && !j.przerwano;
+    wynik.style.color = ok ? K.ok : K.warn;
+    wynik.innerHTML = `${ok ? '✓' : '⚠'} skopiowane ${j.copied}, skonwertowane ${j.converted}, pominięte ${j.skipped} · ${fmtLicz(j.mb)} MB` +
+      (wer.sprawdzonych ? `<br>${wer.ok ? `✓ sprawdzone: ${wer.zgodne} z ${wer.sprawdzonych} plików identycznych ze źródłem` : `✗ ${zle.length} ${lm(zle.length,'plik różni się','pliki różnią się','plików różni się')} od źródła: ${esc(zle.slice(0,5).join(', '))} — skopiuj jeszcze raz`}` : '') +
+      (j.przerwano ? `<br>⚠ ${esc(j.przerwano)}` : '') +
+      (j.pominiete && j.pominiete.length ? `<br>pominięte: ${esc(j.pominiete.slice(0,5).map(p => `${p.plik} (${p.powod})`).join('; '))}` : '') +
+      `<br><span style="color:${K.dim}">${esc(j.co_powstaje||'')}</span>`;
+    usbRysuj(host); }
   catch(e){ wynik.style.color = K.bad; wynik.textContent = `✗ ${e.message}`; }
   finally{ btn.disabled = false; }
 }
@@ -658,12 +683,13 @@ S.ekran('eksport', {
             <div id="expCele" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px"></div>
             <div style="display:flex;flex-direction:column;gap:10px">
               ${rzad('Zakres', '<span id="expZakres"></span>')}
-              ${rzad('Kolejność', `<span style="font:500 12px var(--mono);color:${K.muted}">harmoniczna (Camelot, energia ↑)</span>`)}
+              ${rzad('Kolejność', `<span style="font:500 12px var(--mono);color:${K.muted}">harmoniczna (Camelot, tempo ↑)</span>`)}
               ${rzad('Cue z analizy', `<span id="expCue" style="font:500 12px var(--mono);color:${K.muted};text-align:right">intro · drop · outro → hot cue A B C</span>`)}
             </div>
             <div id="expUwaga" class="uwaga hide"></div>
             <button class="btn acc duzy" id="expGo" style="padding:14px 22px;align-self:flex-start">▶ WYŚLIJ DO REKORDBOXA</button>
             <div id="expWynik" class="hide" style="font:500 12px var(--mono);color:${K.dim};line-height:1.5;word-break:break-all"></div>
+            <span class="setLink hide" id="rbOdepnij" style="align-self:flex-start" title="Przywraca w ustawieniach rekordboxa tylko wpis „importowana biblioteka” sprzed pierwszego wysłania z selekty — reszta ustawień zostaje">odepnij sety selekty od rekordboxa</span>
           </div>
           <div style="${PANEL};padding:22px 24px;display:flex;flex-direction:column;gap:12px;flex:1">
             <div style="display:flex;align-items:center;gap:12px"><div style="${ETYK}">WYMIANA Z REKORDBOXEM</div><span id="rbPill" style="margin-left:auto;font:500 11px var(--mono);color:${K.dim2}">…</span></div>
@@ -682,6 +708,8 @@ S.ekran('eksport', {
         <div style="${PANEL};padding:22px 24px;display:flex;flex-direction:column;gap:18px">
           <div style="display:flex;align-items:center;gap:12px"><div style="${ETYK}">USB POD CDJ</div>
             <label style="margin-left:auto;display:flex;align-items:center;gap:7px;font:500 11px var(--mono);color:${K.ok};min-width:0" title="Wolumin albo folder docelowy — pendrive pod CDJ"><span style="width:6px;height:6px;border-radius:50%;background:${K.ok};flex-shrink:0"></span><input id="usbDest" value="${esc(S.pref.get('usbDest','/Volumes/DJ_USB'))}" spellcheck="false" style="background:transparent;border:0;border-bottom:1px dashed ${K.line3};color:${K.ok};font:500 11px var(--mono);width:210px;text-align:right;padding:2px 0"></label></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13.5px"><span style="font-size:12.5px;color:${K.dim}">Co kopiować</span>
+            <select id="usbZrodlo" class="setSeg" style="appearance:none;-webkit-appearance:none;background:${K.bg};border:1px solid ${K.line};border-radius:8px;padding:6px 12px;font-weight:600;font-size:12.5px;color:${K.txt};font-family:inherit;cursor:pointer;max-width:240px"></select></div>
           <div style="display:flex;flex-direction:column;gap:6px">
             <div style="font-size:12.5px;color:${K.dim}">Konwersja WAV</div>
             <div id="usbKonw" style="display:flex;gap:2px;background:${K.bg};border:1px solid ${K.line};border-radius:8px;padding:2px;width:max-content">
@@ -692,7 +720,7 @@ S.ekran('eksport', {
           <div style="margin-top:auto;display:flex;flex-direction:column;gap:12px">
             <div style="display:flex;align-items:baseline;gap:8px"><span id="usbN" style="font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1">—</span><span id="usbMb" style="font-size:13px;color:${K.dim}">utworów</span></div>
             <button class="btn obrys" id="usbGo" style="border-radius:10px;padding:13px 22px;font-size:13.5px;align-self:flex-start">PRZYGOTUJ USB</button>
-            <div id="usbWynik" style="font:500 12px var(--mono);color:${K.dim};line-height:1.5">Kopiuje płasko z głównego folderu biblioteki, nazwy FAT32-safe, zwija diakrytyki.</div>
+            <div id="usbWynik" style="font:500 12px var(--mono);color:${K.dim};line-height:1.5">Płaski folder plików pod CDJ (przeglądanie folderów): nazwy FAT32-safe, bez plików „._”, po kopiowaniu sprawdzam sumy kontrolne. To nie jest pendrive z bazą rekordboxa — playlisty, siatkę i hot cue na CDJ daje „Eksportuj na urządzenie” w rekordboksie.</div>
           </div>
         </div>
       </div>`;
@@ -704,9 +732,13 @@ S.ekran('eksport', {
     $('#rbPlik', host).onchange = e => { const f = e.target.files[0]; if(!f) return; const fd = new FormData(); fd.append('file', f); rbWczytaj(host, () => api('/api/rekordbox/wczytaj', {method:'POST', formData:fd, cicho:true})); e.target.value = ''; };
     $('#rbSciezka', host).onclick = async () => { const p = await zapytaj({kicker:'Wymiana z rekordboxem', tytul:'Ścieżka do XML-a', opis:'File → Export Collection in xml format, potem wskaż zapisany plik.', placeholder:'~/Documents/rekordbox.xml', cta:'Wczytaj'}); if(p) rbWczytaj(host, () => api('/api/rekordbox/wczytaj-sciezke', {method:'POST', body:{path:p}, cicho:true})); };
     $('#rbOdswiez', host).onclick = () => { rbPokazStan(host); expRb(host); };
+    $('#rbOdepnij', host).onclick = async () => { const w = $('#expWynik', host); w.classList.remove('hide');
+      try{ const j = await api('/api/rekordbox/restore', {method:'POST', body:{}}); w.style.color = j.ok ? K.ok : K.warn; w.textContent = (j.ok ? '✓ ' : '⚠ ') + j.message; expRb(host); }
+      catch(e){ w.style.color = K.bad; w.textContent = `✗ ${e.message}`; } };
     $('#rbZapomnij', host).onclick = async e => { e.currentTarget.disabled = true; try{ const j = await api('/api/rekordbox/zapomnij', {method:'POST', body:{}}); $('#rbProg', host).textContent = `zapomniano ${j.usunietych} ${lm(j.usunietych,'utwór','utwory','utworów')}`; rbPokazStan(host); } finally{ e.currentTarget.disabled = false; } };
     on(host, 'click', '#usbKonw span', (e, el) => { EXP.konw = el.dataset.k; S.pref.set('usbKonw', EXP.konw); usbRysuj(host); });
-    $('#usbDest', host).onchange = e => S.pref.set('usbDest', e.target.value.trim());
+    $('#usbDest', host).onchange = e => { S.pref.set('usbDest', e.target.value.trim()); usbRysuj(host); };
+    $('#usbZrodlo', host).onchange = e => { EXP.usbZrodlo = e.target.value; usbRysuj(host); };
     $('#usbGo', host).onclick = e => usbGo(host, e.currentTarget);
   },
   async load(host){

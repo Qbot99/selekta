@@ -95,10 +95,12 @@ def test_export_rekordbox_parses(client, lib_copy):
     assert len(root.findall(".//COLLECTION/TRACK")) == d["count"]
 
 
-def test_usb_endpoint(client, tmp_path):
+def test_usb_endpoint(client, tmp_path_factory):
     bad = client.post("/api/usb", json={"dest": ""})
     assert bad.status_code == 400
-    dest = str(tmp_path / "usb")
+    # cel POZA biblioteką: lib_copy to samo tmp_path, a folder docelowy
+    # w bibliotece jest teraz odrzucany (kopie wracały do niej jako „(2)")
+    dest = str(tmp_path_factory.mktemp("usb-cel") / "usb")
     r = client.post("/api/usb", json={"dest": dest, "convert": "keep"})
     assert r.status_code == 200
     d = r.json()

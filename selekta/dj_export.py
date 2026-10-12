@@ -24,7 +24,11 @@ track path relative to its volume root, without a leading slash.
 """
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import os
+import re
 import struct
 import sys
 import xml.etree.ElementTree as ET
@@ -129,19 +133,50 @@ def track_from_file(path: str) -> dict:
     if artist:
         track["artist"] = artist
     track["bpm"] = _float_or_none(_tag_text(audio, ("TBPM",), ("BPM", "TEMPO")))
-    track["key"] = _tag_text(audio, ("TKEY",), ("KEY", "INITIALKEY", "INITIAL_KEY"))
+    # Tonacja z tagu tylko po przetłumaczeniu na Camelot — w plikach siedzą
+    # „F", „C Minor", „10m" (Open Key) i zakodowany JSON Mixed In Key.
+    for surowa in _tag_values(audio, ("TKEY", "TXXX:INITIALKEY", "TXXX:KEY"),
+                              ("INITIALKEY", "KEY", "INITIAL_KEY")):
+        cam = tonacja_camelot(surowa)
+        if cam:
+            track["key"] = cam
+            break
     _fill_from_cache(path, track)
     return track
 
 
-def _fill_from_cache(path: str, track: dict) -> None:
-    """Uzupełnij BPM/tonację z policzonej analizy, gdy plik nie ma tagów.
-
-    Bez tego eksport gubi klucze policzone przez `analyze` (siedzą w cache,
-    nie w pliku) i rekordbox dostaje niepełną kolekcję.
-    """
-    if track["bpm"] and track["key"]:
+def _tag_values(audio, id3_frames: tuple[str, ...], vorbis_names: tuple[str, ...]):
+    """Wszystkie niepuste wartości z podanych pól, w kolejności ważności."""
+    tags = getattr(audio, "tags", None)
+    if tags is None:
         return
+    if isinstance(tags, ID3):
+        for name in id3_frames:
+            frame = tags.get(name)
+            for val in (getattr(frame, "text", None) or []):
+                if str(val).strip():
+                    yield str(val).strip()
+        return
+    for name in vorbis_names:
+        try:
+            val = tags.get(name)
+        except Exception:  # noqa: BLE001
+            val = None
+        for v in (val if isinstance(val, list) else [val] if val else []):
+            if str(v).strip():
+                yield str(v).strip()
+
+
+def _fill_from_cache(path: str, track: dict) -> None:
+    """BPM/tonacja z policzonej analizy selekty.
+
+    BPM — tylko gdy plik nie ma tagu (to obszar siatki).
+    Tonacja — ZAWSZE, gdy analiza istnieje: to ta sama wartość, którą apka
+    pokazuje w Bibliotece i z której układa kolejność setu (notatki przejść
+    „8A->9A"). Gdyby rekordbox dostał tag z pliku, DJ widziałby w nim inną
+    tonację niż w apce. Tag (po normalizacji) zostaje tylko wtedy, gdy
+    analizy jeszcze nie ma.
+    """
     try:
         from . import cache
 
@@ -152,20 +187,176 @@ def _fill_from_cache(path: str, track: dict) -> None:
         return
     if not track["bpm"] and data.get("bpm"):
         track["bpm"] = float(data["bpm"])
-    if not track["key"] and data.get("camelot"):
-        track["key"] = data["camelot"]
+    cam = tonacja_camelot(data.get("camelot"))
+    if cam:
+        track["key"] = cam
+
+
+# --------------------------------------------------------------------------- #
+# tonacja: jeden zapis w całym eksporcie
+# --------------------------------------------------------------------------- #
+
+# Camelot → nuta (krzyżykami, jak harmonic.NOTE_NAMES i tag TKEY z write_tags)
+_DUR = {1: "B", 2: "F#", 3: "C#", 4: "G#", 5: "D#", 6: "A#", 7: "F", 8: "C",
+        9: "G", 10: "D", 11: "A", 12: "E"}
+_MOL = {1: "G#", 2: "D#", 3: "A#", 4: "F", 5: "C", 6: "G", 7: "D", 8: "A",
+        9: "E", 10: "B", 11: "F#", 12: "C#"}
+_DUR_NR = {v: k for k, v in _DUR.items()}
+_MOL_NR = {v: k for k, v in _MOL.items()}
+_ENHARMONIA = {"DB": "C#", "EB": "D#", "GB": "F#", "AB": "G#", "BB": "A#",
+               "CB": "B", "FB": "E", "E#": "F", "B#": "C"}
+
+_RE_CAMELOT = re.compile(r"^0?([1-9]|1[0-2])\s*([AB])$", re.I)
+_RE_OPENKEY = re.compile(r"^0?([1-9]|1[0-2])\s*([DM])$", re.I)
+_RE_NAZWA = re.compile(
+    r"^([A-G])\s*([#♯B♭]?)\s*(M|MIN|MINOR|MOLL|MAJ|MAJOR|DUR)?$", re.I)
+
+
+def tonacja_camelot(surowa) -> str | None:
+    """Dowolny zapis tonacji → kod Camelot („8A"); None dla śmieci.
+
+    Rozumie: Camelot („8A", „08a"), Open Key („10m" = 5A, „1d" = 8B),
+    nazwy („Am", „A minor", „C Minor", „F#m", „Bbm", „F", „C major")
+    i zakodowany JSON Mixed In Key z pola KEY (base64 '{"key":"8B",...}').
+    """
+    if surowa is None:
+        return None
+    tekst = " ".join(str(surowa).strip().split())
+    if not tekst or len(tekst) > 400:
+        return None
+    if tekst.startswith("eyJ"):                       # base64 z '{"' na początku
+        try:
+            dane = json.loads(base64.b64decode(tekst + "=" * (-len(tekst) % 4)))
+        except (ValueError, binascii.Error):
+            return None
+        return tonacja_camelot(dane.get("key")) if isinstance(dane, dict) else None
+    m = _RE_CAMELOT.match(tekst)
+    if m:
+        return f"{int(m.group(1))}{m.group(2).upper()}"
+    m = _RE_OPENKEY.match(tekst)
+    if m:
+        nr = (int(m.group(1)) + 6) % 12 + 1
+        return f"{nr}{'A' if m.group(2).lower() == 'm' else 'B'}"
+    m = _RE_NAZWA.match(tekst)
+    if m:
+        nuta = m.group(1).upper()
+        znak = m.group(2).replace("♯", "#").replace("♭", "b")
+        if znak in ("b", "B"):
+            nuta = _ENHARMONIA.get(nuta + "B", nuta)
+        elif znak == "#":
+            nuta = _ENHARMONIA.get(nuta + "#", nuta + "#")
+        tryb = (m.group(3) or "").lower()
+        mol = tryb in ("m", "min", "minor", "moll")
+        nr = (_MOL_NR if mol else _DUR_NR).get(nuta)
+        return f"{nr}{'A' if mol else 'B'}" if nr else None
+    for czesc in re.split(r"\s*[/|,;]\s*|\s+-\s+", tekst):   # „8A/Am", „Am - 8A"
+        if czesc and czesc != tekst:
+            cam = tonacja_camelot(czesc)
+            if cam:
+                return cam
+    return None
+
+
+def tonacja_rekordbox(surowa) -> str | None:
+    """Zapis tonacji do atrybutu Tonality: nazwa muzyczna („Am", „F#m", „C").
+
+    Dlaczego nie Camelot: rekordbox sam zapisuje Tonality w notacji
+    zależnej od ustawienia „Key display format" (klasyczna „Am"/„C#m" albo
+    alfanumeryczna „1A"–„12B"), a nazwa muzyczna to standard tagu TKEY —
+    tę samą wartość selekta wpisuje do plików (harmonic.write_tags), więc
+    XML i tagi pliku mówią rekordboxowi to samo. Krzyżyki, nie bemole —
+    jak w analizie selekty.
+    """
+    cam = tonacja_camelot(surowa)
+    if not cam:
+        return None
+    nr, litera = int(cam[:-1]), cam[-1]
+    return f"{_MOL[nr]}m" if litera == "A" else _DUR[nr]
+
+
+MANIFEST_SETU = "_selekta.json"     # ten sam plik co playlists.MANIFEST
+
+
+def _w_folderze_setu(path: str, korzen: str) -> bool:
+    """Czy plik leży w folderze setu (katalog z _selekta.json) POD korzeniem.
+
+    Sam korzeń się nie liczy: eksport folderu setu wskazanego wprost
+    (``selekta export --folder speeding``) to eksport tego setu.
+    """
+    katalog = os.path.dirname(os.path.abspath(path))
+    korzen = os.path.abspath(korzen)
+    while katalog != korzen and katalog.startswith(korzen + os.sep):
+        if os.path.isfile(os.path.join(katalog, MANIFEST_SETU)):
+            return True
+        katalog = os.path.dirname(katalog)
+    return False
+
+
+def pliki_biblioteki(folder: str) -> list[str]:
+    """Utwory biblioteki do eksportu — z podfolderami, każdy utwór RAZ.
+
+    Ten sam indeks co reszta apki (``matcher.audio_files``): pobrania z
+    Soulseeka lądują w katalogach albumów, więc czytanie samego folderu
+    głównego widziało bibliotekę jako pustą („0 plików w głównym, 277 w
+    podfolderach").
+
+    Foldery setów (katalog z ``_selekta.json``) trzymają KOPIE utworów
+    z biblioteki — kopia nie jest osobnym utworem, więc w eksporcie całej
+    biblioteki zostaje oryginał spoza setu. Utwór, który istnieje tylko
+    w folderze setu (pobranie prosto do playlisty), zostaje — raz.
+    Kopię poznajemy po tej samej nazwie pliku i tym samym rozmiarze
+    (tak kopiuje ``playlists.collect``).
+
+    Zależność: obszar „porządki” uczy tego samego ``matcher.audio_files``.
+    Ta funkcja jest wtedy po prostu no-opem na już odfiltrowanej liście.
+    """
+    from .matcher import audio_files
+
+    pliki = audio_files(folder)
+    poza, w_setach = [], []
+    for p in pliki:
+        (w_setach if _w_folderze_setu(p, folder) else poza).append(p)
+
+    def podpis(p: str) -> tuple[str, int]:
+        try:
+            return (os.path.basename(p).casefold(), os.path.getsize(p))
+        except OSError:
+            return (os.path.basename(p).casefold(), -1)
+
+    znane = {podpis(p) for p in poza}
+    wynik = list(poza)
+    for p in w_setach:
+        s = podpis(p)
+        if s in znane:
+            continue
+        znane.add(s)
+        wynik.append(p)
+    return sorted(wynik, key=lambda p: (os.path.basename(p).lower(), p))
+
+
+def w_kolejnosci_setu(tracks: list[dict]) -> list[dict]:
+    """Ułóż utwory harmonicznie (to samo `harmonic.order_set` co ekran
+    „Kolejność setu"); utwory bez policzonej analizy idą na koniec."""
+    from . import cache, harmonic
+
+    items, reszta = [], []
+    for t in tracks:
+        try:
+            h = cache.get(t["path"], "harmonic")
+        except OSError:
+            h = None
+        if h:
+            items.append((t["path"], harmonic.TrackAnalysis(**h)))
+        else:
+            reszta.append(t)
+    po_sciezce = {t["path"]: t for t in tracks}
+    return [po_sciezce[p] for p, _ta, _n in harmonic.order_set(items)] + reszta
 
 
 def collect(folder: str) -> list[dict]:
-    """Track dicts for every audio file directly inside `folder`, sorted by name."""
-    out: list[dict] = []
-    for name in sorted(os.listdir(folder), key=str.lower):
-        if name.startswith("."):
-            continue
-        path = os.path.join(folder, name)
-        if os.path.isfile(path) and name.lower().endswith(AUDIO_EXT):
-            out.append(track_from_file(path))
-    return out
+    """Track dicts for every track of the library (with subfolders, set
+    copies counted once — see `pliki_biblioteki`), sorted by file name."""
+    return [track_from_file(p) for p in pliki_biblioteki(folder)]
 
 
 # --------------------------------------------------------------------------- #
@@ -183,8 +374,14 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
     Track order in COLLECTION and in the playlist NODE follows `tracks`.
     AverageBpm/Tonality are emitted only when the dict provides bpm/key.
     """
+    from . import __version__
+
     root = ET.Element("DJ_PLAYLISTS", Version="1.0.0")
-    ET.SubElement(root, "PRODUCT", Name="rekordbox", Version="6.0.0", Company="AlphaTheta")
+    # Podpisujemy się jako selekta, nie jako rekordbox: po wczytaniu tego
+    # XML-a z powrotem (rbimport) wiadomo, że intro/drop/outro i siatka to
+    # nasza analiza, a nie ręczna praca w rekordboksie.
+    ET.SubElement(root, "PRODUCT", Name="selekta", Version=__version__, Company="selekta")
+    wyslane: dict[str, dict[str, float]] = {}
 
     collection = ET.SubElement(root, "COLLECTION", Entries=str(len(tracks)))
     for i, track in enumerate(tracks, start=1):
@@ -202,8 +399,9 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
         bpm = _float_or_none(track.get("bpm"))
         if bpm:
             attrs["AverageBpm"] = f"{bpm:.2f}"
-        if track.get("key"):
-            attrs["Tonality"] = str(track["key"])
+        tonacja = tonacja_rekordbox(track.get("key"))
+        if tonacja:
+            attrs["Tonality"] = tonacja
         # Dane, których apka NIE potrafi wyliczyć — istnieją tylko dlatego,
         # że użytkownik je ustawił. Zawsze przepisujemy je bez zmian.
         for pole, klucz in (("Colour", "kolor"), ("Rating", "ocena"),
@@ -261,6 +459,7 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
                     continue
                 ET.SubElement(el, "POSITION_MARK", Name=nazwa, Type="0",
                               Start=f"{czas:.3f}", Num=str(numer))
+                wyslane.setdefault(path, {})[nazwa] = round(czas, 3)
 
     playlists = ET.SubElement(root, "PLAYLISTS")
     node_root = ET.SubElement(playlists, "NODE", Type="0", Name="ROOT", Count="1")
@@ -276,6 +475,9 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
     parent = os.path.dirname(os.path.abspath(out_path))
     os.makedirs(parent, exist_ok=True)
     tree.write(out_path, encoding="UTF-8", xml_declaration=True)
+    # znacznik źródła: zapamiętaj, które cue postawiła selekta
+    from . import rbimport
+    rbimport.zapamietaj_wyslane(wyslane)
     return out_path
 
 
@@ -340,20 +542,60 @@ def to_serato_crate(tracks: list[dict], crate_path: str) -> str:
     return crate_path
 
 
+def _wolumin(path: str) -> str | None:
+    """'/Volumes/USB/...' → '/Volumes/USB' (macOS); None dla dysku systemowego."""
+    p = os.path.abspath(path)
+    if sys.platform == "darwin" and p.startswith("/Volumes/"):
+        czesci = p.split("/", 3)
+        return "/".join(czesci[:3]) if len(czesci) >= 3 else None
+    return None
+
+
+def install_serato_crates(tracks: list[dict], library_root: str,
+                          crate_name: str = "selekta") -> list[str]:
+    """Zapisz crate Serato na KAŻDYM woluminie, na którym leżą utwory.
+
+    Serato czyta 'ptrk' względem woluminu, na którym leży folder _Serato_:
+    utwory z /Volumes/X muszą trafić do /Volumes/X/_Serato_ (ścieżka
+    względem /Volumes/X). Wcześniej wszystko szło do ~/Music/_Serato_,
+    więc utwory z dysku zewnętrznego nie pasowały.
+    """
+    safe = FORBIDDEN.sub("", crate_name).strip().rstrip(".") or "crate"
+    grupy: dict[str | None, list[dict]] = {}
+    for t in tracks:
+        grupy.setdefault(_wolumin(t["path"]), []).append(t)
+    if not grupy:
+        grupy[None] = []
+    sciezki = []
+    for wolumin, lista in sorted(grupy.items(), key=lambda kv: kv[0] or ""):
+        korzen = wolumin or library_root
+        crate_path = os.path.join(korzen, "_Serato_", "Subcrates", safe + ".crate")
+        sciezki.append(to_serato_crate(lista, crate_path))
+    return sciezki
+
+
 def install_serato_crate(tracks: list[dict], library_root: str,
                          crate_name: str = "selekta") -> str:
-    """Write <library_root>/_Serato_/Subcrates/<crate_name>.crate; return its path."""
-    safe = FORBIDDEN.sub("", crate_name).strip().rstrip(".") or "crate"
-    crate_path = os.path.join(library_root, "_Serato_", "Subcrates", safe + ".crate")
-    return to_serato_crate(tracks, crate_path)
+    """Write <library_root>/_Serato_/Subcrates/<crate_name>.crate; return its path.
 
-def wzbogac_o_siatke(tracks: list[dict]) -> list[dict]:
+    Utwory z innych woluminów dostają osobny crate na swoim woluminie
+    (install_serato_crates); zwracamy pierwszą ścieżkę.
+    """
+    return install_serato_crates(tracks, library_root, crate_name)[0]
+
+def wzbogac_o_siatke(tracks: list[dict], licz_brakujace: bool = True) -> list[dict]:
     """Dołóż do eksportu siatkę beatów i punkty cue.
 
     Bez tego rekordbox analizuje utwór po swojemu i sam ustawia kotwicę —
     nasze wyliczenie pierwszego uderzenia przepada, a razem z nim intro,
     drop i outro. Dane bierzemy z pamięci podręcznej; liczymy tylko to,
     czego jeszcze nie ma.
+
+    `licz_brakujace=False` — tylko to, co już policzone (eksport CAŁEJ
+    biblioteki: liczenie cue to ~40 s na utwór, więc setki niepoliczonych
+    utworów zawiesiłyby jedno zapytanie na godziny). Utwór bez analizy
+    dostaje wtedy `bez_analizy=True` i rekordbox policzy mu siatkę sam;
+    ręczna praca z rekordboxa i tak przechodzi.
     """
     from dataclasses import asdict
 
@@ -364,16 +606,25 @@ def wzbogac_o_siatke(tracks: list[dict]) -> list[dict]:
         if not path or not os.path.isfile(path):
             continue
         h = cache.get(path, "harmonic")
-        if h is None:
+        if h is None and licz_brakujace:
             h = asdict(harmonic.analyze(path)); cache.put(path, "harmonic", h)
+        if h is None:
+            h = {}
+            t["bez_analizy"] = True
         if not t.get("bpm") and h.get("bpm"):
             t["bpm"] = h["bpm"]
-        if not t.get("key") and h.get("key"):
-            t["key"] = h["key"]
+        # tonacja: analiza selekty — ta sama, którą pokazuje apka
+        if tonacja_camelot(h.get("camelot")):
+            t["key"] = tonacja_camelot(h.get("camelot"))
+        elif not tonacja_camelot(t.get("key")) and tonacja_camelot(h.get("key")):
+            t["key"] = tonacja_camelot(h.get("key"))
         c = cache.get(path, "cues")
-        if c is None:
+        if c is None and licz_brakujace:
             c = asdict(cues.analyze(path, bpm=h.get("bpm")))
             cache.put(path, "cues", c)
+        if c is None:
+            c = {}
+            t["bez_analizy"] = True
         # Kolejność ważności kotwicy: poprawka zrobiona w selekcie (ostatnia
         # świadoma decyzja w tej apce) > to, co przyszło z rekordboxa >
         # nasze wyliczenie.

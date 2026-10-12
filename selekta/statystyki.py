@@ -53,6 +53,59 @@ def _pasmo(bpm: float, szerokosc: int = 4) -> int:
     return int(round(bpm / szerokosc) * szerokosc)
 
 
+SZEROKOSC_GNIAZDA = 4.0       # BPM: tyle mieści się „bez ruszania pitcha"
+
+
+def _gniazda(dobre: list[dict]) -> list[tuple[str, float, list[dict]]]:
+    """Gniazda: utwory w tej samej tonacji, których tempo mieści się w oknie
+    SZEROKOSC_GNIAZDA BPM — okno przesuwne, nie sztywne kubełki.
+
+    Sztywne kubełki z zaokrągleniem dzieliły 140–141,5 i 142–142,5 BPM na
+    dwa pasma, więc sześć utworów 8A, które da się zmiksować bez ruszania
+    pitcha, nie tworzyło gniazda. Teraz bierzemy najgęstsze okno, potem
+    następne z tego, co zostało.
+    """
+    po_tonacji: dict[str, list[dict]] = defaultdict(list)
+    for t in dobre:
+        po_tonacji[t["camelot"]].append(t)
+    wynik = []
+    for tonacja, lista in po_tonacji.items():
+        zostaly = sorted(lista, key=lambda t: t["bpm"])
+        while zostaly:
+            najlepsze = (0, 0)                      # (ile, start)
+            j = 0
+            for i in range(len(zostaly)):
+                while zostaly[i]["bpm"] - zostaly[j]["bpm"] > SZEROKOSC_GNIAZDA:
+                    j += 1
+                if i - j + 1 > najlepsze[0]:
+                    najlepsze = (i - j + 1, j)
+            ile, start = najlepsze
+            grupa = zostaly[start:start + ile]
+            wynik.append((tonacja, sum(t["bpm"] for t in grupa) / len(grupa), grupa))
+            zostaly = zostaly[:start] + zostaly[start + ile:]
+    return wynik
+
+
+def rozklad_formatow(sciezki: list[str]) -> list[dict]:
+    """Ile utworów w jakim formacie (i ile miejsca zajmują)."""
+    import os
+
+    ile: Counter = Counter()
+    bajty: Counter = Counter()
+    for p in sciezki:
+        ext = os.path.splitext(p)[1].lower().lstrip(".") or "?"
+        ext = {"aif": "aiff"}.get(ext, ext)
+        ile[ext] += 1
+        try:
+            bajty[ext] += os.path.getsize(p)
+        except OSError:
+            pass
+    bezstratne = {"flac", "wav", "aiff"}
+    return [{"format": f.upper(), "ile": n, "mb": round(bajty[f] / 1_000_000),
+             "bezstratny": f in bezstratne}
+            for f, n in sorted(ile.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
 def policz(utwory: list[dict]) -> dict:
     """Rozkład i luki. `utwory` to słowniki z bpm, camelot, title, artist."""
     dobre = [t for t in utwory if t.get("bpm") and t.get("camelot")]
@@ -60,17 +113,14 @@ def policz(utwory: list[dict]) -> dict:
     rozklad_bpm = Counter(_pasmo(t["bpm"]) for t in dobre)
     rozklad_tonacji = Counter(t["camelot"] for t in dobre)
 
-    # gniazda: (tonacja, pasmo tempa) z sensowną liczbą utworów
-    gniazda: dict[tuple, list[dict]] = defaultdict(list)
-    for t in dobre:
-        gniazda[(t["camelot"], _pasmo(t["bpm"]))].append(t)
+    # gniazda: ta sama tonacja, tempo w oknie SZEROKOSC_GNIAZDA BPM
+    gniazda = _gniazda(dobre)
 
     luki = []
-    for (tonacja, pasmo), lista in sorted(
-            gniazda.items(), key=lambda kv: -len(kv[1])):
+    for tonacja, srednie_bpm, lista in sorted(gniazda, key=lambda g: -len(g[2])):
         if len(lista) < MIN_GNIAZDO:
             continue
-        srednie_bpm = sum(t["bpm"] for t in lista) / len(lista)
+        pasmo = int(round(srednie_bpm))
         wyjscia = []
         for cel in zgodne_tonacje(tonacja):
             ile = sum(1 for t in dobre
@@ -104,5 +154,5 @@ def policz(utwory: list[dict]) -> dict:
                             for k in wszystkie],
         "puste_tonacje": puste,
         "luki": luki[:12],
-        "gniazd": sum(1 for v in gniazda.values() if len(v) >= MIN_GNIAZDO),
+        "gniazd": sum(1 for _t, _b, v in gniazda if len(v) >= MIN_GNIAZDO),
     }
