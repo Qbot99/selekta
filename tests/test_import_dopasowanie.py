@@ -152,3 +152,16 @@ def test_folder_z_nazwiskiem_potwierdza_wykonawce():
 
 def test_lane_dla_braku_kandydata():
     assert matcher.lane(None) == "missing"
+
+
+def test_wspolni_wykonawcy_nie_robia_z_cudzego_tytulu_tego_samego_utworu():
+    """„Adrenalin - Remix" (2:37) dostawał w 0.4.2 wynik 0,93 i pas „auto"
+    na „Unendlichkeit (Remix)" (3:18): trzej wykonawcy i słowo „remix" to
+    5 z 6 słów, więc inny tytuł prawie nie obniżał wyniku."""
+    plik = _wpis("speeding/MilleniumKid, JBS, The Boy The G - Unendlichkeit (Remix).flac",
+                 "MilleniumKid, JBS, The Boy The G", "Unendlichkeit (Remix)", 198.5)
+    wykonawcy = "The Boy The G, MilleniumKid, JBS"
+    assert _klasyfikuj([plik], wykonawcy, "Adrenalin - Remix", 157)[0] == "missing"
+    # identyczny czas też nie może zastąpić zgodnego tytułu
+    assert _klasyfikuj([plik], wykonawcy, "Adrenalin - Remix", 198.5)[0] == "missing"
+    assert _klasyfikuj([plik], wykonawcy, "Unendlichkeit - Remix", 198.5)[0] == "auto"

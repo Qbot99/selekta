@@ -261,15 +261,18 @@ class TestDopasowanieWCli:
                 return [cudzy, dobry] if title == "Frozen" else [cudzy]
 
             pewny_wynik = SlskdClient.pewny_wynik
+            describe = SlskdClient.describe
 
             def download(self, hit):
                 Klient.pobrane.append(hit.filename)
 
         monkeypatch.setattr(cli, "SlskdClient", Klient)
-        src = os.path.join(lib_copy, "lista.txt")
-        with open(src, "w", encoding="utf-8") as fh:
-            fh.write("Madonna - Frozen\nOdymel - Gucci\nDonna Summer - Hot Stuff\n")
-        cli.cmd_hunt(argparse.Namespace(source=src, folder=lib_copy, download=True))
+        from selekta.spotify import Track
+        lista = [Track(id="", artist="Madonna", title="Frozen", duration_s=372),
+                 Track(id="", artist="Odymel", title="Gucci"),
+                 Track(id="", artist="Donna Summer", title="Hot Stuff")]
+        monkeypatch.setattr(cli, "_load_tracks", lambda src: lista)
+        cli.cmd_hunt(argparse.Namespace(source="x", folder=lib_copy, download=True))
         out = capsys.readouterr().out
         assert Klient.pobrane == ["Madonna\\Madonna - Frozen.mp3"]
         assert "Odymel — Gucci" not in out          # to już masz

@@ -69,7 +69,8 @@ def test_zadna_stala_modulu_nie_wskazuje_prawdziwego_stanu():
 
 def test_cli_w_podprocesie_pisze_cache_do_testowego_domu(tmp_path):
     """Scenariusz, który przeciekał: analyze na śmieciu w podprocesie."""
-    (tmp_path / "podroba.mp3").write_text("to nie jest zaden mp3")
+    # treść unikalna: pamięć analiz liczy klucz z zawartości, nie ze ścieżki
+    (tmp_path / "podroba.mp3").write_text(f"to nie jest zaden mp3 {tmp_path}")
     znaczniki = conftest.znaczniki_sesji(tmp_path)
     przed = conftest.migawka_stanu(znaczniki)
     r = subprocess.run([sys.executable, "-m", "selekta.cli", "analyze",

@@ -425,15 +425,20 @@ def cmd_hunt(args) -> None:
         if online:
             # ta sama drabina zapytań i ranking z tożsamością co w aplikacji
             hits = slskd.search_track(t.artist, t.title, t.duration_s)
-            pewny = slskd.pewny_wynik(hits, t.artist, t.title, t.duration_s) if hits else None
+            pewny, _opis, werdykt = (poszukiwacz.najlepszy(slskd, hits, t.artist, t.title,
+                                                           t.duration_s)
+                                     if hits else (None, None, ""))
             for h in hits[:3]:
                 kind = "lossless" if h.is_lossless else f"{h.bitrate or '?'} kbps"
-                znak = "✓" if h is pewny else " "
+                znak = (" " if h is not pewny else "✓" if werdykt == "pewne" else "?")
                 print(f"   {znak} slsk: {os.path.basename(h.filename.replace(chr(92), '/'))}"
                       f" [{kind}, {h.size//1_000_000} MB]")
-            if pewny and args.download:
+            if pewny and args.download and werdykt == "pewne":
                 slskd.download(pewny)
                 print(f"    ⬇ zlecono pobieranie: {os.path.basename(pewny.filename.replace(chr(92), '/'))}")
+            elif pewny and werdykt != "pewne":
+                print("    slsk: czas trwania nie potwierdza wersji — wybierz ręcznie "
+                      "w aplikacji (nic nie pobieram)")
             elif hits and not pewny:
                 print("    slsk: żaden wynik nie jest na pewno tym utworem w tej wersji "
                       "— wybierz ręcznie w aplikacji (nic nie pobieram)")

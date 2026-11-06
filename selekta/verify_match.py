@@ -18,6 +18,7 @@ from dataclasses import dataclass
 import numpy as np
 import requests
 
+from . import matcher
 from .spotify import UA, Track
 from .narzedzia import ffmpeg_path, ffprobe_path
 
@@ -236,10 +237,15 @@ def preview_itunes(artist: str, title: str) -> tuple[bytes, str] | None:
     except (requests.RequestException, ValueError):
         return None
 
-    klucz = title.lower().split("(")[0].strip()
-    for item in results:
-        if klucz and klucz not in item.get("trackName", "").lower():
-            continue
+    # Próbka cudzego utworu skazałaby dobry plik, więc tożsamość sprawdzamy
+    # tym samym porównaniem co dopasowanie do biblioteki. Dawniej wystarczał
+    # fragment tytułu bez wykonawcy: „b" pasowało do „(Key Ab Ver.)".
+    chce = Track(id="", artist=artist or "", title=title or "")
+    oceny = [(matcher.verdict_for_name(
+        chce, f"{i.get('artistName', '')} - {i.get('trackName', '')}.m4a", None), i)
+        for i in results]
+    # ta sama wersja przed inną: próbka remiksu gorzej potwierdzi oryginał
+    for _werdykt, item in sorted((o for o in oceny if o[0]), key=lambda o: -o[0]):
         url = item.get("previewUrl")
         if not url:
             continue

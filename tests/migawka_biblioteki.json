@@ -3,7 +3,7 @@
   "bpm": 145.0,
   "camelot": "3A",
   "cutoff_hz": 24100.0,
-  "first_beat_s": 1.978,
+  "first_beat_s": 1.66,
   "grade": "warn",
   "lufs": -13.99,
   "tempo_stabilne": true
@@ -69,7 +69,7 @@
   "first_beat_s": 13.278,
   "grade": "ok",
   "lufs": -8.24,
-  "tempo_stabilne": false
+  "tempo_stabilne": true
  },
  "DJ IP, Pegassi - Wanna Feel (Extended).flac": {
   "bpm": 148.0,
@@ -78,7 +78,7 @@
   "first_beat_s": 0.01,
   "grade": "bad",
   "lufs": -9.21,
-  "tempo_stabilne": false
+  "tempo_stabilne": true
  },
  "Dimitri Vegas & Like Mike, Marlon Hoffstadt, DJ Konik - Makina Time (Extended Mix).flac": {
   "bpm": 165.0,
@@ -87,7 +87,7 @@
   "first_beat_s": 0.002,
   "grade": "ok",
   "lufs": -8.19,
-  "tempo_stabilne": false
+  "tempo_stabilne": true
  },
  "Dimitri Vegas, Sylver, Pat B - Turn The Tide (ft. Sylver).flac": {
   "bpm": 155.0,
@@ -102,7 +102,7 @@
   "bpm": 137.0,
   "camelot": "1A",
   "cutoff_hz": 20200.0,
-  "first_beat_s": 0.247,
+  "first_beat_s": 0.226,
   "grade": "ok",
   "lufs": -6.32,
   "tempo_stabilne": true

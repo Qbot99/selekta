@@ -222,7 +222,7 @@ class TestWishlistCLI:
         wishlist.add("A", "Pierwszy")
         drugi = wishlist.add("B", "Drugi")
         out = _cli(monkeypatch, capsys, "wishlist")
-        assert "1. A — Pierwszy" in out and "2. B — Drugi" in out and drugi["id"] in out
+        assert "1. · A — Pierwszy" in out and "2. · B — Drugi" in out and drugi["id"] in out
         out = _cli(monkeypatch, capsys, "wishlist", "--remove", "2")
         assert "Drugi" in out
         assert [w["title"] for w in wishlist.items()] == ["Pierwszy"]

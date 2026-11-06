@@ -95,11 +95,17 @@ def najlepszy(client: SlskdClient, hits: list[SearchHit], artist: str, title: st
     na potwierdzenie użytkownika.
     """
     pewny = client.pewny_wynik(hits[:ILE_KANDYDATOW], artist, title, duration_s)
-    if pewny is None:
-        return None, None, ""
-    opis = client.describe(pewny, artist, title, duration_s)
-    o = ocena(opis, artist, title, duration_s)
-    return pewny, opis, (o or "do-potwierdzenia")
+    if pewny is not None:
+        opis = client.describe(pewny, artist, title, duration_s)
+        o = ocena(opis, artist, title, duration_s)
+        return pewny, opis, (o or "do-potwierdzenia")
+    # Bez czasu nie da się potwierdzić wersji („Extended Mix" przy wpisie bez
+    # długości), ale użytkownik wciąż może zdecydować: nic nie pobieramy sami.
+    for h in hits[:ILE_KANDYDATOW]:
+        opis = client.describe(h, artist, title, duration_s)
+        if ocena(opis, artist, title, duration_s):
+            return h, opis, "do-potwierdzenia"
+    return None, None, ""
 
 
 # ---------------------------------------------------------------- pamięć listy

@@ -73,9 +73,63 @@ def test_preview_bytes_no_url_returns_none():
     assert verify_match.preview_bytes(t) is None
 
 
-def test_verify_track_without_preview_returns_none(sample):
+def test_verify_track_without_preview_returns_none(sample, monkeypatch):
+    monkeypatch.setattr(verify_match, "preview_itunes", lambda a, t: None)
     t = Track(id="", artist="a", title="b", preview_url="")
     assert verify_match.verify_track(sample(GOOD_FLAC), t) is None
+
+
+class _Odpowiedz:
+    ok = True
+    content = b"x" * 20_000
+
+    def __init__(self, wyniki=None):
+        self.wyniki = wyniki
+
+    def json(self):
+        return {"results": self.wyniki}
+
+
+def _itunes(monkeypatch, wyniki):
+    """Atrapa iTunes; zwraca listę adresów próbek, które pobrano."""
+    pobrane = []
+
+    def get(url, **_kw):
+        if "itunes.apple.com/search" in url:
+            return _Odpowiedz(wyniki)
+        pobrane.append(url)
+        return _Odpowiedz()
+    monkeypatch.setattr(verify_match.requests, "get", get)
+    return pobrane
+
+
+def _wynik(artysta, tytul, url):
+    return {"artistName": artysta, "trackName": tytul, "previewUrl": url}
+
+
+def test_probka_z_itunes_nie_bierze_cudzego_utworu(monkeypatch):
+    """„a" / „b" dostało próbkę „Autumnal Daydream (Key Ab Ver.)", bo tytuł
+    był tylko fragmentem nazwy, a wykonawcy nikt nie sprawdzał."""
+    pobrane = _itunes(monkeypatch, [
+        _wynik("Precious Parade", "Autumnal Daydream (Key Ab Ver.)", "http://cudzy")])
+    assert verify_match.preview_itunes("a", "b") is None
+    assert pobrane == []
+
+
+def test_probka_z_itunes_ten_sam_tytul_cudzego_wykonawcy(monkeypatch):
+    pobrane = _itunes(monkeypatch, [
+        _wynik("Braaheim", "Black Betty (Extended Mix)", "http://cudzy"),
+        _wynik("Ram Jam", "Black Betty", "http://wlasciwy")])
+    assert verify_match.preview_itunes("Ram Jam", "Black Betty") is not None
+    assert pobrane == ["http://wlasciwy"]
+
+
+def test_probka_z_itunes_ta_sama_wersja_przed_remiksem(monkeypatch):
+    pobrane = _itunes(monkeypatch, [
+        _wynik("Madonna", "Frozen (Sultan Remix)", "http://remiks"),
+        _wynik("Madonna", "Frozen", "http://oryginal")])
+    assert verify_match.preview_itunes("Madonna", "Frozen") is not None
+    assert pobrane == ["http://oryginal"]
 
 
 def test_matchresult_defaults():
