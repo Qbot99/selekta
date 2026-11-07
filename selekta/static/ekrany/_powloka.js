@@ -177,12 +177,20 @@ window.S = (() => {
     }
     const gra = file => !!(utwor && utwor.file === file && audio && !audio.paused);
     const biezacyPlik = () => utwor ? utwor.file : null;
+    // odsłuch kontrolny (lampki stopy/siatki, hot cue): pozycja i przewijanie
+    const pozycja = () => (audio && utwor) ? {file:utwor.file, t:audio.currentTime, gra:!audio.paused, czas:audio.duration} : null;
+    function skocz(t, graj=true){
+      if(!audio) return;
+      const ust = () => { audio.currentTime = Math.max(0, t); rysuj(); };
+      if(audio.readyState >= 1) ust(); else audio.addEventListener('loadedmetadata', ust, {once:true});
+      if(graj && audio.paused) audio.play().catch(()=>{});
+    }
     document.addEventListener('DOMContentLoaded', () => {
       const u = ui();
       u.btn.onclick = () => { if(!audio) return; audio.paused ? audio.play().catch(()=>{}) : audio.pause(); };
       u.fala.onclick = e => { if(!audio || !audio.duration) return; const r = u.fala.getBoundingClientRect(); audio.currentTime = audio.duration * (e.clientX - r.left) / r.width; };
     });
-    return {graj, stop, gra, biezacyPlik};
+    return {graj, stop, gra, biezacyPlik, pozycja, skocz};
   })();
 
   // ---------- stan Soulseeka + liczniki (w tle, w każdym trybie) ----------

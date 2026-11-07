@@ -27,6 +27,8 @@ def _katalog_pakietu() -> str | None:
 
 
 def _znajdz(nazwa: str) -> str:
+    from .system import exe
+    nazwa = exe(nazwa)                       # na Windows ffmpeg.exe
     d = _katalog_pakietu()
     if d:
         # PyInstaller 6 w pakiecie .app kładzie binarki w Contents/Frameworks

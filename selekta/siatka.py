@@ -1196,3 +1196,56 @@ def oszacuj(x: np.ndarray, sr: int, bpm_hint: float | None = None,
                   pewnosc_taktu=round(pewnosc_taktu, 2), kickow=kickow, opis=opis,
                   znaczniki=znaczniki, tryb=model["tryb"], bpm_dokladne=model.get("bpm_dokladne"),
                   odchylka_ms=model.get("odchylka_ms"), flaga=flaga)
+
+
+# ---------------------------------------------------------------- odsłuch kontrolny
+
+def stopy(x: np.ndarray, sr: int, prog: float = 0.35) -> list[tuple[float, float]]:
+    """Uderzenia stopy do podglądu na żywo: [(czas_s, siła 0–1.5)].
+
+    Te same transjenty i ta sama waga „stopowatości” co przy liczeniu siatki
+    (szerokopasmowy czas uderzenia + przyrost basu po nim), więc lampka
+    „stopa” mruga dokładnie tam, gdzie analiza widzi kick — hi-hat bez basu
+    jej nie zapala. Próg względem 90. percentyla odsiewa ghost-note'y.
+    """
+    t_on, _s, waga, *_ = _transjenty(x, sr)
+    if t_on.size == 0:
+        return []
+    ref = float(np.percentile(waga, 90)) + 1e-9
+    w = waga / ref
+    keep = w >= prog
+    return [(round(float(t), 4), round(float(min(1.5, s)), 2))
+            for t, s in zip(t_on[keep], w[keep])]
+
+
+def bity_siatki(bpm: float | None, first_beat_s: float | None, battito: int,
+                znaczniki: list | None, czas_s: float) -> list[tuple[float, int]]:
+    """Wszystkie bity siatki w utworze: [(czas_s, numer w takcie 1–4)].
+
+    Stała siatka: od kotwicy w obie strony. Dynamiczna: każdy znacznik
+    zaczyna własny odcinek ze swoim BPM i numerem bitu, do następnego.
+    """
+    odcinki = []
+    if znaczniki and len(znaczniki) > 1:
+        zn = sorted(znaczniki, key=lambda z: z["t"])
+        for i, z in enumerate(zn):
+            koniec = zn[i + 1]["t"] if i + 1 < len(zn) else czas_s
+            odcinki.append((z["t"], z["bpm"], z.get("battito") or 1, z["t"] if i else None, koniec))
+    elif bpm and first_beat_s is not None:
+        odcinki.append((first_beat_s, bpm, battito or 1, None, czas_s))
+    out = []
+    for t0, b, bat, od, do in odcinki:
+        if not b or b <= 0:
+            continue
+        okres = 60.0 / b
+        k = 0
+        if od is None:                              # przed kotwicą też są bity
+            k = -int(t0 // okres)
+        while True:
+            t = t0 + k * okres
+            if t >= do - 1e-6:
+                break
+            if t >= 0 and (od is None or t >= od - 1e-6):
+                out.append((round(t, 4), (bat - 1 + k) % 4 + 1))
+            k += 1
+    return out

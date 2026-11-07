@@ -26,6 +26,8 @@ from dataclasses import dataclass
 SETTINGS_DIRS = (
     "~/Library/Application Support/Pioneer/rekordbox6",
     "~/Library/Application Support/Pioneer/rekordbox7",
+    "~/AppData/Roaming/Pioneer/rekordbox6",       # Windows
+    "~/AppData/Roaming/Pioneer/rekordbox7",
 )
 SETTINGS_NAME = "rekordbox3.settings"
 KEY = "bridgeImportedLibraryFile"
@@ -52,14 +54,8 @@ def settings_path() -> str | None:
 
 def is_running() -> bool:
     """Czy rekordbox jest uruchomiony (wtedy nadpisałby nasze zmiany)."""
-    if sys.platform != "darwin":
-        return False
-    try:
-        out = subprocess.run(["pgrep", "-x", "rekordbox"],
-                             capture_output=True, timeout=5)
-        return out.returncode == 0
-    except Exception:  # noqa: BLE001
-        return False
+    from .system import dziala
+    return dziala("rekordbox")
 
 
 def _read(path: str) -> str:
@@ -102,8 +98,8 @@ def _xml_unescape(value: str) -> str:
 
 def install(xml_path: str) -> InstallResult:
     """Podepnij `xml_path` jako zaimportowaną bibliotekę rekordboxa."""
-    if sys.platform != "darwin":
-        return InstallResult(False, "automatyczne wstawianie działa na razie tylko na macOS")
+    if sys.platform not in ("darwin", "win32"):
+        return InstallResult(False, "automatyczne wstawianie działa na macOS i Windows")
 
     settings = settings_path()
     if not settings:

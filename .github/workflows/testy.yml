@@ -20,3 +20,18 @@ jobs:
       # testy @network i te na prawdziwej bibliotece pomijają się same,
       # gdy nie ma sieci / folderu — tu liczy się reszta
       - run: pytest -q -m "not network"
+
+  # Windows: ten sam zestaw, ale nie blokuje — pokazuje, co jeszcze zakłada macOS
+  pytest-windows:
+    runs-on: windows-latest
+    continue-on-error: true
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: choco install ffmpeg -y --no-progress
+      - run: pip install ".[web]" pytest
+      - run: pytest -q -m "not network" --maxfail=200

@@ -23,11 +23,14 @@ BINARY_CANDIDATES = (
     "/Applications/slskd/slskd",
     "/usr/local/bin/slskd",
     "/opt/homebrew/bin/slskd",
+    "~/slskd/slskd.exe",                         # Windows: instalator selekty
+    "~/AppData/Local/slskd/slskd.exe",
 )
 CONFIG_CANDIDATES = (
     "~/Library/Application Support/slskd/slskd.yml",
     "~/.local/share/slskd/slskd.yml",
     "~/.config/slskd/slskd.yml",
+    "~/AppData/Local/slskd/slskd.yml",           # Windows (domyślny katalog slskd)
 )
 
 
@@ -110,19 +113,15 @@ def api_key_from_slskd_config() -> str:
 
 
 def is_running() -> bool:
-    if sys.platform not in ("darwin", "linux"):
-        return False
-    try:
-        return subprocess.run(["pgrep", "-x", "slskd"],
-                              capture_output=True, timeout=5).returncode == 0
-    except Exception:  # noqa: BLE001
-        return False
+    from .system import dziala
+    return dziala("slskd")
 
 
 def start() -> tuple[bool, str]:
     """Uruchom slskd w tle. Zwraca (sukces, komunikat po polsku)."""
     if is_running():
         return True, "slskd już działa"
+    from .system import odlaczony
     binary = find_binary()
     if not binary:
         return False, ("nie znalazłem slskd — zainstaluj go i wskaż ścieżkę "
@@ -131,7 +130,7 @@ def start() -> tuple[bool, str]:
         subprocess.Popen(
             [binary], cwd=os.path.dirname(binary) or None,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            **odlaczony(),
         )
     except OSError as exc:
         return False, f"nie udało się uruchomić slskd: {exc}"
@@ -140,27 +139,8 @@ def start() -> tuple[bool, str]:
 
 def _procesy_slskd() -> list[tuple[int, str]]:
     """(pid, ścieżka programu) każdego działającego procesu slskd."""
-    if sys.platform not in ("darwin", "linux"):
-        return []
-    try:
-        r = subprocess.run(["pgrep", "-x", "slskd"], capture_output=True,
-                           text=True, timeout=5)
-    except Exception:  # noqa: BLE001
-        return []
-    wynik = []
-    for pid in (int(p) for p in r.stdout.split() if p.isdigit()):
-        sciezka = ""
-        try:
-            if sys.platform == "linux":
-                sciezka = os.readlink(f"/proc/{pid}/exe")
-            else:
-                sciezka = subprocess.run(["ps", "-o", "comm=", "-p", str(pid)],
-                                         capture_output=True, text=True,
-                                         timeout=5).stdout.strip()
-        except Exception:  # noqa: BLE001
-            pass
-        wynik.append((pid, sciezka))
-    return wynik
+    from .system import procesy
+    return procesy("slskd")
 
 
 def _zabij(pid: int) -> None:

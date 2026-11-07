@@ -457,3 +457,156 @@ def sprawdz_pobrane(folder: str, zadania: list[dict],
     if nowe:
         _zapisz(dane + nowe)
     return nowe
+
+
+# ------------------------------------------------- wersje jednego utworu
+
+_KLUCZE: dict[str, tuple] = {}   # ścieżka → (mtime_ns, rozmiar, klucz utworu)
+
+
+def _klucz_pliku(path: str):
+    """``health.klucz_utworu`` z pamięcią: tagi czytamy raz na zmianę pliku."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    z = _KLUCZE.get(path)
+    if z and z[0] == st.st_mtime_ns and z[1] == st.st_size:
+        return z[2]
+    from .health import klucz_utworu
+    artysta, tytul = _tagi(path)
+    k = klucz_utworu(path, artysta, tytul)
+    _KLUCZE[path] = (st.st_mtime_ns, st.st_size, k)
+    return k
+
+
+def _kopie_w_bibliotece(folder: str, path: str) -> list[str]:
+    """Pliki biblioteki, które są TYM utworem w tej wersji (reguła Porządków).
+
+    Kopie w folderach setów i w koszu nie biorą udziału — są nietykalne.
+    """
+    from .uklad import wczytaj
+    path = os.path.abspath(path)
+    klucz = _klucz_pliku(path)
+    if klucz is None:
+        return [path]
+    uklad = wczytaj(folder)
+    pliki = [p for p in matcher.audio_files(folder)
+             if KOSZ not in p.split(os.sep) and not uklad.w_secie(p)
+             and _klucz_pliku(p) == klucz]
+    if path not in pliki:
+        pliki.append(path)
+    return pliki
+
+
+# Foldery zarządzane przez programy DJ-skie i Muzykę: ich bazy wskazują pliki
+# po ścieżce, więc kopia stamtąd w koszu = brakujący utwór w rekordboksie.
+_PROGRAMY = (("PioneerDJ", "rekordbox"), ("rekordbox", "rekordbox"),
+             ("_Serato_", "Serato"), ("Music Media", "Muzyka"), ("iTunes Media", "Muzyka"))
+
+
+def program_pliku(path: str) -> str:
+    """Nazwa programu, którego folder trzyma ten plik ('' gdy żaden)."""
+    czesci = set(os.path.abspath(path).split(os.sep))
+    return next((nazwa for katalog, nazwa in _PROGRAMY if katalog in czesci), "")
+
+
+def kopie_utworu(folder: str, path: str) -> dict:
+    """Wszystkie kopie utworu w bibliotece, od najlepszej — do wyboru wersji.
+
+    Polecana jest pierwsza nieuszkodzona wg tej samej kolejności co
+    w Porządkach: bezstratna przed stratną, potem ocena jakości (pasmo),
+    bitrate, rozmiar. Kopia dłuższa albo krótsza o ponad 2 s może być inną
+    edycją — pokazujemy ją, ale UI nie proponuje jej do kosza.
+    """
+    folder = os.path.abspath(folder)
+    opisy = []
+    for p in _kopie_w_bibliotece(folder, path):
+        o = _opis_pliku(p)
+        o["czas"] = matcher._file_tokens(p)[1]
+        o["rel"] = os.path.relpath(p, folder)
+        o["artysta"], o["tytul"] = _tagi(p)
+        o["program"] = program_pliku(p)
+        opisy.append(o)
+    opisy.sort(key=_ranga)
+    najlepsza = next((o for o in opisy if not o.get("uszkodzony")), opisy[0])
+    wzorzec = najlepsza.get("czas")
+    for o in opisy:
+        o["polecana"] = o is najlepsza
+        o["inna_dlugosc"] = bool(o.get("czas") and wzorzec
+                                 and abs(o["czas"] - wzorzec) > TOLERANCJA_CZASU_S)
+    return {"artysta": najlepsza.get("artysta", ""),
+            "tytul": najlepsza.get("tytul") or os.path.splitext(najlepsza["nazwa"])[0],
+            "kopie": opisy, "najlepsza": najlepsza["path"]}
+
+
+def wybierz(folder: str, zostaw: str, usun: list[str]) -> dict:
+    """Użytkownik sam wybrał wersję: ``zostaw`` zostaje, ``usun`` do kosza.
+
+    Zapisujemy to jako zatwierdzoną decyzję, więc Historia w Porządkach
+    pozwala ją cofnąć. Do kosza może trafić tylko kopia TEGO SAMEGO utworu
+    z biblioteki — endpoint nie może posłużyć do kasowania dowolnych plików.
+    Czekające propozycje Porządków z tymi plikami są już nieaktualne:
+    oznaczamy je jako pominięte.
+    """
+    folder = os.path.abspath(folder)
+    zostaw = os.path.abspath(zostaw)
+    usun = list(dict.fromkeys(os.path.abspath(p) for p in usun))
+    if not usun:
+        raise ValueError("nie wybrano żadnej kopii do kosza")
+    if zostaw in usun:
+        raise ValueError("wybrana wersja nie może trafić do kosza")
+    if not os.path.isfile(zostaw):
+        raise ValueError("wybranej wersji nie ma już na dysku — odśwież listę")
+    dozwolone = set(_kopie_w_bibliotece(folder, zostaw))
+    for p in usun:
+        if p not in dozwolone:
+            raise ValueError(f"„{os.path.basename(p)}” nie jest kopią tego utworu "
+                             "w bibliotece (albo leży w secie) — nie ruszam go")
+    dane = _wczytaj()
+    dotkniete = {zostaw, *usun}
+    for d in dane:
+        if d.get("stan") == "czeka" and dotkniete & {d.get("zostaw"), *d.get("usun", [])}:
+            d["stan"] = "odrzucona"
+    ident = _klucz(zostaw)
+    if any(d["id"] == ident for d in dane):
+        ident = _klucz(f"{zostaw}|{time.time()}")
+    zostaw_opis = _opis_pliku(zostaw)
+    dane.append(asdict(Decyzja(
+        id=ident, rodzaj="duplikat", zostaw=zostaw, usun=usun,
+        powod=f"wybrane ręcznie z {len(usun) + 1} kopii",
+        dowody={"zostaw": zostaw_opis, "usun": [_opis_pliku(p) for p in usun]},
+        kiedy=time.time())))
+    _zapisz(dane)
+    return zatwierdz(ident)
+
+
+def grupy_kopii(folder: str, pliki: list[str]) -> list[dict]:
+    """Które z podanych utworów mają w bibliotece inne kopie (szybko, z tagów).
+
+    Do panelu duplikatów na ekranie Playlista: bez analizy jakości — tę
+    robi dopiero „Przejrzyj” (``kopie_utworu``).
+    """
+    from .uklad import wczytaj
+    folder = os.path.abspath(folder)
+    uklad = wczytaj(folder)
+    wszystkie = [p for p in matcher.audio_files(folder)
+                 if KOSZ not in p.split(os.sep) and not uklad.w_secie(p)]
+    po_kluczu: dict = {}
+    for p in wszystkie:
+        k = _klucz_pliku(p)
+        if k is not None:
+            po_kluczu.setdefault(k, []).append(p)
+    out, widziane = [], set()
+    for p in pliki:
+        p = os.path.abspath(p)
+        k = _klucz_pliku(p)
+        if k is None or k in widziane:
+            continue
+        kopie = po_kluczu.get(k, [])
+        if len(kopie) > 1:
+            widziane.add(k)
+            out.append({"plik": os.path.relpath(p, folder),
+                        "kopie": [os.path.relpath(x, folder) for x in kopie],
+                        "programy": sorted({program_pliku(x) for x in kopie} - {""})})
+    return out

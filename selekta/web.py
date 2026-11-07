@@ -37,7 +37,7 @@ from . import (
     dlqueue, folderpick, localplaylist, playlists, slskd_client, slskd_ctl,
     spotify,
     stores, tagfix,
-    energia, historia, rbimport, statystyki, tagger, tempo, usb, waveform,
+    energia, historia, hotcue, porzadek, rbimport, skaner, statystyki, tagger, tempo, usb, waveform,
     wishlist,
 )
 from .slskd_client import SearchHit, SlskdClient
@@ -2086,14 +2086,11 @@ def api_decyzje(wszystkie: bool = Query(False)) -> JSONResponse:
 @app.post("/api/tracks/pokaz")
 def api_tracks_pokaz(payload: dict) -> JSONResponse:
     """Pokaż plik w Finderze (zaznaczony w swoim katalogu)."""
+    from . import system
     path = _safe(_field(payload, "file"))
-    if sys.platform != "darwin":
-        return JSONResponse({"ok": False, "path": path,
-                             "message": "podgląd w Finderze działa tylko na macOS"})
-    try:
-        subprocess.run(["open", "-R", path], check=True, capture_output=True)
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise HTTPException(500, f"nie udało się otworzyć Findera: {exc}")
+    ok, komunikat = system.pokaz_w_menedzerze(path)
+    if not ok:
+        raise HTTPException(500, komunikat)
     return JSONResponse({"ok": True, "path": path})
 
 
@@ -2156,6 +2153,109 @@ def api_tracks_dodaj_sciezke(payload: dict) -> JSONResponse:
             continue
     return JSONResponse({"ok": bool(dodane), "dodane": dodane,
                          "count": len(dodane)})
+
+
+@app.get("/api/porzadek/plan")
+def api_porzadek_plan() -> JSONResponse:
+    """Podgląd „Sprawdź wszystkie”: brakujące tytuły/artyści i okładki."""
+    return JSONResponse(_clean(porzadek.plan(_folder())))
+
+
+@app.post("/api/porzadek/start")
+def api_porzadek_start(payload: dict | None = None) -> JSONResponse:
+    """Uzupełnij tagi z nazw plików i okładki z iTunes — w tle."""
+    dane = payload or {}
+    uk = _uklad()
+    return JSONResponse(_clean(porzadek.start(
+        _folder(), tagi=bool(dane.get("tagi", True)), okladki=bool(dane.get("okladki", True)),
+        kopie=uk.kopie_utworu if uk else None)))
+
+
+@app.get("/api/porzadek")
+def api_porzadek() -> JSONResponse:
+    return JSONResponse(_clean(porzadek.stan()))
+
+
+@app.post("/api/porzadek/przerwij")
+def api_porzadek_przerwij() -> JSONResponse:
+    porzadek.przerwij()
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/porzadek/cofnij")
+def api_porzadek_cofnij() -> JSONResponse:
+    """Przywróć tagi sprzed ostatniego uzupełnienia."""
+    try:
+        return JSONResponse(porzadek.cofnij_tagi())
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/wersje")
+def api_wersje(file: str = "") -> JSONResponse:
+    """Wszystkie kopie utworu w bibliotece, od najlepszej (do wyboru wersji)."""
+    return JSONResponse(_clean(decyzje.kopie_utworu(_folder(), _safe(file))))
+
+
+@app.post("/api/wersje/grupy")
+def api_wersje_grupy(payload: dict) -> JSONResponse:
+    """Utwory z listy, które mają w bibliotece więcej niż jedną kopię."""
+    pliki = (payload or {}).get("files") or []
+    if not isinstance(pliki, list):
+        raise HTTPException(400, "files: lista plików")
+    sciezki = []
+    for f in pliki[:2000]:
+        try:
+            sciezki.append(_safe(str(f)))
+        except HTTPException:
+            continue
+    return JSONResponse({"grupy": decyzje.grupy_kopii(_folder(), sciezki)})
+
+
+@app.post("/api/wersje/wybierz")
+def api_wersje_wybierz(payload: dict) -> JSONResponse:
+    """Zostaw wybraną kopię, wskazane przenieś do kosza (cofniesz w Historii)."""
+    usun = (payload or {}).get("usun") or []
+    if not isinstance(usun, list) or not all(isinstance(x, str) for x in usun):
+        raise HTTPException(400, "usun: lista plików")
+    zostaw = _safe(_field(payload, "zostaw"))
+    try:
+        d = decyzje.wybierz(_folder(), zostaw, [_safe(x) for x in usun])
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return JSONResponse({"ok": True, "id": d["id"], "w_koszu": len(d.get("w_koszu", []))})
+
+
+@app.post("/api/skaner/start")
+def api_skaner_start() -> JSONResponse:
+    """Przeszukaj cały komputer w poszukiwaniu utworów spoza biblioteki (w tle)."""
+    return JSONResponse(_clean(skaner.start_skanu(_folder())))
+
+
+@app.get("/api/skaner")
+def api_skaner() -> JSONResponse:
+    """Postęp skanu albo dodawania; po skanie także wynik."""
+    return JSONResponse(_clean(skaner.stan()))
+
+
+@app.post("/api/skaner/przerwij")
+def api_skaner_przerwij() -> JSONResponse:
+    skaner.przerwij()
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/skaner/dodaj")
+def api_skaner_dodaj(payload: dict) -> JSONResponse:
+    """Skopiuj wybrane foldery z ostatniego skanu do „Z komputera” w bibliotece."""
+    foldery = (payload or {}).get("foldery") or []
+    if not isinstance(foldery, list) or not all(isinstance(f, str) for f in foldery):
+        raise HTTPException(400, "foldery: lista ścieżek z wyniku skanu")
+    try:
+        return JSONResponse(_clean(skaner.start_dodawania(foldery, _folder())))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+    except ValueError as exc:
+        raise HTTPException(507, str(exc))
 
 
 @app.post("/api/tracks/usun")
@@ -2318,6 +2418,51 @@ def api_waveform(file: str = Query(...)) -> JSONResponse:
         "cues": {"intro": c.get("intro_end_s"), "drop": c.get("drop_s"),
                  "outro": c.get("outro_start_s")},
     }))
+
+
+@app.get("/api/stopa")
+def api_stopa(file: str = Query(...)) -> JSONResponse:
+    """Odsłuch kontrolny: uderzenia stopy i bity siatki w osi odtwarzania.
+
+    Stopy liczymy raz (cache „stopa”); bity zawsze ze świeżej siatki — tej,
+    którą pokazuje edytor i dostanie rekordbox — bo po korekcie się zmieniają.
+    """
+    path = _safe(file)
+    s = cache.get(path, "stopa")
+    if s is None:
+        x = cues._decode(path)
+        s = {"stopy": siatka.stopy(x, cues.SR) if x.size else [],
+             "czas_s": round(x.size / cues.SR, 3)}
+        cache.put(path, "stopa", s)
+    g = _siatka_widoczna(path)
+    zn = [{"t": z["t"], "bpm": z["bpm"], "battito": z.get("battito") or 1}
+          for z in (g.get("znaczniki") or [])]
+    bity = siatka.bity_siatki(g.get("bpm"), g.get("first_beat_s"), g.get("battito") or 1,
+                              zn, s["czas_s"])
+    return JSONResponse(_clean({**s, "bity": bity, "bpm": g.get("bpm"),
+                                "zrodlo_siatki": g.get("zrodlo_siatki"),
+                                "hot_cue": hotcue.dla_pliku(path)}))
+
+
+@app.get("/api/hotcue")
+def api_hotcue(file: str = Query(...)) -> JSONResponse:
+    return JSONResponse({"hot_cue": hotcue.dla_pliku(_safe(file))})
+
+
+@app.post("/api/hotcue")
+def api_hotcue_ustaw(payload: dict) -> JSONResponse:
+    """Postaw hot cue A–H (num 0–7) w danym miejscu albo go usuń (usun: true)."""
+    path = _safe(_field(payload, "file"))
+    dane = payload or {}
+    try:
+        num = int(dane.get("num"))
+        if dane.get("usun"):
+            lista = hotcue.usun(path, num)
+        else:
+            lista = hotcue.ustaw(path, num, float(dane.get("start_s")), _field(dane, "nazwa"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, f"zły hot cue: {exc}")
+    return JSONResponse({"ok": True, "hot_cue": lista})
 
 
 @app.post("/api/siatka")

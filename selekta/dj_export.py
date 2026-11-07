@@ -396,7 +396,7 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
     ET.SubElement(root, "PRODUCT", Name="selekta", Version=__version__, Company="selekta")
     wyslane: dict[str, dict[str, float]] = {}
 
-    from . import rbczas
+    from . import hotcue, rbczas
 
     collection = ET.SubElement(root, "COLLECTION", Entries=str(len(tracks)))
     for i, track in enumerate(tracks, start=1):
@@ -459,7 +459,17 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
         # z własnymi hot cue'ami, oddajemy dokładnie je. Własne wyliczenie
         # intro/drop/outro dokładamy tylko tam, gdzie użytkownik nie postawił
         # nic — nadpisanie cudzego cue widać dopiero na parkiecie.
-        reczne = track.get("znaczniki") or []
+        # Hot cue postawione w selekcie (odsłuch kontrolny) zajmują swoje
+        # sloty; z rekordboxa zostaje reszta. Auto intro/drop/outro tylko
+        # w wolnych slotach, gdy z rekordboxa nie przyszło nic.
+        moje = track.get("hot_cue") or []
+        zajete = {int(z.get("num", -1)) for z in moje}
+        reczne = hotcue.scal(track.get("znaczniki") or [], moje) if track.get("znaczniki") else []
+        if not reczne:
+            reczne = list(moje)
+            auto = True
+        else:
+            auto = False
         if reczne:
             for z in reczne:
                 czas = _czas_lub_none(z.get("start_s"))
@@ -478,13 +488,13 @@ def to_rekordbox_xml(tracks: list[dict], playlist_name: str, out_path: str) -> s
                                    Green=str(int(kolor[3:5], 16)),
                                    Blue=str(int(kolor[5:7], 16)))
                 ET.SubElement(el, "POSITION_MARK", attrs_m)
-        else:
+        if auto:
             for nazwa, sekundy, numer in (
                     ("intro", track.get("intro_end_s"), 0),
                     ("drop", track.get("drop_s"), 1),
                     ("outro", track.get("outro_start_s"), 2)):
                 czas = _czas_lub_none(sekundy)
-                if czas is None:
+                if czas is None or numer in zajete:
                     continue
                 ET.SubElement(el, "POSITION_MARK", Name=nazwa, Type="0",
                               Start=f"{czas + off:.3f}", Num=str(numer))
@@ -620,7 +630,7 @@ def _rb_w_osi_selekty(path: str, rb: dict) -> dict:
     """
     if not rb:
         return rb
-    from . import rbczas
+    from . import hotcue, rbczas
     off = rbczas.przesuniecie_s(path)
     if not off:
         return rb
@@ -651,7 +661,7 @@ def wzbogac_o_siatke(tracks: list[dict], licz_brakujace: bool = True) -> list[di
     """
     from dataclasses import asdict
 
-    from . import cache, cues, harmonic, rbimport, siatka, waveform
+    from . import cache, cues, harmonic, hotcue, rbimport, siatka, waveform
 
     for t in tracks:
         path = t.get("path")
@@ -727,6 +737,7 @@ def wzbogac_o_siatke(tracks: list[dict], licz_brakujace: bool = True) -> list[di
             for klucz in ("kolor", "ocena", "odtworzen", "komentarz"):
                 if rb.get(klucz):
                     t[klucz] = rb[klucz]
+        t["hot_cue"] = hotcue.dla_pliku(path)
         t["intro_end_s"] = c.get("intro_end_s")
         t["drop_s"] = c.get("drop_s")
         t["outro_start_s"] = c.get("outro_start_s")

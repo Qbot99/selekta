@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import time
 import uuid
 from datetime import datetime
@@ -166,6 +167,8 @@ def notify(text: str, title: str = "selekta") -> bool:
     def esc(s: str) -> str:
         return s.replace("\\", "\\\\").replace('"', '\\"')
 
+    if sys.platform != "darwin":
+        return False                               # powiadomienia: na razie tylko macOS
     script = f'display notification "{esc(text)}" with title "{esc(title)}"'
     try:
         r = subprocess.run(

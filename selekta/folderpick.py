@@ -1,4 +1,4 @@
-"""Natywne okno wyboru folderu/pliku (macOS).
+"""Natywne okno wyboru folderu/pliku (macOS: Finder, Windows: okno systemowe).
 
 Przeglądarka z zasady nie zdradza, gdzie na dysku leży wybrany plik —
 dostajemy samą zawartość. Dla folderu z muzyką to bez sensu: nie chcemy
@@ -23,7 +23,32 @@ class PickUnavailable(Exception):
 
 
 def available() -> bool:
-    return sys.platform == "darwin"
+    return sys.platform in ("darwin", "win32")
+
+
+def _run_windows(skrypt: str) -> str:
+    """Okno Windows Forms przez PowerShell; ścieżka na stdout (UTF-8)."""
+    pelny = ("[Console]::OutputEncoding = [Text.Encoding]::UTF8; "
+             "Add-Type -AssemblyName System.Windows.Forms; " + skrypt)
+    try:
+        res = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", pelny],
+                             capture_output=True, timeout=TIMEOUT_S,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except subprocess.TimeoutExpired:
+        raise PickCancelled("okno wyboru było otwarte za długo")
+    except OSError as exc:
+        raise PickUnavailable(f"nie udało się otworzyć okna wyboru: {exc}")
+    out = res.stdout.decode("utf-8", "replace").strip()
+    if res.returncode != 0:
+        raise PickUnavailable(res.stderr.decode("utf-8", "replace").strip()
+                              or "nie udało się otworzyć okna wyboru")
+    if not out:
+        raise PickCancelled("nie wybrano")
+    return out
+
+
+def _ps(tekst: str) -> str:
+    return tekst.replace("'", "''")
 
 
 def _run(script: str) -> str:
@@ -45,6 +70,11 @@ def _run(script: str) -> str:
 
 def choose_folder(prompt: str = "Wskaż folder z muzyką") -> str:
     """Ścieżka folderu wybranego przez użytkownika."""
+    if sys.platform == "win32":
+        return _run_windows(
+            "$d = New-Object System.Windows.Forms.FolderBrowserDialog; "
+            f"$d.Description = '{_ps(prompt)}'; $d.ShowNewFolderButton = $false; "
+            "if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }")
     safe = prompt.replace('"', "'")
     return _run(
         'tell application "System Events" to activate\n'
@@ -55,6 +85,11 @@ def choose_folder(prompt: str = "Wskaż folder z muzyką") -> str:
 
 def choose_file(prompt: str = "Wskaż plik playlisty") -> str:
     """Ścieżka pliku wybranego przez użytkownika."""
+    if sys.platform == "win32":
+        return _run_windows(
+            "$d = New-Object System.Windows.Forms.OpenFileDialog; "
+            f"$d.Title = '{_ps(prompt)}'; "
+            "if ($d.ShowDialog() -eq 'OK') { $d.FileName }")
     safe = prompt.replace('"', "'")
     return _run(
         'tell application "System Events" to activate\n'

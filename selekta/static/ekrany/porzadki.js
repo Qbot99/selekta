@@ -258,6 +258,7 @@ function kartaDecyzji(d){
   ].join('');
   const akcje = d.stan === 'czeka'
     ? `${przyciskGraj(pierwszy.path)}
+       ${zostaw && d.rodzaj !== 'podejrzany' && S.pokazWersje ? `<button class="pz-btn" data-akcja="wersje" data-plik="${esc(zostaw.path)}" title="pokaż wszystkie kopie i wybierz samemu, która zostaje">Wybierz inną</button>` : ''}
        <button class="pz-btn" data-akcja="odrzuc" data-id="${esc(d.id)}" title="zostaw wszystko bez zmian i nie pytaj o to ponownie">Pomiń</button>
        <button class="pz-cta ${r.ctaKolor}" data-akcja="zatwierdz" data-id="${esc(d.id)}" title="${d.rodzaj === 'podejrzany' ? 'przenieś pobrany plik do kosza' : 'przenieś gorsze kopie do kosza — da się cofnąć'}">${esc(r.cta)}</button>`
     : d.stan === 'zatwierdzona'
@@ -426,6 +427,7 @@ S.ekran('porzadki', {
         toast('okładka zapisana w tagach', 'ok'); zdrowie.kiedy = 0; pzRysuj(host);
       });
       if(a === 'zatwierdz' || a === 'odrzuc' || a === 'cofnij') return pzAkcja(host, el.dataset.id, a, el);
+      if(a === 'wersje') return S.pokazWersje(el.dataset.plik);
     }));
   },
   load(host){

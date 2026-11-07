@@ -140,14 +140,21 @@ def _read_tags(audio) -> tuple[str | None, str | None]:
         if audio.get("TITLE"):
             title = _wszystkie(audio.get("TITLE"))
     if tags is not None and hasattr(tags, "get"):
-        if artist is None and tags.get("TPE1"):     # ID3
-            artist = _wszystkie(tags["TPE1"])
-        if title is None and tags.get("TIT2"):
-            title = _wszystkie(tags["TIT2"])
-        if artist is None and tags.get("\xa9ART"):  # MP4 / m4a
-            artist = _wszystkie(tags["\xa9ART"])
-        if title is None and tags.get("\xa9nam"):
-            title = _wszystkie(tags["\xa9nam"])
+        def pole(klucz):
+            # Vorbis (FLAC/OGG) rzuca ValueError na klucz spoza ASCII („©nam”):
+            # plik z samym artystą wychodził przez to jako zupełnie bez tagów
+            try:
+                return tags.get(klucz)
+            except (ValueError, KeyError):
+                return None
+        if artist is None and pole("TPE1"):         # ID3
+            artist = _wszystkie(pole("TPE1"))
+        if title is None and pole("TIT2"):
+            title = _wszystkie(pole("TIT2"))
+        if artist is None and pole("\xa9ART"):      # MP4 / m4a
+            artist = _wszystkie(pole("\xa9ART"))
+        if title is None and pole("\xa9nam"):
+            title = _wszystkie(pole("\xa9nam"))
     return artist or None, title or None
 
 

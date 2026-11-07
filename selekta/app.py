@@ -92,7 +92,8 @@ def _otworz_splash(url: str) -> None:
     plik = os.path.join(katalog, "start.html")
     with open(plik, "w", encoding="utf-8") as fh:
         fh.write(splash_html(url))
-    webbrowser.open("file://" + plik)
+    from pathlib import Path
+    webbrowser.open(Path(plik).as_uri())             # file:///C:/… na Windows
 
 
 def _wolny_port(preferowany: int = PORT_DOMYSLNY) -> int:

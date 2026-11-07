@@ -112,6 +112,19 @@
 #arkuszBody .szcz .akcja.zla:hover{color:#ff5a6a}
 #arkuszBody .szcz .fala{display:flex;align-items:flex-end;gap:1px;height:72px;padding:0 2px}
 #arkuszBody .szcz .fala span{flex:1;border-radius:1px;min-width:0}
+#arkuszBody .szcz .kontrola{display:flex;flex-direction:column;gap:10px;border:1px solid #2a2522;border-radius:12px;padding:12px 14px;background:#141110}
+#arkuszBody .szcz .kontrola .et{font:500 10.5px var(--mono);letter-spacing:.08em;color:#5e5650}
+#arkuszBody .szcz .lampa{display:inline-flex;align-items:center;gap:7px;font:600 11px var(--mono);letter-spacing:.08em;color:#8f857c}
+#arkuszBody .szcz .lampa i{width:18px;height:18px;border-radius:50%;background:#2a2522;transition:background .04s;box-shadow:0 0 0 rgba(255,106,61,0)}
+#arkuszBody .szcz .lampa b{min-width:10px;text-align:center;color:#f2ece6}
+#arkuszBody .szcz #szczLupa{width:100%;height:84px;border-radius:8px;background:#0f0d0c;cursor:pointer;display:block}
+#arkuszBody .szcz .pady{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}
+#arkuszBody .szcz .pad{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;border:1px solid #2a2522;border-radius:9px;background:#171412;color:#5e5650;cursor:pointer;font:600 15px var(--mono)}
+#arkuszBody .szcz .pad small{font:500 10.5px var(--mono);color:#8f857c}
+#arkuszBody .szcz .pad.ust{color:#0f0d0c}
+#arkuszBody .szcz .pad.ust small{color:#0f0d0c;opacity:.75}
+#arkuszBody .szcz .pad .x{position:absolute;top:2px;right:5px;font-size:11px;opacity:0;color:#0f0d0c}
+#arkuszBody .szcz .pad:hover .x{opacity:.8}
 #arkuszBody .szcz .fala.gra span{opacity:.55}
 #arkuszBody .szcz .fala.gra span.zagrany{opacity:1}
 #arkuszBody .szcz .zamknij{background:transparent;border:1px solid #2a2522;color:#8f857c;border-radius:8px;width:40px;height:40px;cursor:pointer;font-size:14px}
@@ -306,12 +319,14 @@
     if(btnBox.querySelector('.popover')){ zamknijPopovery(); return; }
     zamknijPopovery();
     const p = document.createElement('div'); p.className = 'popover'; p.style.flexDirection = 'column'; p.style.alignItems = 'stretch'; p.style.gap = '10px';
-    p.innerHTML = `<button class="btn sr" id="dodajZKomputera" type="button" style="text-align:left">Wybierz pliki z komputera…</button>
+    p.innerHTML = `<button class="btn sr acc" id="dodajSkaner" type="button" style="text-align:left">Szukaj muzyki na całym komputerze…</button>
+      <button class="btn sr" id="dodajZKomputera" type="button" style="text-align:left">Wybierz pliki z komputera…</button>
       <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:#5e5650"><span style="flex:1;height:1px;background:#2a2522"></span>albo ścieżka do pliku lub folderu<span style="flex:1;height:1px;background:#2a2522"></span></div>
       <div style="display:flex;gap:8px"><input class="pole szeroki" id="dodajSciezka" placeholder="/Volumes/USB/nowe utwory"><button class="btn mini acc" id="dodajSciezkaBtn" type="button">Dodaj</button></div>
       <div style="font-size:12px;color:#5e5650">pliki są kopiowane do biblioteki — oryginały zostają na miejscu</div>`;
     btnBox.appendChild(p); btnBox.classList.add('otwarty');
     $('#dodajZKomputera', p).onclick = () => { zamknijPopovery(); $('#dodajPlik', st.host).click(); };
+    $('#dodajSkaner', p).onclick = () => { zamknijPopovery(); pokazSkaner(); };
     const ze = async () => {
       const sciezka = $('#dodajSciezka', p).value.trim(); if(!sciezka) return;
       zamknijPopovery();
@@ -325,6 +340,167 @@
     $('#dodajSciezkaBtn', p).onclick = ze;
     $('#dodajSciezka', p).addEventListener('keydown', e => { if(e.key === 'Enter') ze(); });
     $('#dodajSciezka', p).focus();
+  }
+
+  // ---------- „Sprawdź wszystkie”: tytuły/artyści z nazw plików + okładki (/api/porzadek) ----------
+  async function pokazSprawdzanie(){
+    let otwarty = true;
+    const sheet = S.arkusz('<div class="pusto"><span class="spin"></span> sprawdzam tagi i okładki całej biblioteki…</div>', {szer: 920, naZamkniecie: () => { otwarty = false; }});
+    const dim = 'color:#8f857c;font-size:12.5px';
+    const czekaj = ms => new Promise(r => setTimeout(r, ms));
+    const pokazPostep = async d => {
+      while(otwarty && d && d.w_toku){
+        sheet.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px"><h2 style="margin:0">Sprawdź wszystkie</h2>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid #2a2522;border-radius:9px;background:#171412"><span class="spin"></span>
+          <div style="flex:1">${d.etap === 'tagi' ? 'uzupełniam tytuły i artystów' : 'szukam okładek w iTunes (ok. 20 na minutę — możesz zamknąć to okno, praca idzie w tle)'} · ${d.zrobione || 0}/${d.wszystkie || '…'}</div>
+          <button class="btn mini" id="spPrzerwij" type="button">Przerwij</button></div></div>`;
+        $('#spPrzerwij', sheet).onclick = e => { e.target.disabled = true; e.target.textContent = 'przerywam…'; api('/api/porzadek/przerwij', {method:'POST', cicho:true}).catch(() => {}); };
+        await czekaj(1500);
+        try{ d = await api('/api/porzadek', {cicho:true}); }catch(e){ break; }
+      }
+      return d;
+    };
+    let d;
+    try{ d = await api('/api/porzadek', {cicho:true}); }catch(e){ d = null; }
+    if(d && d.w_toku){ d = await pokazPostep(d); if(otwarty) rysujWynik(d); return; }
+    let plan;
+    try{ plan = await api('/api/porzadek/plan'); }
+    catch(e){ if(otwarty) sheet.innerHTML = `<div class="pusto bad">✗ ${esc(e.message)}</div>`; return; }
+    if(!otwarty) return;
+    const pewne = plan.tagi.filter(x => x.pewne), niepewne = plan.tagi.filter(x => !x.pewne);
+    const wiersz = x => `<div style="display:flex;gap:10px;font-size:12.5px;padding:3px 0;${x.pewne ? '' : 'opacity:.55'}">
+        <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(x.rel)}">${esc(x.rel.split('/').pop())}</span>
+        <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${x.pewne ? `→ <b>${esc(x.artist)}</b> — ${esc(x.title)}` : 'nazwa niejednoznaczna — nie ruszam, popraw ręcznie'}</span></div>`;
+    sheet.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h2 style="margin:0">Sprawdź wszystkie</h2><span style="${dim}">${fmtLicz(plan.utworow)} utworów w bibliotece</span></div>
+      <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="spTagi" ${pewne.length ? 'checked' : 'disabled'} style="accent-color:#ff6a3d;margin-top:3px">
+        <div><div>Uzupełnij tytuły i artystów z nazw plików — <b>${pewne.length}</b> ${lm(pewne.length, ['utwór','utwory','utworów'])}</div>
+        <div style="${dim}">tylko puste pola — istniejących tagów nie nadpisuję; ${niepewne.length} z niejednoznaczną nazwą zostawiam. Da się cofnąć.</div></div></label>
+      ${plan.tagi.length ? `<div style="max-height:30vh;overflow:auto;border:1px solid #2a2522;border-radius:9px;padding:6px 12px;background:#171412">${[...pewne, ...niepewne].map(wiersz).join('')}</div>` : ''}
+      <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="spOkl" ${plan.bez_okladki.length ? 'checked' : 'disabled'} style="accent-color:#ff6a3d;margin-top:3px">
+        <div><div>Dociągnij okładki z iTunes — <b>${plan.bez_okladki.length}</b> bez okładki</div>
+        <div style="${dim}">tylko przy zgodnym artyście i tytule; istniejących nie podmieniam. iTunes przyjmuje ok. 20 zapytań na minutę, więc to potrwa ok. ${Math.max(1, Math.round(plan.bez_okladki.length * 3.4 / 60))} min — w tle.</div></div></label>
+      <div style="display:flex;gap:12px;align-items:center"><button class="btn acc" id="spStart" type="button" ${pewne.length || plan.bez_okladki.length ? '' : 'disabled'}>Uzupełnij</button>
+        ${!pewne.length && !plan.bez_okladki.length ? '<span class="ok">✓ wszystko ma tagi i okładki</span>' : ''}</div>
+    </div>`;
+    $('#spStart', sheet).onclick = async () => {
+      const tagi = $('#spTagi', sheet).checked, okladki = $('#spOkl', sheet).checked;
+      if(!tagi && !okladki) return;
+      let x;
+      try{ x = await api('/api/porzadek/start', {method:'POST', body:{tagi, okladki}}); }catch(e){ return; }
+      x = await pokazPostep(x);
+      if(otwarty) rysujWynik(x);
+      S.uniewaznTracks(); if(st.host) load(st.host);
+    };
+    function rysujWynik(x){
+      const w = (x && x.wynik) || {}, t = w.tagi, o = w.okladki;
+      sheet.innerHTML = `<div style="display:flex;flex-direction:column;gap:12px"><h2 style="margin:0">Sprawdź wszystkie — gotowe${x && x.przerwany ? ' (przerwane)' : ''}</h2>
+        ${x && x.blad ? `<div class="bad">✗ ${esc(x.blad)}</div>` : ''}
+        ${t ? `<div>✓ tytuły i artyści: <b>${t.zapisane}</b> ${lm(t.zapisane, ['utwór','utwory','utworów'])} ${t.zapisane ? '<button class="btn mini goly" id="spCofnij" type="button">cofnij</button>' : ''}${t.bledy.length ? ` · <span class="bad">${t.bledy.length} błędów</span>` : ''}</div>` : ''}
+        ${o ? `<div>✓ okładki: dodane <b>${o.dodane}</b> z ${o.bez_okladki}${o.brak.length ? ` · iTunes nie ma ${o.brak.length} (zostają bez okładki)` : ''}</div>` : ''}
+        ${o && o.brak.length ? `<div style="${dim};max-height:24vh;overflow:auto">${o.brak.map(esc).join('<br>')}</div>` : ''}</div>`;
+      const c = $('#spCofnij', sheet);
+      if(c) c.onclick = async () => { c.disabled = true; try{ const r = await api('/api/porzadek/cofnij', {method:'POST'}); S.toast(`przywrócono tagi w ${r.przywrocone} plikach`, 'ok'); c.remove(); S.uniewaznTracks(); if(st.host) load(st.host); }catch(e){ c.disabled = false; } };
+    }
+  }
+
+  // ---------- muzyka z całego komputera (/api/skaner) ----------
+  const czekaj = ms => new Promise(r => setTimeout(r, ms));
+  async function pokazSkaner(nowy = false){
+    let otwarty = true;
+    const sheet = S.arkusz('<div class="pusto"><span class="spin"></span> zaczynam szukać…</div>', {szer: 920, naZamkniecie: () => { otwarty = false; }});
+    const wiersz = 'display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid #2a2522;border-radius:9px;background:#171412';
+    const dim = 'color:#8f857c;font-size:12.5px';
+    const naglowek = (pod) => `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h2 style="margin:0">Muzyka na komputerze</h2><span style="${dim}">${pod}</span></div>`;
+    const sledz = async (d, rysujPostep) => {
+      while(otwarty && d && d.w_toku){ rysujPostep(d); await czekaj(1000); d = await api('/api/skaner', {cicho: true}); }
+      return d;
+    };
+    let d;
+    try{
+      // świeży wynik (do 30 min) pokazujemy od razu — pełny skan trwa minutami
+      if(!nowy){
+        const s = await api('/api/skaner', {cicho: true});
+        if(s.w_toku || (s.wynik && s.koniec && Date.now() / 1000 - s.koniec < 1800)) d = s;
+      }
+      if(!d) d = await api('/api/skaner/start', {method: 'POST'});
+    }catch(e){ sheet.innerHTML = `<div class="pusto bad">✗ ${esc(e.message)}</div>`; return; }
+    try{
+      d = await sledz(d, x => {
+        sheet.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px">${naglowek('szukam w folderze domowym, w /Users/Shared i na podłączonych dyskach — niczego nie zmieniam')}
+          <div style="${wiersz}"><span class="spin"></span><div style="min-width:0;flex:1"><div>${fmtLicz(x.folderow || 0)} ${lm(x.folderow || 0, ['folder','foldery','folderów'])} przejrzanych · ${fmtLicz(x.znalezione || 0)} nowych utworów</div>
+          <div style="${dim};white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(x.biezacy || '')}">${esc(skrocDom(x.biezacy || ''))}</div></div>
+          <button class="btn mini" id="skPrzerwij" type="button">Przerwij</button></div></div>`;
+        $('#skPrzerwij', sheet).onclick = e => { e.target.disabled = true; e.target.textContent = 'przerywam…'; api('/api/skaner/przerwij', {method: 'POST', cicho: true}).catch(() => {}); };
+      });
+    }catch(e){ if(otwarty) sheet.innerHTML = `<div class="pusto bad">✗ ${esc(e.message)}</div>`; return; }
+    if(!otwarty) return;
+    if(d.blad || !d.wynik){ sheet.innerHTML = `<div class="pusto bad">✗ ${esc(d.blad || 'skan nie zwrócił wyniku')}</div>`; return; }
+    rysujWynikSkanu(sheet, d.wynik, () => otwarty);
+  }
+
+  function rysujWynikSkanu(sheet, w, otwarty){
+    const dim = 'color:#8f857c;font-size:12.5px';
+    const foldery = w.foldery || [];
+    const zazn = new Set(foldery.map(g => g.folder));
+    const rozwiniete = new Set();
+    const ileUtworow = () => foldery.filter(g => zazn.has(g.folder)).reduce((n, g) => n + g.pliki.length, 0);
+    const pelneKopie = () => foldery.filter(g => zazn.has(g.folder) && !g.ten_sam_dysk).reduce((n, g) => n + g.rozmiar, 0);
+    const opisPliku = p => (p.artist && p.title) ? `${p.artist} — ${p.title}` : p.name;
+    const pomin = [];
+    if(w.juz_w_bibliotece) pomin.push(`${fmtLicz(w.juz_w_bibliotece)} już masz w bibliotece`);
+    if(w.kopie) pomin.push(`${fmtLicz(w.kopie)} to kopie tego samego pliku`);
+    if(w.krotkie) pomin.push(`${fmtLicz(w.krotkie)} krótszych niż minuta (sample, dźwięki)`);
+    if(w.projekty) pomin.push(`${fmtLicz(w.projekty)} ${lm(w.projekty, ['folder','foldery','folderów'])} z kodem (strony, programy)`);
+    const rysuj = () => {
+      const n = ileUtworow(), pelne = pelneKopie();
+      sheet.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h2 style="margin:0">Muzyka na komputerze</h2>
+          <button class="btn mini goly" id="skPonownie" type="button" style="order:9;margin-left:auto">przeszukaj ponownie</button>
+          <span style="${dim}">${fmtLicz(w.utworow || 0)} ${lm(w.utworow || 0, ['nowy utwór','nowe utwory','nowych utworów'])} w ${fmtLicz(foldery.length)} ${lm(foldery.length, ['folderze','folderach','folderach'])}</span></div>
+        ${pomin.length ? `<div style="${dim}">pominięte: ${esc(pomin.join(' · '))}</div>` : ''}
+        ${w.przerwany ? `<div class="warn" style="font-size:13px">skan przerwany — lista jest niepełna</div>` : ''}
+        ${(w.brak_dostepu || []).length ? `<div class="warn" style="font-size:13px">macOS nie dał dostępu do: ${esc(w.brak_dostepu.slice(0, 6).map(skrocDom).join(', '))}${w.brak_dostepu.length > 6 ? '…' : ''} — zezwól w Ustawieniach systemowych → Prywatność i ochrona → Pliki i foldery, potem przeszukaj ponownie</div>` : ''}
+        ${foldery.length ? `<div style="display:flex;gap:8px;align-items:center"><button class="btn mini" id="skWszystkie" type="button">zaznacz wszystkie</button><button class="btn mini goly" id="skZadne" type="button">odznacz wszystkie</button></div>
+        <div style="display:flex;flex-direction:column;gap:6px;max-height:52vh;overflow:auto;padding-right:4px">${foldery.map((g, i) => `
+          <div style="border:1px solid #2a2522;border-radius:9px;background:#171412">
+            <label style="display:flex;align-items:center;gap:12px;padding:9px 12px;cursor:pointer">
+              <input type="checkbox" data-sk="${i}" ${zazn.has(g.folder) ? 'checked' : ''} style="accent-color:#ff6a3d;width:16px;height:16px">
+              <div style="min-width:0;flex:1"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(g.folder)}">${esc(skrocDom(g.folder))}</div>
+                <div style="${dim}">${g.pliki.length} ${lm(g.pliki.length, ['utwór','utwory','utworów'])} · ${esc(fmtMB(g.rozmiar))}${g.w_chmurze ? ` · <span class="info">${g.w_chmurze === g.pliki.length ? '' : g.w_chmurze + ' '}w iCloud — pobierze się przy dodaniu</span>` : (g.ten_sam_dysk ? '' : ' · <span class="warn">inny dysk — pełna kopia</span>')}</div></div>
+              <button class="btn mini goly" type="button" data-rozwin="${i}">${rozwiniete.has(i) ? 'zwiń' : 'pokaż utwory'}</button></label>
+            ${rozwiniete.has(i) ? `<div style="padding:0 12px 10px 40px;display:flex;flex-direction:column;gap:3px">${g.pliki.map(p => `<div style="display:flex;gap:10px;font-size:12.5px"><span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(p.name)}">${esc(opisPliku(p))}</span><span style="color:#5e5650">${esc(fmtTime(p.duration))}</span></div>`).join('')}</div>` : ''}
+          </div>`).join('')}</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <button class="btn acc" id="skDodaj" type="button" ${n ? '' : 'disabled'}>Dodaj do biblioteki (${fmtLicz(n)} ${lm(n, ['utwór','utwory','utworów'])})</button>
+          <span style="${dim};flex:1;min-width:240px">kopie trafią do „Z komputera” w bibliotece, z zachowaną ścieżką; oryginały zostają na miejscu. Na tym samym dysku kopia nie zajmuje miejsca${pelne ? `; pobranie z iCloud i innych dysków: ${esc(fmtMB(pelne))}` : ''}.</span></div>`
+        : `<div class="pusto">nie znalazłem utworów spoza biblioteki — wszystko, co jest na komputerze, już w niej masz</div>`}
+      </div>`;
+    };
+    rysuj();
+    sheet.onchange = e => {
+      const c = e.target.closest('[data-sk]'); if(!c) return;
+      const g = foldery[Number(c.dataset.sk)]; c.checked ? zazn.add(g.folder) : zazn.delete(g.folder); rysuj();
+    };
+    sheet.onclick = async e => {
+      const r = e.target.closest('[data-rozwin]');
+      if(r){ e.preventDefault(); const i = Number(r.dataset.rozwin); rozwiniete.has(i) ? rozwiniete.delete(i) : rozwiniete.add(i); rysuj(); return; }
+      if(e.target.closest('#skWszystkie')){ foldery.forEach(g => zazn.add(g.folder)); rysuj(); return; }
+      if(e.target.closest('#skZadne')){ zazn.clear(); rysuj(); return; }
+      if(e.target.closest('#skPonownie')){ pokazSkaner(true); return; }
+      const b = e.target.closest('#skDodaj'); if(!b) return;
+      b.disabled = true; b.textContent = 'dodaję…';
+      let d;
+      try{
+        d = await api('/api/skaner/dodaj', {method: 'POST', body: {foldery: [...zazn]}});
+        while(otwarty() && d.w_toku){ b.textContent = `dodaję… ${d.zrobione || 0}/${d.wszystkie || 0}`; await czekaj(700); d = await api('/api/skaner', {cicho: true}); }
+      }catch(err){ b.disabled = false; rysuj(); return; }
+      if(d.blad){ S.toast(d.blad, 'bad'); rysuj(); return; }
+      const x = d.dodawanie || {};
+      S.toast(x.dodane ? `dodano ${x.dodane} ${lm(x.dodane, ['utwór','utwory','utworów'])} do „Z komputera”${x.bledy && x.bledy.length ? ` · ${x.bledy.length} się nie udało` : ''}` : 'nic nie dodano — te utwory już są w bibliotece', x.dodane ? 'ok' : 'warn', 8000);
+      if(otwarty()) S.zamknijArkusz();
+      S.uniewaznTracks(); if(st.host) await load(st.host);
+    };
   }
 
   // ---------- zaznaczanie ----------
@@ -472,6 +648,7 @@
       <div class="naglowek">
         <div><h1>Biblioteka</h1><div class="sub" id="bibSub">wczytuję…</div></div>
         <div class="akcje">
+          <button class="btn" id="bibSprawdz" type="button" title="brakujące tytuły i artyści z nazw plików + okładki z iTunes, dla całej biblioteki">Sprawdź wszystkie</button>
           <span style="position:relative" id="bibDodajBox"><button class="btn" id="bibDodaj" type="button">+ Dodaj utwory</button></span>
           <button class="btn acc" id="bibAnalizuj" type="button" disabled>Analizuj resztę</button>
         </div>
@@ -583,6 +760,7 @@
 
     // --- nagłówek: dodawanie i analiza ---
     $('#bibDodaj', host).onclick = () => popoverDodaj($('#bibDodajBox', host));
+    $('#bibSprawdz', host).onclick = () => pokazSprawdzanie();
     $('#dodajPlik', host).onchange = async e => { const pliki = [...e.target.files]; e.target.value = ''; if(pliki.length) await wgrajPliki(pliki); };
     $('#bibAnalizuj', host).onclick = () => analizuj(st.tracks.filter(nieanalizowany), 'reszta biblioteki');
 
@@ -710,6 +888,18 @@
         </div>
         <div id="siatkaBox" class="hide"></div>
       </div>
+      <div class="kontrola" id="szczKontrola">
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+          <span class="et">ODSŁUCH KONTROLNY</span>
+          <span class="lampa" id="lampaStopa" title="mruga na każde uderzenie stopy wykryte w dźwięku"><i></i>STOPA</span>
+          <span class="lampa siatka" id="lampaSiatka" title="mruga na każdy bit siatki — jedynka taktu jaśniej"><i></i><b id="lampaNr">·</b>SIATKA</span>
+          <span id="kontrolaWerdykt" style="font-size:12.5px;color:#8f857c"><span class="spin" style="width:9px;height:9px"></span> szukam uderzeń stopy…</span>
+          <label style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:#8f857c;cursor:pointer" title="hot cue staje na najbliższym bicie siatki, jak z włączonym Quantize na CDJ"><input type="checkbox" id="hcSnap" style="accent-color:#ff6a3d">przyciągaj do bitu</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#8f857c" title="słuchawki Bluetooth grają z opóźnieniem 150–250 ms — wpisz je, żeby lampki mrugały razem z dźwiękiem">opóźnienie <input class="pole" id="hcLat" type="number" min="0" max="400" step="10" style="width:62px;padding:4px 6px"> ms</label>
+        </div>
+        <canvas id="szczLupa" height="84" title="4 sekundy wokół miejsca odtwarzania: pomarańczowe = stopa w dźwięku, białe linie = siatka (gruba = jedynka). Kliknij, żeby przeskoczyć."></canvas>
+        <div class="pady" id="hcPady"></div>
+      </div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px" id="szczKafle">
         ${['TEMPO','TONACJA','GŁOŚNOŚĆ','JAKOŚĆ'].map(k => `<div class="kafel3"><div class="et">${k}</div><div class="duza" style="color:#5e5650">…</div><div class="pod"><span class="spin" style="width:9px;height:9px"></span> liczę</div></div>`).join('')}
       </div>
@@ -719,6 +909,7 @@
       <div style="display:flex;gap:8px;align-items:center;border-top:1px solid #2a2522;padding-top:18px">
         <button class="akcja" id="szczFinder" type="button">Pokaż w Finderze</button>
         <button class="akcja" id="szczPrzelicz" type="button">Przelicz analizę</button>
+        <button class="akcja" id="szczWersje" type="button" title="wszystkie kopie tego utworu w bibliotece — wybierz, która zostaje">Duplikaty i wersje</button>
         <button class="akcja" id="szczLepsza" type="button">Szukaj lepszej wersji</button>
         <button class="akcja zla" id="szczUsun" type="button">Usuń do kosza</button>
       </div>
@@ -742,12 +933,14 @@
       }catch(err){ b.disabled = false; b.textContent = 'Przelicz analizę'; }
     };
     $('#szczLepsza', body).onclick = e => szukajLepszej(znajdz(file) || t, e.currentTarget);
+    $('#szczWersje', body).onclick = () => pokazWersje(file);
     $('#szczUsun', body).onclick = async (e) => {
       const b = e.currentTarget;
       if(!b.dataset.potwierdz){ b.dataset.potwierdz = '1'; b.style.color = K.bad; b.textContent = 'Na pewno? Usuń do kosza'; setTimeout(() => { delete b.dataset.potwierdz; b.style.color = ''; if(b.isConnected) b.textContent = 'Usuń do kosza'; }, 4000); return; }
       b.disabled = true; S.zamknijArkusz(); await usunDoKosza([file]);
     };
     $('#siatkaPrzelacz', body).onclick = () => przelaczEdytor();
+    kontrolaStart(body, file, t, seq);
     body.addEventListener('error', e => { const img = e.target; if(img instanceof HTMLImageElement && img.id === 'szczOkladka'){ const s = document.createElement('span'); s.className = 'okl'; s.style.cssText = 'width:96px;height:96px;border-radius:12px;background:repeating-linear-gradient(135deg,#221d1a 0 5px,#1a1613 5px 10px);flex-shrink:0'; img.replaceWith(s); } }, true);
 
     // --- dane: szczegóły, przebieg, stabilność tempa (równolegle) ---
@@ -781,6 +974,189 @@
     })();
   }
   S.otworzSzczegoly = otworzSzczegoly;
+
+  // ---------- duplikaty i wersje jednego utworu (/api/wersje) ----------
+  async function pokazWersje(plik){
+    const sheet = S.arkusz('<div class="pusto"><span class="spin"></span> szukam kopii tego utworu i sprawdzam ich jakość…</div>', {szer: 920});
+    let d;
+    try{ d = await api('/api/wersje?file=' + encF(plik)); }
+    catch(e){ sheet.innerHTML = `<div class="pusto bad">✗ ${esc(e.message)}</div>`; return; }
+    const kopie = d.kopie || [];
+    let zostaw = d.najlepsza;
+    // kopia w folderze rekordboxa/Seratu/Muzyki: program ją wskazuje — nie proponujemy jej do kosza
+    const domyslnie = o => o.path !== zostaw && !o.inna_dlugosc && !o.program;
+    const doKosza = new Set(kopie.filter(domyslnie).map(o => o.path));
+    const dim = 'color:#8f857c;font-size:12.5px';
+    const cechy = o => [
+      o.lossless ? 'bezstratny' : (o.bitrate ? `${o.bitrate} kbps` : ''),
+      o.pasmo_khz ? `pasmo ${nf(o.pasmo_khz, 1)} kHz` : '',
+      o.czas ? fmtTime(o.czas) : '', o.mb ? fmtMB(o.mb * 1e6) : '',
+    ].filter(Boolean).join(' · ');
+    const rysuj = () => {
+      const n = [...doKosza].filter(p => p !== zostaw).length;
+      sheet.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h2 style="margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(d.artysta ? `${d.artysta} — ${d.tytul}` : d.tytul)}</h2>
+          <span style="${dim}">${kopie.length} ${lm(kopie.length, ['kopia','kopie','kopii'])} w bibliotece</span>
+          <button class="zamknij" id="wrZamknij" type="button" title="zamknij (Esc)" style="margin-left:auto">✕</button></div>
+        ${kopie.length < 2 ? `<div style="${dim}">Ten utwór ma w bibliotece tylko jedną kopię — nie ma z czego wybierać. Innej wersji (np. Extended zamiast Original) szukaj przyciskiem „Szukaj lepszej wersji”.</div>`
+          : `<div style="${dim}">Polecam kopię bez uszkodzeń, bezstratną przed stratną, potem z pełniejszym pasmem i wyższym bitrate'em. Możesz wybrać inną — kliknij „zostaw”.</div>`}
+        <div style="display:flex;flex-direction:column;gap:6px;max-height:56vh;overflow:auto;padding-right:4px">${kopie.map((o, i) => {
+          const wyb = o.path === zostaw, j = JAKOSC[o.jakosc];
+          return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid ${wyb ? '#ff6a3d' : '#2a2522'};border-radius:9px;background:#171412">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:12.5px;color:${wyb ? '#f2ece6' : '#8f857c'}"><input type="radio" name="wrZostaw" data-zostaw="${i}" ${wyb ? 'checked' : ''} style="accent-color:#ff6a3d">zostaw</label>
+            <button class="play" type="button" data-wrgraj="${i}" title="odsłuchaj" style="width:30px;height:30px;font-size:11px;flex-shrink:0">▶</button>
+            <div style="min-width:0;flex:1">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${fmtTag(o.format)}<span>${esc(cechy(o))}</span>
+                ${j ? `<span style="color:${j[1]};font-size:12px">${j[0]}</span>` : ''}
+                ${o.polecana ? '<span class="ok" style="font-size:12px">★ polecana</span>' : ''}
+                ${o.uszkodzony ? `<span class="bad" style="font-size:12px" title="${esc(o.integralnosc || '')}">✕ uszkodzony${o.integralnosc ? ': ' + esc(o.integralnosc) : ''}</span>` : ''}
+                ${o.inna_dlugosc ? '<span class="warn" style="font-size:12px">inna długość — może inna edycja</span>' : ''}
+                ${o.program ? `<span class="warn" style="font-size:12px" title="${esc(o.program)} wskazuje ten plik po ścieżce — po przeniesieniu do kosza zgubi utwór">używa go ${esc(o.program)}</span>` : ''}</div>
+              <div style="${dim};white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(o.path)}">${esc(o.rel)}</div></div>
+            ${wyb ? '<span style="font-size:12.5px;color:#5cd6a0;white-space:nowrap">zostaje</span>'
+              : `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:12.5px"><input type="checkbox" data-kosz="${i}" ${doKosza.has(o.path) ? 'checked' : ''} style="accent-color:#ff5a6a">do kosza</label>`}
+          </div>`; }).join('')}</div>
+        ${kopie.length > 1 ? `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <button class="btn acc" id="wrWykonaj" type="button" ${n ? '' : 'disabled'}>Zostaw wybraną, do kosza: ${n}</button>
+          <span style="${dim};flex:1;min-width:240px">pliki trafią do kosza selekty, nie znikną — cofniesz to w Porządkach → Historia. Kopii w setach nie ruszam.</span></div>` : ''}
+      </div>`;
+    };
+    rysuj();
+    sheet.onchange = e => {
+      const z = e.target.closest('[data-zostaw]');
+      if(z){ zostaw = kopie[Number(z.dataset.zostaw)].path; doKosza.clear(); kopie.forEach(o => { if(domyslnie(o)) doKosza.add(o.path); }); rysuj(); return; }
+      const k = e.target.closest('[data-kosz]');
+      if(k){ const p = kopie[Number(k.dataset.kosz)].path; k.checked ? doKosza.add(p) : doKosza.delete(p); rysuj(); }
+    };
+    sheet.onclick = async e => {
+      if(e.target.closest('#wrZamknij')){ S.zamknijArkusz(); return; }
+      const g = e.target.closest('[data-wrgraj]');
+      if(g){ const o = kopie[Number(g.dataset.wrgraj)]; S.player.graj({file: o.rel, title: o.tytul || o.nazwa, artist: o.artysta || '', duration: o.czas}); return; }
+      const b = e.target.closest('#wrWykonaj'); if(!b) return;
+      const zKopii = kopie.find(o => o.path === zostaw);
+      const usun = kopie.filter(o => o.path !== zostaw && doKosza.has(o.path)).map(o => o.rel);
+      b.disabled = true; b.innerHTML = '<span class="spin"></span> przenoszę…';
+      try{
+        const r = await api('/api/wersje/wybierz', {method: 'POST', body: {zostaw: zKopii.rel, usun}});
+        S.toast(`zostaje ${zKopii.format} · ${r.w_koszu} ${lm(r.w_koszu, ['kopia','kopie','kopii'])} w koszu — cofniesz w Porządkach → Historia`, 'ok', 8000);
+        document.dispatchEvent(new CustomEvent('selekta:wersja', {detail:{zostaw: zKopii.rel, usun}}));
+        S.zamknijArkusz(); S.uniewaznTracks(); if(st.host) await load(st.host);
+      }catch(err){ rysuj(); }
+    };
+  }
+  S.pokazWersje = pokazWersje;
+
+  // ---------- odsłuch kontrolny: lampki stopy i siatki, lupa, hot cue A–H ----------
+  // Stopy liczy serwer tą samą metodą co siatkę (/api/stopa); tu tylko
+  // sprawdzamy na żywo, czy bity siatki padają razem z nimi, i stawiamy cue.
+  const KONTR = {file:null, seq:0, stopy:[], bity:[], hot:[], tPrev:null, blyskS:0, blyskB:0, nr:0, raf:0, track:null};
+  const LITERY = 'ABCDEFGH';
+  const KOL_HC = ['#28E214','#FF127B','#305AFF','#FF8C00','#E0D21E','#A045FF','#10B176','#E62828'];
+  const lat = () => { const v = Number(S.pref.get('opoznienie_ms', 0)); return isFinite(v) ? Math.max(0, Math.min(400, v)) / 1000 : 0; };
+  function najblizszy(arr, t){             // indeks elementu [t,…] najbliższego t (arr posortowane)
+    let lo = 0, hi = arr.length - 1; if(hi < 0) return -1;
+    while(hi - lo > 1){ const m = (lo + hi) >> 1; if(arr[m][0] < t) lo = m; else hi = m; }
+    return Math.abs(arr[lo][0] - t) <= Math.abs(arr[hi][0] - t) ? lo : hi;
+  }
+  function werdyktSiatki(){
+    // mocne stopy vs najbliższy bit: mediana odchyłki i odsetek trafień (±20 ms)
+    const el = $('#kontrolaWerdykt'); if(!el) return;
+    if(!KONTR.bity.length){ el.innerHTML = '<span class="warn">brak siatki — przelicz analizę albo ustaw ją w „Popraw siatkę”</span>'; return; }
+    const mocne = KONTR.stopy.filter(s => s[1] >= 0.6);
+    if(mocne.length < 16){ el.innerHTML = '<span class="warn">za mało wyraźnych stóp, żeby ocenić siatkę — oceń uchem</span>'; return; }
+    const d = mocne.map(s => (s[0] - KONTR.bity[najblizszy(KONTR.bity, s[0])][0]) * 1000).sort((a, b) => a - b);
+    const med = d[d.length >> 1], traf = d.filter(x => Math.abs(x) <= 20).length / d.length;
+    const ms = Math.round(Math.abs(med));
+    if(traf >= 0.6 && ms <= 10) el.innerHTML = `<span class="ok">✓ siatka trzyma stopę</span> · ${Math.round(traf * 100)}% stóp w ±20 ms, mediana ${ms} ms`;
+    else if(traf >= 0.6) el.innerHTML = `<span class="warn">siatka ${ms} ms ${med > 0 ? 'przed stopą' : 'za stopą'}</span> · przesuń kotwicę w „Popraw siatkę”`;
+    else el.innerHTML = `<span class="bad">stopa nie trafia w siatkę</span> · tylko ${Math.round(traf * 100)}% stóp w ±20 ms — sprawdź BPM i kotwicę`;
+  }
+  function rysujPady(){
+    const box = $('#hcPady'); if(!box) return;
+    box.innerHTML = [...LITERY].map((L, i) => {
+      const z = KONTR.hot.find(h => h.num === i);
+      return z ? `<button class="pad ust" type="button" data-hc="${i}" style="background:${KOL_HC[i]};border-color:${KOL_HC[i]}" title="hot cue ${L} — kliknij, żeby zagrać od tego miejsca">${L}<small>${fmtCs(z.start_s)}</small><span class="x" data-hcx="${i}" title="usuń hot cue ${L}">✕</span></button>`
+               : `<button class="pad" type="button" data-hc="${i}" title="pusty — kliknij w trakcie odtwarzania, żeby postawić hot cue ${L} (klawisz ${i + 1})">${L}<small>—</small></button>`;
+    }).join('');
+  }
+  async function kontrolaWczytaj(){
+    const file = KONTR.file, seq = KONTR.seq;
+    try{
+      const d = await api('/api/stopa?file=' + encF(file), {cicho:true});
+      if(seq !== KONTR.seq) return;
+      KONTR.stopy = d.stopy || []; KONTR.bity = d.bity || []; KONTR.hot = d.hot_cue || [];
+      werdyktSiatki(); rysujPady();
+    }catch(e){ if(seq !== KONTR.seq) return; const el = $('#kontrolaWerdykt'); if(el) el.innerHTML = `<span class="bad">✗ nie udało się odczytać uderzeń: ${esc(e.message)}</span>`; }
+  }
+  function kontrolaOdswiezSiatke(){ if(KONTR.file) kontrolaWczytaj(); }
+  async function postawCue(i){
+    const poz = S.player.pozycja();
+    if(!poz || poz.file !== KONTR.file){ S.toast(`puść utwór (▶) i kliknij ${LITERY[i]} w miejscu, gdzie ma stać hot cue`, 'info'); return; }
+    let t = Math.max(0, poz.t - lat());
+    if($('#hcSnap') && $('#hcSnap').checked && KONTR.bity.length) t = KONTR.bity[najblizszy(KONTR.bity, t)][0];
+    try{
+      const r = await api('/api/hotcue', {method:'POST', body:{file:KONTR.file, num:i, start_s:t}});
+      KONTR.hot = r.hot_cue || []; rysujPady();
+      S.toast(`hot cue ${LITERY[i]} na ${fmtCs(t)} — trafi do eksportu do rekordboxa`, 'ok');
+    }catch(e){}
+  }
+  function kontrolaStart(body, file, track, seq){
+    cancelAnimationFrame(KONTR.raf);
+    Object.assign(KONTR, {file, seq, stopy:[], bity:[], hot:[], tPrev:null, blyskS:0, blyskB:0, nr:0, track});
+    const snap = $('#hcSnap', body); snap.checked = S.pref.get('hc_snap', true); snap.onchange = () => S.pref.set('hc_snap', snap.checked);
+    const latEl = $('#hcLat', body); latEl.value = Math.round(lat() * 1000); latEl.onchange = () => { S.pref.set('opoznienie_ms', Number(latEl.value) || 0); };
+    rysujPady(); kontrolaWczytaj();
+    $('#hcPady', body).onclick = e => {
+      const x = e.target.closest('[data-hcx]');
+      if(x){ e.stopPropagation(); const i = Number(x.dataset.hcx);
+        api('/api/hotcue', {method:'POST', body:{file, num:i, usun:true}}).then(r => { KONTR.hot = r.hot_cue || []; rysujPady(); S.toast(`hot cue ${LITERY[i]} usunięty`, 'info'); }).catch(() => {}); return; }
+      const p = e.target.closest('[data-hc]'); if(!p) return;
+      const i = Number(p.dataset.hc), z = KONTR.hot.find(h => h.num === i);
+      if(z){ const poz = S.player.pozycja(); if(!poz || poz.file !== file) grajUtwor(znajdz(file) || track); S.player.skocz(z.start_s); }
+      else postawCue(i);
+    };
+    const lupa = $('#szczLupa', body);
+    lupa.onclick = e => {
+      const poz = S.player.pozycja(); if(!poz || poz.file !== file) return;
+      const r = lupa.getBoundingClientRect(); S.player.skocz(poz.t + ((e.clientX - r.left) / r.width - 0.5) * 4, !!poz.gra);
+    };
+    const klawisz = e => {
+      if(KONTR.seq !== seq || !$('#szczKontrola')){ document.removeEventListener('keydown', klawisz); return; }
+      if(e.target.closest && e.target.closest('input,textarea,select') || e.metaKey || e.ctrlKey || e.altKey) return;
+      const n = Number(e.key); if(n >= 1 && n <= 8){ e.preventDefault(); const z = KONTR.hot.find(h => h.num === n - 1); z ? S.player.skocz(z.start_s) : postawCue(n - 1); }
+    };
+    document.addEventListener('keydown', klawisz);
+    const klatka = (teraz) => {
+      if(KONTR.seq !== seq || !$('#szczKontrola') || !lupa.isConnected){ document.removeEventListener('keydown', klawisz); return; }
+      KONTR.raf = requestAnimationFrame(klatka);
+      const poz = S.player.pozycja();
+      const moja = poz && poz.file === file;
+      const t = moja ? poz.t - lat() : null;
+      // błyski: co minęło od poprzedniej klatki (przy przewinięciu nie mrugamy hurtem)
+      if(moja && poz.gra && KONTR.tPrev != null && t > KONTR.tPrev && t - KONTR.tPrev < 0.25){
+        for(const s of KONTR.stopy){ if(s[0] > KONTR.tPrev && s[0] <= t) KONTR.blyskS = Math.max(KONTR.blyskS, Math.min(1, s[1])); }
+        for(const b of KONTR.bity){ if(b[0] > KONTR.tPrev && b[0] <= t){ KONTR.blyskB = b[1] === 1 ? 1 : 0.6; KONTR.nr = b[1]; } }
+      }
+      KONTR.tPrev = t;
+      KONTR.blyskS *= 0.82; KONTR.blyskB *= 0.82;
+      const ls = $('#lampaStopa i'), lb = $('#lampaSiatka i'), nr = $('#lampaNr');
+      if(ls){ ls.style.background = KONTR.blyskS > 0.05 ? `rgba(255,106,61,${0.25 + 0.75 * KONTR.blyskS})` : '#2a2522'; ls.style.boxShadow = `0 0 ${Math.round(18 * KONTR.blyskS)}px rgba(255,106,61,${KONTR.blyskS})`; }
+      if(lb){ lb.style.background = KONTR.blyskB > 0.05 ? `rgba(242,236,230,${0.2 + 0.8 * KONTR.blyskB})` : '#2a2522'; lb.style.boxShadow = `0 0 ${Math.round(14 * KONTR.blyskB)}px rgba(242,236,230,${KONTR.blyskB})`; }
+      if(nr) nr.textContent = moja && KONTR.nr ? String(KONTR.nr) : '·';
+      // lupa: 4 s wokół miejsca odtwarzania
+      const dpr = window.devicePixelRatio || 1, W = lupa.clientWidth, H = lupa.clientHeight;
+      if(lupa.width !== Math.round(W * dpr)){ lupa.width = Math.round(W * dpr); lupa.height = Math.round(H * dpr); }
+      const g = lupa.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+      const srodek = t != null ? t : 0, okno = 4, x = s => (s - srodek + okno / 2) / okno * W;
+      const od = srodek - okno / 2, doo = srodek + okno / 2;
+      for(const b of KONTR.bity){ if(b[0] < od || b[0] > doo) continue; g.fillStyle = b[1] === 1 ? 'rgba(242,236,230,.85)' : 'rgba(242,236,230,.28)'; g.fillRect(Math.round(x(b[0])) - (b[1] === 1 ? 1 : 0), 0, b[1] === 1 ? 2 : 1, H); }
+      for(const s of KONTR.stopy){ if(s[0] < od || s[0] > doo) continue; const h = Math.max(8, Math.min(1, s[1]) * (H - 18)); g.fillStyle = '#ff6a3d'; g.fillRect(Math.round(x(s[0])) - 2, H - h, 4, h); }
+      KONTR.hot.forEach(z => { if(z.start_s < od || z.start_s > doo) return; const xx = Math.round(x(z.start_s)); g.fillStyle = KOL_HC[z.num] || '#fff'; g.fillRect(xx - 1, 0, 2, H); g.font = '600 11px ui-monospace,monospace'; g.fillText(LITERY[z.num], xx + 3, 12); });
+      g.fillStyle = moja ? '#ffffff' : '#5e5650'; g.fillRect(Math.round(W / 2), 0, 1, H);
+      if(!moja){ g.fillStyle = '#8f857c'; g.font = '12px system-ui,sans-serif'; g.fillText('puść utwór ▶ — lampki i lupa ruszą razem z muzyką', 12, H / 2 + 4); }
+    };
+    KONTR.raf = requestAnimationFrame(klatka);
+  }
 
   function odswiezKafle(){
     const d = SZCZ.dane; if(!d) { const p = $('#szczTempoPod'); if(p) p.innerHTML = tempoPod(); return; }
@@ -940,6 +1316,7 @@
         if(zn){ SZCZ.kotwica = j.first_beat_s; SZCZ.battito = j.battito || 1; SZCZ.fala.znaczniki = zn; }
         SZCZ.fala.first_beat_s = SZCZ.kotwica; SZCZ.fala.battito = SZCZ.battito; ustawZnaczniki(SZCZ.fala);
         S.toast('siatka zapisana — eksport użyje tej kotwicy', 'ok');
+        kontrolaOdswiezSiatke();
         przerysujFale(); odswiezKafle();
       }catch(err){}
       b.disabled = false;
@@ -953,6 +1330,7 @@
         // po resecie BPM i numer bitu kotwicy wracają do wyliczonych
         try{ const f = await api('/api/waveform?file=' + encF(SZCZ.file), {cicho:true}); SZCZ.bpm = f.bpm || SZCZ.bpm; SZCZ.battito = f.battito || 1; SZCZ.kotwica = f.first_beat_s || 0; SZCZ.srodek = SZCZ.kotwica; Object.assign(SZCZ.fala, {bpm:f.bpm, battito:SZCZ.battito, first_beat_s:SZCZ.kotwica, pewnosc_siatki:f.pewnosc_siatki, znaczniki:f.znaczniki, zrodlo_siatki:f.zrodlo_siatki, tryb_siatki:f.tryb_siatki, flaga_siatki:f.flaga_siatki}); ustawZnaczniki(SZCZ.fala); }catch(e2){}
         S.toast('przywrócono siatkę wyliczoną', 'info');
+        kontrolaOdswiezSiatke();
         przerysujFale(); odswiezKafle();
       }catch(err){}
       b.disabled = false;

@@ -209,3 +209,78 @@ class TestWeryfikacjaPobrania:
         zadania = [{"artist": "Artysta", "title": "Utwor", "status": "done",
                     "file": os.path.basename(lepszy), "duration": czas}]
         assert decyzje.sprawdz_pobrane(folder, zadania) == []
+
+
+class TestWyborWersji:
+    """„Duplikaty i wersje”: wszystkie kopie utworu, polecana najlepsza,
+    a wybór należy do użytkownika — i da się go cofnąć."""
+
+    def test_kopie_od_najlepszej_z_kazdej_kopii(self, biblioteka):
+        folder, lepszy, gorszy = biblioteka
+        for start in (lepszy, gorszy):
+            d = decyzje.kopie_utworu(folder, start)
+            assert [o["path"] for o in d["kopie"]] == [lepszy, gorszy]
+            assert d["najlepsza"] == lepszy and d["kopie"][0]["polecana"]
+            assert d["kopie"][1]["rel"] == os.path.basename(gorszy)
+            assert not any(o["inna_dlugosc"] for o in d["kopie"])
+
+    def test_wybor_inny_niz_polecany_i_cofniecie(self, biblioteka):
+        folder, lepszy, gorszy = biblioteka
+        d = decyzje.wybierz(folder, gorszy, [lepszy])     # użytkownik woli MP3
+        assert d["stan"] == "zatwierdzona"
+        assert os.path.isfile(gorszy) and not os.path.exists(lepszy)
+        assert all(os.path.isfile(p) for p in d["w_koszu"])
+        decyzje.cofnij(d["id"])
+        assert os.path.isfile(lepszy) and os.path.isfile(gorszy)
+
+    def test_nie_wyrzuca_innego_utworu(self, biblioteka, lib_copy):
+        folder, lepszy, _ = biblioteka
+        obcy = os.path.join(folder, "Ktos - Inny.flac")
+        shutil.copy2(os.path.join(lib_copy, GOOD_FLAC), obcy)
+        audio = MutagenFile(obcy, easy=True)
+        audio["artist"] = ["Ktos"]; audio["title"] = ["Inny"]; audio.save()
+        with pytest.raises(ValueError, match="nie jest kopią"):
+            decyzje.wybierz(folder, lepszy, [obcy])
+        assert os.path.isfile(obcy)
+
+    def test_zle_wybory_odrzucone(self, biblioteka):
+        folder, lepszy, gorszy = biblioteka
+        with pytest.raises(ValueError):
+            decyzje.wybierz(folder, lepszy, [])
+        with pytest.raises(ValueError):
+            decyzje.wybierz(folder, lepszy, [lepszy, gorszy])
+        assert os.path.isfile(lepszy) and os.path.isfile(gorszy)
+
+    def test_czekajaca_propozycja_porzadkow_przestaje_czekac(self, biblioteka):
+        folder, lepszy, gorszy = biblioteka
+        assert decyzje.skanuj(folder)
+        decyzje.wybierz(folder, gorszy, [lepszy])
+        assert decyzje.czekajace() == []
+
+    def test_api(self, biblioteka, lib_copy):
+        from fastapi.testclient import TestClient
+        from selekta import web
+        folder, lepszy, gorszy = biblioteka
+        web.set_folder(folder)
+        client = TestClient(web.app)
+        d = client.get("/api/wersje", params={"file": os.path.basename(gorszy)}).json()
+        assert d["najlepsza"] == lepszy and len(d["kopie"]) == 2
+        assert client.post("/api/wersje/wybierz", json={"zostaw": "Artysta - Utwor.flac",
+                                                        "usun": "zle"}).status_code == 400
+        r = client.post("/api/wersje/wybierz", json={"zostaw": d["kopie"][0]["rel"],
+                                                     "usun": [d["kopie"][1]["rel"]]})
+        assert r.status_code == 200 and r.json()["w_koszu"] == 1
+        assert os.path.isfile(lepszy) and not os.path.exists(gorszy)
+
+
+def test_program_pliku_rozpoznaje_foldery_rekordboxa_i_seratu():
+    assert decyzje.program_pliku("/u/Music/PioneerDJ/Imported from Device/Contents/A/b.mp3") == "rekordbox"
+    assert decyzje.program_pliku("/u/Music/_Serato_/x.mp3") == "Serato"
+    assert decyzje.program_pliku("/u/Music/selekta/house/a.flac") == ""
+
+
+def test_grupy_kopii_dla_playlisty(biblioteka):
+    folder, lepszy, gorszy = biblioteka
+    g = decyzje.grupy_kopii(folder, [gorszy, lepszy])
+    assert len(g) == 1 and g[0]["plik"] == os.path.basename(gorszy)
+    assert sorted(g[0]["kopie"]) == sorted(os.path.basename(p) for p in (lepszy, gorszy))

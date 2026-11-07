@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller: Selekta.app dla macOS.
+"""PyInstaller: Selekta.app dla macOS i folder Selekta (Selekta.exe) dla Windows.
 
 Budowane przez packaging/build_mac.sh (lokalnie) i .github/workflows/release.yml
 (na tag). Zasady:
@@ -53,19 +53,29 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+WINDOWS = sys.platform == "win32"
+_ico = os.path.join(SPECPATH, "Selekta.ico")
+
 exe = EXE(
-    pyz, a.scripts, [],
+    pyz, a.scripts,
+    # Windows: tryb UTF-8 — bez niego open() bez kodowania i wyjście
+    # podprocesów szły w cp1250, a polskie nazwy plików się sypały
+    [("X utf8_mode=1", None, "OPTION")] if WINDOWS else [],
     exclude_binaries=True,
     name="Selekta",
     debug=False,
     strip=False,
     upx=False,
-    console=False,
+    # Windows nie ma Docka z „Zakończ”: okno konsoli pokazuje, że selekta
+    # działa, a jego zamknięcie ją wyłącza (i podprocesy ffmpeg nie mrugają)
+    console=WINDOWS,
+    icon=_ico if WINDOWS and os.path.exists(_ico) else None,
     target_arch=None,
 )
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="Selekta")
 
-app = BUNDLE(
+if not WINDOWS:
+  app = BUNDLE(
     coll,
     name="Selekta.app",
     icon=os.path.join(SPECPATH, "Selekta.icns") if os.path.exists(os.path.join(SPECPATH, "Selekta.icns")) else None,
