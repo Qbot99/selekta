@@ -9,7 +9,7 @@ jobs:
   pytest:
     # macOS, bo apka jest macOS-owa (Finder, osascript, ~/Library) i tak ją
     # dostają użytkownicy; ffmpeg z Homebrew jak u nich
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
